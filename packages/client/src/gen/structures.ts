@@ -261,6 +261,92 @@ const hatchery: GenBlueprint = {
   ],
 }
 
+
+// ---- The Horde's works ----
+// Read against badger stonework at a glance: black basalt and raw timber
+// instead of dressed stone and thatch, jagged spikes instead of banners, and
+// no tidy gabled roofs anywhere.
+const DARK = {
+  basalt: '#3f3a3d',
+  basaltDark: '#2b2729',
+  timber: '#4a3726',
+  iron: '#6b6e73',
+  ember: '#d2591f',
+}
+
+const darkFortress: GenBlueprint = {
+  id: 'dark-fortress',
+  seed: 0xd4a4,
+  palette: DARK,
+  parts: [
+    // squat black curtain, deliberately more brutal than the badger keep
+    { shape: 'box', color: 'basalt', size: [6.6, 2.1, 6.6], at: [0, 1.05, 0], jitter: 0.06 },
+    // jagged crown instead of merlons
+    { shape: 'cone', color: 'basaltDark', radius: 0.34, height: 1.1, at: [0, 2.5, -3.0], count: 12, spread: [3.1, 0.2, 3.1], tilt: 0.2, sizeJitter: 0.3 },
+    // central spire with an ember at the top
+    { shape: 'lathe', color: 'basaltDark', profile: [[2.2, 0], [1.7, 1.4], [0.9, 3.0], [0.5, 4.0]], at: [0, 2.1, 0], segments: 7, jitter: 0.1 },
+    { shape: 'sphere', color: 'ember', radius: 0.42, at: [0, 6.3, 0], segments: 7 },
+    { shape: 'cone', color: 'player', radius: 0.5, height: 1.1, at: [0, 6.9, 0], segments: 6 },
+    // corner towers: leaning, spiked
+    ...[-1, 1].flatMap((sx) =>
+      [-1, 1].map((sz) => ({
+        shape: 'cylinder' as const, color: 'basalt', radius: 0.9, radiusTop: 0.62, height: 3.4,
+        at: [sx * 2.9, 1.7, sz * 2.9] as [number, number, number], segments: 7, jitter: 0.07,
+      })),
+    ),
+    ...[-1, 1].flatMap((sx) =>
+      [-1, 1].map((sz) => ({
+        shape: 'cone' as const, color: 'iron', radius: 0.5, height: 1.5,
+        at: [sx * 2.9, 4.1, sz * 2.9] as [number, number, number], segments: 6,
+      })),
+    ),
+    // maw of a gate
+    { shape: 'box', color: 'basaltDark', size: [2.0, 1.7, 0.35], at: [0, 0.85, 3.3] },
+    { shape: 'cone', color: 'iron', radius: 0.09, height: 0.4, at: [0, 0.3, 3.5], rot: [3.14, 0, 0], count: 5, spread: [0.8, 0.1, 0.05] },
+  ],
+}
+
+const orcPit: GenBlueprint = {
+  id: 'orc-pit',
+  seed: 0x0917,
+  palette: DARK,
+  parts: [
+    // a dug-out hole ringed with spoil and a timber frame over it
+    { shape: 'cylinder', color: 'basaltDark', radius: 2.0, height: 0.3, at: [0, 0.15, 0], segments: 10 },
+    { shape: 'lathe', color: 'basalt', profile: [[2.2, 0], [1.9, 0.5], [1.5, 0.75]], at: [0, 0, 0], segments: 10, jitter: 0.1 },
+    { shape: 'cylinder', color: 'ember', radius: 1.2, height: 0.12, at: [0, 0.2, 0], segments: 10 },
+    // crude timber gantry
+    { shape: 'cylinder', color: 'timber', radius: 0.11, height: 2.2, at: [-1.5, 1.1, -1.0], rot: [0, 0, 0.22] },
+    { shape: 'cylinder', color: 'timber', radius: 0.11, height: 2.2, at: [1.5, 1.1, -1.0], rot: [0, 0, -0.22] },
+    { shape: 'box', color: 'timber', size: [3.4, 0.16, 0.3], at: [0, 2.15, -1.0] },
+    { shape: 'box', color: 'player', size: [0.06, 0.6, 0.5], at: [0, 1.8, -1.0] },
+    // spoil heaps and stakes
+    { shape: 'sphere', color: 'basaltDark', radius: 0.4, at: [1.7, 0.2, 1.4], scale: [1.2, 0.6, 1.2], jitter: 0.08, count: 3, spread: [0.5, 0.05, 0.5], sizeJitter: 0.3 },
+    { shape: 'cone', color: 'timber', radius: 0.09, height: 0.8, at: [-1.9, 0.4, 1.3], rot: [0.2, 0, -0.15], count: 3, spread: [0.4, 0, 0.5], tilt: 0.2 },
+  ],
+}
+
+const ogrePen: GenBlueprint = {
+  id: 'ogre-pen',
+  seed: 0x09e4,
+  palette: DARK,
+  parts: [
+    // a stockade big enough to hold something that does not want holding
+    { shape: 'box', color: 'basaltDark', size: [5.0, 0.3, 4.4], at: [0, 0.15, 0] },
+    ...[-1, 1].map((sz) => ({
+      shape: 'box' as const, color: 'timber', size: [5.0, 0.25, 0.25] as [number, number, number],
+      at: [0, 1.5, sz * 2.1] as [number, number, number],
+    })),
+    { shape: 'cylinder', color: 'timber', radius: 0.14, height: 2.6, at: [-2.3, 1.3, -2.1], count: 8, spread: [2.3, 0, 2.1], tilt: 0.06 },
+    // a gate chained shut, and the chain's anchor
+    { shape: 'box', color: 'iron', size: [1.8, 1.9, 0.2], at: [0, 0.95, 2.2] },
+    { shape: 'sphere', color: 'iron', radius: 0.18, at: [0, 1.2, 2.35] },
+    { shape: 'box', color: 'player', size: [0.06, 0.55, 0.7], at: [-2.3, 2.9, -2.1] },
+    // gnawed bones in the dirt
+    { shape: 'capsule', color: 'ember', radius: 0.06, height: 0.3, at: [1.3, 0.25, 0.6], rot: [0, 0, 1.4], count: 4, spread: [0.9, 0.02, 1.2], tilt: 0.8 },
+  ],
+}
+
 export const STRUCTURE_BLUEPRINTS: Record<string, GenBlueprint> = {
   fortress,
   watchtower,
@@ -275,4 +361,7 @@ export const STRUCTURE_BLUEPRINTS: Record<string, GenBlueprint> = {
   bastion,
   spire,
   hatchery,
+  'dark-fortress': darkFortress,
+  'orc-pit': orcPit,
+  'ogre-pen': ogrePen,
 }

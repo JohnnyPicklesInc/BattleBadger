@@ -30,8 +30,26 @@ const BASES = [
   { x: SIZE - 34, z: SIZE - 34 },
 ]
 
-// Battalions each player opens with. Horde tickets, so setupMatch binds them.
-const STARTING_ARMY = ['h-swordsmen', 'h-spearmen', 'h-archers', 'h-riders', 'h-captain']
+// Two factions, seated on opposite diagonals so each player faces one of
+// each across the plaza. A player's faction is decided by which keep they
+// start with: the keep's expansion plots gate which buildings they can raise,
+// which gates what they can train. No engine support for "factions" is needed
+// — it falls out of the plot system.
+const BADGER_KEEP = 'fortress'
+const HORDE_KEEP = 'dark-fortress'
+
+const BADGER_ARMY = ['h-swordsmen', 'h-spearmen', 'h-archers', 'h-riders', 'h-captain']
+// Cheaper and far more numerous: 15+14+12 bodies against 9+9+8.
+const HORDE_ARMY = ['h-orcs', 'h-orc-pikemen', 'h-orc-archers', 'h-orcs', 'h-ogre']
+
+const FACTIONS = [
+  { keep: BADGER_KEEP, army: BADGER_ARMY },
+  { keep: HORDE_KEEP, army: HORDE_ARMY },
+]
+
+// BASES run NW, NE, SW, SE — so this puts the two factions on opposite
+// diagonals, and every player faces one of each across the plaza.
+const SLOT_FACTION = [0, 1, 1, 0]
 
 const FOUR_DEF: GameDef = {
   ...DUNHOLLOW_DEF,
@@ -90,12 +108,13 @@ export function generateFourCorners(seed = 20260729): RtsMapDoc {
 
   const placed: PlacedEntity[] = []
   BASES.forEach((base, owner) => {
-    placed.push({ def: 'fortress', owner, x: base.x, z: base.z })
+    const faction = FACTIONS[SLOT_FACTION[owner]]
+    placed.push({ def: faction.keep, owner, x: base.x, z: base.z })
     // Muster on the diagonal facing the middle, clear of the fortress's own
     // ring of expansion plots.
     const towardX = base.x < MID ? 1 : -1
     const towardZ = base.z < MID ? 1 : -1
-    STARTING_ARMY.forEach((def, k) => {
+    faction.army.forEach((def, k) => {
       placed.push({
         def,
         owner,

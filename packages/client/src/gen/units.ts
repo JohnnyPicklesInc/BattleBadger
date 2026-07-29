@@ -295,6 +295,96 @@ const ogre: GenBlueprint = {
   ],
 }
 
+
+// ---- The Horde ----
+// Orcs are read against badgers at a glance: smaller, hunched, sickly green
+// hide instead of fur, no white face stripe, crude iron instead of steel. They
+// share the arm-group rig so they animate identically — only the silhouette
+// and palette differ, which is exactly what the blueprint format is for.
+const ORC = {
+  hide: '#6b7a4a',
+  hideDark: '#4d5834',
+  snout: '#2a2f22',
+  tusk: '#ded6c4',
+  rag: '#5a4a38',
+  iron: '#7f8288',
+  ironDark: '#5c5f64',
+  wood: '#5c4126',
+}
+
+// Hunched torso, jutting jaw, no stripe — everything but arms and gear.
+function orcCore(): GenPart[] {
+  return [
+    { shape: 'capsule', color: 'hideDark', radius: 0.075, height: 0.13, at: [-0.12, 0.15, 0] },
+    { shape: 'capsule', color: 'hideDark', radius: 0.075, height: 0.13, at: [0.12, 0.15, 0] },
+    // torso leans forward; rag tunic in the owner's colours
+    { shape: 'capsule', color: 'hide', radius: 0.21, height: 0.26, at: [0, 0.48, 0.03], rot: [0.18, 0, 0] },
+    { shape: 'cylinder', color: 'player', radius: 0.23, radiusTop: 0.19, height: 0.24, at: [0, 0.44, 0.02] },
+    { shape: 'box', color: 'rag', size: [0.3, 0.16, 0.26], at: [0, 0.3, 0.02] },
+    // small head thrust forward, underbite with tusks
+    { shape: 'sphere', color: 'hide', radius: 0.17, at: [0, 0.8, 0.1] },
+    { shape: 'cone', color: 'hide', radius: 0.1, height: 0.2, at: [0, 0.76, 0.27], rot: [1.4, 0, 0] },
+    { shape: 'box', color: 'snout', size: [0.15, 0.05, 0.13], at: [0, 0.71, 0.28] },
+    { shape: 'cone', color: 'tusk', radius: 0.025, height: 0.08, at: [-0.05, 0.75, 0.32], rot: [3.1, 0, 0] },
+    { shape: 'cone', color: 'tusk', radius: 0.025, height: 0.08, at: [0.05, 0.75, 0.32], rot: [3.1, 0, 0] },
+    // ragged ears out to the sides, not badger ears on top
+    { shape: 'cone', color: 'hideDark', radius: 0.05, height: 0.14, at: [-0.17, 0.84, 0.06], rot: [0, 0, 1.3] },
+    { shape: 'cone', color: 'hideDark', radius: 0.05, height: 0.14, at: [0.17, 0.84, 0.06], rot: [0, 0, -1.3] },
+  ]
+}
+
+function orcArm(side: 'armL' | 'armR', drop = 0): GenPart {
+  const x = side === 'armL' ? -0.26 : 0.26
+  return {
+    shape: 'capsule', color: 'hide', radius: 0.065, height: 0.24,
+    at: [x, 0.48 - drop, 0.04], rot: [0, 0, side === 'armL' ? 0.28 : -0.28],
+    group: side, pivot: [x * 0.82, 0.68, 0],
+  }
+}
+
+const orcSword: GenBlueprint = {
+  id: 'orc-sword',
+  seed: 0x04c5,
+  palette: ORC,
+  parts: [
+    ...orcCore(),
+    orcArm('armR'),
+    // a notched cleaver, not a sword
+    { shape: 'box', color: 'iron', size: [0.04, 0.36, 0.13], at: [0.3, 0.34, 0.24], rot: [-1.15, 0, 0], group: 'armR', pivot: [0.21, 0.68, 0] },
+    { shape: 'box', color: 'ironDark', size: [0.11, 0.035, 0.05], at: [0.3, 0.42, 0.1], rot: [-1.15, 0, 0], group: 'armR', pivot: [0.21, 0.68, 0] },
+    orcArm('armL'),
+    { shape: 'box', color: 'wood', size: [0.03, 0.26, 0.22], at: [-0.34, 0.44, 0.06], group: 'armL', pivot: [-0.21, 0.68, 0] },
+  ],
+}
+
+const orcSpear: GenBlueprint = {
+  id: 'orc-spear',
+  seed: 0x04c59,
+  palette: ORC,
+  parts: [
+    ...orcCore(),
+    orcArm('armR'),
+    { shape: 'cylinder', color: 'wood', radius: 0.025, height: 1.35, at: [0.31, 0.56, 0.08], rot: [-0.35, 0, 0], group: 'armR', pivot: [0.21, 0.68, 0] },
+    { shape: 'cone', color: 'iron', radius: 0.05, height: 0.2, at: [0.31, 1.16, 0.32], rot: [-0.35, 0, 0], group: 'armR', pivot: [0.21, 0.68, 0] },
+    orcArm('armL'),
+  ],
+}
+
+const orcBow: GenBlueprint = {
+  id: 'orc-bow',
+  seed: 0x04cb0,
+  palette: { ...ORC, string: '#cfc7b0' },
+  parts: [
+    ...orcCore(),
+    { shape: 'cylinder', color: 'rag', radius: 0.06, height: 0.32, at: [-0.1, 0.64, -0.18], rot: [0.25, 0, 0.35] },
+    orcArm('armL', 0.04),
+    { shape: 'cylinder', color: 'wood', radius: 0.024, height: 0.42, at: [-0.34, 0.66, 0.12], rot: [0.5, 0, 0], group: 'armL', pivot: [-0.21, 0.68, 0] },
+    { shape: 'cylinder', color: 'wood', radius: 0.024, height: 0.42, at: [-0.34, 0.32, 0.12], rot: [-0.5, 0, 0], group: 'armL', pivot: [-0.21, 0.68, 0] },
+    { shape: 'box', color: 'string', size: [0.012, 0.52, 0.012], at: [-0.34, 0.49, 0.02], group: 'armL', pivot: [-0.21, 0.68, 0] },
+    orcArm('armR'),
+  ],
+}
+
 export const UNIT_BLUEPRINTS: Record<string, GenBlueprint> = {
   'badger-sword': swordsman,
   'badger-spear': spearman,
@@ -304,6 +394,9 @@ export const UNIT_BLUEPRINTS: Record<string, GenBlueprint> = {
   'badger-hero': hero,
   'badger-rider': rider,
   'badger-ogre': ogre,
+  'orc-sword': orcSword,
+  'orc-spear': orcSpear,
+  'orc-bow': orcBow,
   catapult,
   gnasher,
 }

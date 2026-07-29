@@ -5,6 +5,7 @@ import { generateFourCorners } from '../src/mapgen/fourCorners.ts'
 const doc = generateFourCorners()
 const MID = doc.cols / 2
 const PLAZA_R = 26
+const KEEPS = new Set(['fortress', 'dark-fortress'])
 
 // Muster points just outside each fortress — a fortress blocks its own
 // footprint, so pathing from the exact start location always fails.
@@ -23,7 +24,8 @@ describe('Four Corners (4-player, mountains and a shared middle)', () => {
     for (let i = 0; i < s.count; i++) {
       if (!s.alive[i]) continue
       if (s.kind[i] === 0) units[s.owner[i]]++
-      else if (s.def.entities[s.type[i]].id === 'fortress') forts++
+      // either faction's keep counts — the map now seats both
+      else if (KEEPS.has(s.def.entities[s.type[i]].id)) forts++
     }
     expect(forts).toBe(4)
     for (const slot of [0, 1, 2, 3]) {
