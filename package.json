@@ -14,7 +14,8 @@
     "deploy": "npm run build && npm run deploy --workspace=@battlebadger/relay",
     "test": "vitest run",
     "typecheck": "tsc -b --noEmit packages/sim packages/client packages/relay",
-    "lint": "oxlint packages && node scripts/check-sim-purity.mjs"
+    "lint": "oxlint packages && node scripts/check-sim-purity.mjs",
+    "deploy:ci": "wrangler deploy --config packages/relay/wrangler.jsonc"
   },
   "devDependencies": {
     "oxlint": "^1.75.0",
