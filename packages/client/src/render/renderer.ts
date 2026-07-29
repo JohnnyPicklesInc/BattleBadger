@@ -724,9 +724,17 @@ export class GameRenderer {
 
     for (let owner = 0; owner < MAX_RENDER_PLAYERS; owner++) {
       for (let ty = 0; ty < this.def.entities.length; ty++) {
+        const n = counts[owner][ty]
         for (const part of this.units[owner][ty]) {
-          part.im.count = counts[owner][ty]
-          part.im.instanceMatrix.needsUpdate = true
+          part.im.count = n
+          // An InstancedMesh with count 0 still draws nothing, but three.js
+          // keeps submitting it: frustumCulled is off, so it stays in the
+          // render list AND the shadow pass every frame. This def builds 304
+          // of them (8 owners x 38 parts) and a 4-player match populates a
+          // fraction, so hiding the empties removes hundreds of no-op
+          // submissions per frame from two passes.
+          part.im.visible = n > 0
+          if (n > 0) part.im.instanceMatrix.needsUpdate = true
         }
       }
     }
@@ -806,7 +814,8 @@ export class GameRenderer {
         im.setMatrixAt(c++, this.m4)
       }
       im.count = c
-      im.instanceMatrix.needsUpdate = true
+      im.visible = c > 0
+      if (c > 0) im.instanceMatrix.needsUpdate = true
     }
     const beamGeo = this.beams.geometry
     beamGeo.setDrawRange(0, beamVerts)
