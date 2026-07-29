@@ -12,6 +12,7 @@ const SEP_PAD = 0.25
  * ogre's club use it, and combat.ts cannot import from charge.ts without a
  * cycle (charge already depends on combat for the damage table).
  */
+// Flyers cannot be shoved by anything on the ground.
 export function shoveUnit(
   s: SimState,
   grid: WalkGrid,
@@ -21,6 +22,7 @@ export function shoveUnit(
   dist: number,
 ): void {
   if (dist <= 0 || s.kind[victim] !== Kind.Unit) return
+  if (s.def.stats.flying[s.type[victim]]) return
   const x0 = s.posX[victim]
   const z0 = s.posZ[victim]
   for (const frac of [1, 0.6, 0.3]) {
@@ -46,8 +48,12 @@ export function separation(s: SimState, hash: SpatialHash): void {
     const moving = s.velX[i] !== 0 || s.velZ[i] !== 0
     let pushX = 0
     let pushZ = 0
+    const airI = st.flying[s.type[i]]
     hash.forNeighbors(s.posX[i], s.posZ[i], ri + 1.2, (j) => {
       if (j === i || !s.alive[j] || st.untargetable[s.type[j]]) return
+      // different layers: a gunship and a footman occupy the same ground plane
+      // in the sim but not in the world, so they slide past each other
+      if (st.flying[s.type[j]] !== airI) return
       const dx = s.posX[i] - s.posX[j]
       const dz = s.posZ[i] - s.posZ[j]
       const dSq = dx * dx + dz * dz
@@ -76,7 +82,8 @@ export function integrate(s: SimState, grid: WalkGrid): void {
     const z0 = s.posZ[i]
     let nx = x0 + s.velX[i]
     let nz = z0 + s.velZ[i]
-    if (!grid.isWalkableWorld(nx, nz)) {
+    // A flyer is over the terrain, not on it: no walkability clamp at all.
+    if (!s.def.stats.flying[s.type[i]] && !grid.isWalkableWorld(nx, nz)) {
       if (grid.isWalkableWorld(nx, z0)) {
         nz = z0
       } else if (grid.isWalkableWorld(x0, nz)) {
@@ -110,6 +117,7 @@ export function resolveOverlaps(s: SimState, grid: WalkGrid, hash: SpatialHash):
     const ri = st.radius[s.type[i]]
     hash.forNeighbors(s.posX[i], s.posZ[i], ri + 1.0, (j) => {
       if (j <= i || !s.alive[j] || st.untargetable[s.type[j]]) return
+      if (st.flying[s.type[j]] !== st.flying[s.type[i]]) return // separate layers
       const minD = ri + st.radius[s.type[j]]
       const dx = s.posX[j] - s.posX[i]
       const dz = s.posZ[j] - s.posZ[i]

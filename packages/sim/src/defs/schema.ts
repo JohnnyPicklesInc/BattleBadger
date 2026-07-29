@@ -134,6 +134,14 @@ export interface EntityDef {
   // instead, so the two never stack on one impact.
   chargeGuard?: number
   mover?: { speed: number } // world units / second
+  // Flight. A flyer ignores the walkgrid entirely: no pathing, no cliffs, no
+  // buildings in the way, and nothing on the ground can shove or crush it. It
+  // still collides with other flyers, so formations behave.
+  //
+  // Whether anything can SHOOT it is a separate question — see combat.hits.
+  // That split is the whole point: air is only interesting because most ground
+  // weapons cannot answer it.
+  flying?: boolean
   // Sight radius for fog of war. Defaults to the larger of the unit's acquire
   // range and a floor, so a unit can always see whatever it auto-engages —
   // otherwise it would shoot at things its owner cannot see.
@@ -144,6 +152,14 @@ export interface EntityDef {
     acquire: number
     periodTicks: number
     damageType?: string
+    // What this weapon can reach. Absent = 'ground'.
+    //
+    // Ground-only is the right default because the alternative is absurd: with
+    // 'both' a swordsman swats a gunship with his sword, which makes flight
+    // worthless. Anti-air has to be opted INTO, per weapon — that opt-in IS
+    // the counter web. Existing maps are unaffected, since nothing on them
+    // flies for a ground-only weapon to miss.
+    hits?: 'ground' | 'air' | 'both'
     // A shot that FLIES instead of landing instantly. The shell is aimed at
     // wherever the target stood when it left the barrel, so a slow round can
     // be dodged — that is the point of a siege weapon rather than a bug.
@@ -322,6 +338,8 @@ export function validateGameDef(def: GameDef): string[] {
       if (h.carryCapacity < 1 || h.gatherAmount < 1 || h.gatherPeriodTicks < 1)
         push(`${where}: harvester numbers must be >= 1`)
     }
+    if (e.flying && e.kind === 'building') push(`${where}: buildings cannot fly`)
+    if (e.flying && !e.mover) push(`${where}: a flyer needs a mover`)
     if (e.combat?.knockback !== undefined && e.combat.knockback < 0)
       push(`${where}: combat knockback must be >= 0`)
     if (e.combat?.splashRadius !== undefined && e.combat.splashRadius < 0)

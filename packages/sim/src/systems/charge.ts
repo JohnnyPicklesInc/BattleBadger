@@ -69,6 +69,7 @@ export function charges(s: SimState, grid: WalkGrid): void {
     for (let j = 0; j < s.count; j++) {
       if (j === i || !s.alive[j] || s.hidden[j]) continue
       if (st.untargetable[s.type[j]]) continue
+      if (st.flying[s.type[j]] === 1) continue // you cannot ride down a flyer
       if (allied(s, s.owner[j], s.owner[i])) continue
       const dx = s.posX[j] - s.posX[i]
       const dz = s.posZ[j] - s.posZ[i]

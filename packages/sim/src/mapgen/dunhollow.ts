@@ -76,7 +76,7 @@ export const DUNHOLLOW_DEF: GameDef = {
   supplyName: 'Command Points',
   supplyHardCap: 120,
 
-  damageTypes: ['sword', 'arrow', 'spear', 'siege', 'trample'],
+  damageTypes: ['sword', 'arrow', 'spear', 'siege', 'trample', 'kinetic'],
   armorTypes: ['infantry', 'archer', 'cavalry', 'structure', 'engine'],
   // Only the interesting pairs are listed; everything else is 100%.
   damageTable: [
@@ -103,6 +103,14 @@ export const DUNHOLLOW_DEF: GameDef = {
     { damage: 'trample', armor: 'archer', pct: 300 },
     { damage: 'trample', armor: 'infantry', pct: 180 },
     { damage: 'trample', armor: 'structure', pct: 5 },
+
+    // Gunfire: reliable against anything soft, hopeless against masonry. It is
+    // the Compact's only damage type, which is why that faction cannot siege
+    // and has to win in the field.
+    { damage: 'kinetic', armor: 'archer', pct: 120 },
+    { damage: 'kinetic', armor: 'cavalry', pct: 110 },
+    { damage: 'kinetic', armor: 'engine', pct: 90 },
+    { damage: 'kinetic', armor: 'structure', pct: 20 },
   ],
 
   // Shared by hordes and heroes. Index 0 is level 1 and must be the baseline.
@@ -144,7 +152,7 @@ export const DUNHOLLOW_DEF: GameDef = {
       mover: { speed: 4.0 },
       // Long reach is the archer's whole identity: it engages and plants well
       // outside a swordsman's acquire (9), so it shoots before it is reached.
-      combat: { damage: 18, range: 13, acquire: 15, periodTicks: 14, damageType: 'arrow' },
+      combat: { damage: 18, range: 13, acquire: 15, periodTicks: 14, damageType: 'arrow', hits: 'both' },
     },
     {
       crushableLevel: CRUSH_MOUNTED, crusherLevel: CRUSH_MOUNTED,
@@ -296,7 +304,7 @@ export const DUNHOLLOW_DEF: GameDef = {
       armorType: 'archer', xpValue: 4,
       visual: { model: 'gen:orc-bow', scale: 0.95, tint: 'owner' },
       mover: { speed: 4.2 },
-      combat: { damage: 9, range: 11, acquire: 13, periodTicks: 15, damageType: 'arrow' },
+      combat: { damage: 9, range: 11, acquire: 13, periodTicks: 15, damageType: 'arrow', hits: 'both' },
     },
     {
       crushableLevel: CRUSH_MOUNTED,
@@ -331,6 +339,87 @@ export const DUNHOLLOW_DEF: GameDef = {
       horde: { unit: 'orc-pikeman', count: 14, spacing: 1.05, formations: STANCES },
     },
 
+
+    // ================= THE COMPACT (third faction) =================
+    // The archetypes a StarCraft-shaped army is built from, under their own
+    // names — mechanics are not ownable, but somebody else's creature names
+    // and designs are. What makes this faction distinct is the third axis the
+    // other two do not have: it flies, and it is the only one that can shoot
+    // back at something that does.
+    //
+    // Deliberately expensive per body. It cannot out-mass the Horde or
+    // out-brawl the badgers; it wins by being somewhere they cannot reach.
+    {
+      crushableLevel: CRUSH_FOOT,
+      id: 'trooper', name: 'Trooper', kind: 'unit', radius: 0.36, hp: 110,
+      armorType: 'infantry', xpValue: 8,
+      visual: { model: 'gen:trooper', tint: 'owner' },
+      mover: { speed: 4.0 },
+      // The line infantry's rifle reaches both layers — the faction's whole
+      // point is that it is never helpless against air.
+      combat: { damage: 13, range: 8.5, acquire: 11, periodTicks: 12, damageType: 'arrow', hits: 'both' },
+    },
+    {
+      crushableLevel: CRUSH_MOUNTED,
+      id: 'lancer', name: 'Lancer', kind: 'unit', radius: 0.4, hp: 150,
+      armorType: 'infantry', xpValue: 14,
+      chargeGuard: 25,
+      visual: { model: 'gen:lancer-trooper', tint: 'owner' },
+      mover: { speed: 3.6 },
+      // Dedicated anti-air: long reach, useless on the ground.
+      combat: { damage: 34, range: 12, acquire: 14, periodTicks: 20, damageType: 'kinetic', hits: 'air' },
+    },
+    {
+      id: 'skiff', name: 'Skiff', kind: 'unit', radius: 0.5, hp: 130,
+      armorType: 'archer', xpValue: 16,
+      flying: true,
+      visual: { model: 'gen:skiff', tint: 'owner' },
+      mover: { speed: 6.6 },
+      // Fast air harasser. Hits ground only, so two skiff flights cannot
+      // contest each other — you need Lancers or a Gunship for that.
+      combat: { damage: 16, range: 6.5, acquire: 9, periodTicks: 11, damageType: 'kinetic', hits: 'ground' },
+    },
+    {
+      id: 'gunship', name: 'Gunship', kind: 'unit', radius: 0.7, hp: 340,
+      armorType: 'engine', xpValue: 38,
+      flying: true,
+      visual: { model: 'gen:gunship', scale: 1.15, tint: 'owner' },
+      mover: { speed: 4.6 },
+      // The premium unit: reaches everything, and nothing on the ground
+      // without a rifle can answer it.
+      combat: { damage: 30, range: 9, acquire: 12, periodTicks: 16, damageType: 'kinetic', hits: 'both' },
+    },
+
+    // ---- Compact tickets: small, expensive squads ----
+    {
+      id: 'h-troopers', name: 'Troopers', kind: 'unit', radius: 0.4, hp: 0,
+      supplyCost: 9, buildTimeTicks: 110,
+      cost: [{ resource: 'res', amount: 420 }],
+      visual: { model: 'placeholder:capsule', tint: 'owner' },
+      horde: { unit: 'trooper', count: 7, spacing: 1.3, formations: STANCES },
+    },
+    {
+      id: 'h-lancers', name: 'Lancers', kind: 'unit', radius: 0.4, hp: 0,
+      supplyCost: 9, buildTimeTicks: 120,
+      cost: [{ resource: 'res', amount: 460 }],
+      visual: { model: 'placeholder:capsule', tint: 'owner' },
+      horde: { unit: 'lancer', count: 5, spacing: 1.4, formations: STANCES },
+    },
+    {
+      id: 'h-skiffs', name: 'Skiff Flight', kind: 'unit', radius: 0.5, hp: 0,
+      supplyCost: 10, buildTimeTicks: 130,
+      cost: [{ resource: 'res', amount: 520 }],
+      visual: { model: 'placeholder:capsule', tint: 'owner' },
+      horde: { unit: 'skiff', count: 4, spacing: 2.0, formations: [STANCES[1], STANCES[0]] },
+    },
+    {
+      id: 'h-gunship', name: 'Gunship', kind: 'unit', radius: 0.7, hp: 0,
+      supplyCost: 14, buildTimeTicks: 200,
+      cost: [{ resource: 'res', amount: 780 }],
+      visual: { model: 'placeholder:box', tint: 'owner' },
+      horde: { unit: 'gunship', count: 2, spacing: 2.6 },
+    },
+
     // ---- plots ----
     {
       id: 'fortress-plot', name: 'Build Plot', kind: 'building', radius: 2.6, hp: 100,
@@ -345,6 +434,11 @@ export const DUNHOLLOW_DEF: GameDef = {
       plot: { accepts: ['farm', 'orc-pit', 'ogre-pen', 'watchtower'] },
     },
     {
+      id: 'compact-plot', name: 'Compact Pad', kind: 'building', radius: 2.6, hp: 100,
+      visual: { model: 'gen:plot', tint: 'owner' },
+      plot: { accepts: ['farm', 'barrack-block', 'landing-pad', 'watchtower'] },
+    },
+    {
       id: 'settlement', name: 'Settlement', kind: 'building', radius: 2.6, hp: 100,
       // 'none': a neutral pad belongs to nobody. Its owner field is only a
       // placement slot, and tinting it would paint it as player 0's property.
@@ -357,7 +451,7 @@ export const DUNHOLLOW_DEF: GameDef = {
       id: 'fortress', name: 'Fortress', kind: 'building', radius: 3.6, hp: 9000,
       armorType: 'structure', xpValue: 200, supplyProvided: 90,
       visual: { model: 'gen:fortress', tint: 'owner' },
-      combat: { damage: 40, range: 12, acquire: 13, periodTicks: 16, damageType: 'arrow' },
+      combat: { damage: 40, range: 12, acquire: 13, periodTicks: 16, damageType: 'arrow', hits: 'both' },
       trainer: { trains: ['h-captain'], queueSize: 2 },
       expansion: { plot: 'fortress-plot', offsets: FORTRESS_SLOTS },
     },
@@ -368,7 +462,7 @@ export const DUNHOLLOW_DEF: GameDef = {
       id: 'dark-fortress', name: 'Dark Fortress', kind: 'building', radius: 3.6, hp: 7800,
       armorType: 'structure', xpValue: 200, supplyProvided: 90,
       visual: { model: 'gen:dark-fortress', tint: 'owner' },
-      combat: { damage: 34, range: 12, acquire: 13, periodTicks: 16, damageType: 'arrow' },
+      combat: { damage: 34, range: 12, acquire: 13, periodTicks: 16, damageType: 'arrow', hits: 'both' },
       trainer: { trains: ['h-orcs'], queueSize: 3 },
       expansion: { plot: 'horde-plot', offsets: FORTRESS_SLOTS },
     },
@@ -390,6 +484,32 @@ export const DUNHOLLOW_DEF: GameDef = {
       requires: ['orc-pit'],
       visual: { model: 'gen:ogre-pen', tint: 'owner' },
       trainer: { trains: ['h-ogre'], queueSize: 2 },
+    },
+    {
+      // The Compact's seat. Thinner walls than either rival — it expects to
+      // hold ground with gunships, not masonry.
+      id: 'command-post', name: 'Command Post', kind: 'building', radius: 3.6, hp: 7200,
+      armorType: 'structure', xpValue: 200, supplyProvided: 90,
+      visual: { model: 'gen:command-post', tint: 'owner' },
+      // Its own guns reach both layers, like everything else it fields.
+      combat: { damage: 32, range: 13, acquire: 14, periodTicks: 15, damageType: 'kinetic', hits: 'both' },
+      trainer: { trains: ['h-troopers'], queueSize: 3 },
+      expansion: { plot: 'compact-plot', offsets: FORTRESS_SLOTS },
+    },
+    {
+      id: 'barrack-block', name: 'Barrack Block', kind: 'building', radius: 2.2, hp: 1500,
+      armorType: 'structure', xpValue: 26, placement: 'plot', buildTimeTicks: 150,
+      cost: [{ resource: 'res', amount: 420 }],
+      visual: { model: 'gen:barrack-block', tint: 'owner' },
+      trainer: { trains: ['h-troopers', 'h-lancers'], queueSize: 5 },
+    },
+    {
+      id: 'landing-pad', name: 'Landing Pad', kind: 'building', radius: 2.6, hp: 1400,
+      armorType: 'structure', xpValue: 34, placement: 'plot', buildTimeTicks: 200,
+      cost: [{ resource: 'res', amount: 700 }],
+      requires: ['barrack-block'],
+      visual: { model: 'gen:landing-pad', tint: 'owner' },
+      trainer: { trains: ['h-skiffs', 'h-gunship'], queueSize: 3 },
     },
     {
       id: 'farm', name: 'Farm', kind: 'building', radius: 1.8, hp: 600,
@@ -437,7 +557,7 @@ export const DUNHOLLOW_DEF: GameDef = {
       armorType: 'structure', xpValue: 20, placement: 'plot', buildTimeTicks: 90,
       cost: [{ resource: 'res', amount: 250 }],
       visual: { model: 'gen:watchtower', tint: 'owner' },
-      combat: { damage: 30, range: 14, acquire: 15, periodTicks: 18, damageType: 'arrow' },
+      combat: { damage: 30, range: 14, acquire: 15, periodTicks: 18, damageType: 'arrow', hits: 'both' },
     },
 
     // ---- scenery ----

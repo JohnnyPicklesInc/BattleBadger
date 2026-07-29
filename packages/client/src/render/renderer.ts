@@ -31,6 +31,8 @@ const MAX_RENDER_PLAYERS = 8
 // Half-width of the sun's shadow box, in world units. Big enough to cover the
 // visible ground at normal zoom with room for tall things just off-screen.
 const SHADOW_HALF = 70
+// How high a flyer rides above the ground it is over.
+const FLY_HEIGHT = 4.2
 const BLAST_COLOR = new THREE.Color(0xffa33a) // burning shell
 const DUST_COLOR = new THREE.Color(0xd8cfc0) // hooves
 
@@ -639,7 +641,10 @@ export class GameRenderer {
   lerpPos(s: SimState, prevX: Float64Array, prevZ: Float64Array, i: number, alpha: number, out: THREE.Vector3): void {
     const x = prevX[i] + (s.posX[i] - prevX[i]) * alpha
     const z = prevZ[i] + (s.posZ[i] - prevZ[i]) * alpha
-    out.set(x, this.grid.heightAtWorld(x, z), z)
+    // The sim is 2D; altitude is drawn here, so a flyer riding over a mountain
+    // clears it visually without the simulation knowing about height at all.
+    const lift = this.def.stats.flying[s.type[i]] === 1 ? FLY_HEIGHT : 0
+    out.set(x, this.grid.heightAtWorld(x, z) + lift, z)
   }
 
   render(

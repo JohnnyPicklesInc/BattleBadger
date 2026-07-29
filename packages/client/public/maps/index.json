@@ -9,25 +9,25 @@
     "file": "dunhollow.json",
     "name": "Siege of Dunhollow (plots, hordes & formations, 2–4 players)",
     "mapName": "dunhollow",
-    "hash": 1591687690
+    "hash": 1602283092
   },
   {
     "file": "four-corners.json",
     "name": "Four Corners (4-player FFA, mountains & a contested centre)",
     "mapName": "four-corners",
-    "hash": 2218376707
+    "hash": 3329210217
   },
   {
     "file": "charge-field.json",
     "name": "The Charge (50 horse vs a shield wall — battle test)",
     "mapName": "charge-field",
-    "hash": 1509189231
+    "hash": 3857261729
   },
   {
     "file": "troll-pit.json",
     "name": "The Pit (one ogre vs a mob — battle test)",
     "mapName": "troll-pit",
-    "hash": 2663347836
+    "hash": 3544639778
   },
   {
     "file": "econ-demo.json",

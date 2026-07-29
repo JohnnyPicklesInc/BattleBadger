@@ -82,6 +82,9 @@ export interface GameDefCompiled {
     chargeGuard: Int32Array // damage returned to a charger that connects
     allyAb: Int32Array // first ally-target ability index, -1 none
     autoAcquire: Int8Array // 0 none, 1 enemy, 2 injuredAlly
+    flying: Uint8Array
+    // 1 = can hit ground, 2 = can hit air, 3 = both
+    hitMask: Uint8Array
     isUnit: Uint8Array
     isBuilding: Uint8Array
     dmgType: Int32Array // -1 = untyped
@@ -226,6 +229,8 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
     chargeGuard: new Int32Array(n),
     allyAb: new Int32Array(n).fill(-1),
     autoAcquire: new Int8Array(n),
+    flying: new Uint8Array(n),
+    hitMask: new Uint8Array(n).fill(1), // ground only unless the def opts in
     isUnit: new Uint8Array(n),
     isBuilding: new Uint8Array(n),
     dmgType: new Int32Array(n).fill(-1),
@@ -287,11 +292,15 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
       const base = e.kind === 'building' ? 12 : 9
       stats.vision[i] = Math.max(e.vision ?? 0, base, stats.acquire[i] + 1, stats.atkRange[i] + 1)
     }
+    stats.flying[i] = e.flying ? 1 : 0
+    if (e.combat?.hits === 'air') stats.hitMask[i] = 2
+    else if (e.combat?.hits === 'both') stats.hitMask[i] = 3
     stats.crusherLevel[i] = e.crusherLevel ?? 0
     stats.chargeGuard[i] = e.chargeGuard ?? 0
     // Buildings are uncrushable unless an author deliberately says otherwise —
     // a stray crusherLevel must never let cavalry flatten a fortress.
-    stats.crushableLevel[i] = e.crushableLevel ?? (e.kind === 'building' ? UNCRUSHABLE : 0)
+    stats.crushableLevel[i] =
+      e.crushableLevel ?? (e.kind === 'building' || e.flying ? UNCRUSHABLE : 0)
     // A build plot is a surveyed pad, not a garrison: it sees nothing. Left
     // sighted, the ring of neutral settlements would light up half the map for
     // whichever slot happens to hold their placement ownership.

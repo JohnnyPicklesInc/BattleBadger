@@ -60,6 +60,11 @@ export function formationOffset(slot: number, spacing: number): [number, number]
   return [x * spacing, y * spacing]
 }
 
+// A flyer needs no route: nothing is in its way.
+export function flies(s: SimState, id: number): boolean {
+  return s.def.stats.flying[s.type[id]] === 1
+}
+
 export function planPath(
   grid: WalkGrid,
   fromX: number,
@@ -571,6 +576,49 @@ export function updateOrders(s: SimState, grid: WalkGrid): void {
         s.faceZ[i] = dz / d
       }
     } else {
+      // A flyer steers straight at its destination: no waypoints, because
+      // nothing can be in the way. Patrol still swaps ends on arrival.
+      if (st.flying[s.type[i]] === 1) {
+        s.paths[i] = null
+        // Only under a movement order. A ground unit with no path simply
+        // stands still, but this branch reads destX/destZ directly — and an
+        // idle unit's destination is whatever was last in the slot, so an
+        // unguarded flyer wanders off toward the origin.
+        const going =
+          s.order[i] === Order.Move ||
+          s.order[i] === Order.AttackMove ||
+          s.order[i] === Order.Patrol
+        if (!going) {
+          s.velX[i] = 0
+          s.velZ[i] = 0
+          continue
+        }
+        const dxg = s.destX[i] - s.posX[i]
+        const dzg = s.destZ[i] - s.posZ[i]
+        const dg = Math.sqrt(dxg * dxg + dzg * dzg)
+        if (dg > 0.3) {
+          const step = Math.min(maxStep, dg)
+          desX = (dxg / dg) * step
+          desZ = (dzg / dg) * step
+          s.faceX[i] = dxg / dg
+          s.faceZ[i] = dzg / dg
+        } else if (s.order[i] === Order.Patrol) {
+          const bx = s.patrolX[i]
+          const bz = s.patrolZ[i]
+          s.patrolX[i] = s.destX[i]
+          s.patrolZ[i] = s.destZ[i]
+          s.destX[i] = bx
+          s.destZ[i] = bz
+        } else {
+          s.order[i] = Order.Idle
+          s.homeX[i] = s.posX[i]
+          s.homeZ[i] = s.posZ[i]
+        }
+        s.velX[i] = desX
+        s.velZ[i] = desZ
+        continue
+      }
+
       let p = s.paths[i]
       if (!p) {
         // an attack/follow order ends when its subject is gone

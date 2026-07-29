@@ -347,6 +347,67 @@ const ogrePen: GenBlueprint = {
   ],
 }
 
+
+// ---- The Compact's works ----
+const COMP = {
+  plate: '#aeb6be',
+  plateDark: '#6f777f',
+  visor: '#3fd0e0',
+  vent: '#ff8a3a',
+  deck: '#5a6169',
+}
+
+const commandPost: GenBlueprint = {
+  id: 'command-post',
+  seed: 0xc0a5,
+  palette: COMP,
+  parts: [
+    { shape: 'cylinder', color: 'plate', radius: 3.1, radiusTop: 2.7, height: 1.6, at: [0, 0.8, 0], segments: 10 },
+    { shape: 'cylinder', color: 'deck', radius: 2.9, height: 0.18, at: [0, 1.7, 0], segments: 10 },
+    { shape: 'box', color: 'plate', size: [2.4, 1.9, 2.4], at: [0, 2.7, 0] },
+    { shape: 'box', color: 'visor', size: [2.5, 0.34, 0.12], at: [0, 3.1, 1.22] },
+    { shape: 'cylinder', color: 'plateDark', radius: 1.0, radiusTop: 0.5, height: 1.4, at: [0, 4.3, 0], segments: 9 },
+    { shape: 'sphere', color: 'player', radius: 0.5, at: [0, 5.2, 0], segments: 8 },
+    // dish + antenna mast
+    { shape: 'cylinder', color: 'plateDark', radius: 0.07, height: 1.6, at: [1.6, 2.6, -1.6] },
+    { shape: 'cylinder', color: 'plate', radius: 0.62, height: 0.1, at: [1.6, 3.5, -1.6], rot: [0.7, 0, 0], segments: 10 },
+    { shape: 'cone', color: 'vent', radius: 0.22, height: 0.5, at: [-2.2, 0.4, 2.2], count: 3, spread: [0.5, 0, 0.5] },
+  ],
+}
+
+const barrackBlock: GenBlueprint = {
+  id: 'barrack-block',
+  seed: 0xba0c,
+  palette: COMP,
+  parts: [
+    { shape: 'box', color: 'plate', size: [3.4, 1.5, 3.0], at: [0, 0.75, 0] },
+    { shape: 'box', color: 'deck', size: [3.6, 0.16, 3.2], at: [0, 1.56, 0] },
+    { shape: 'box', color: 'visor', size: [2.4, 0.22, 0.1], at: [0, 1.05, 1.53] },
+    // blast door and a ramp
+    { shape: 'box', color: 'plateDark', size: [1.2, 1.1, 0.2], at: [0, 0.55, 1.55] },
+    { shape: 'box', color: 'deck', size: [1.4, 0.1, 1.0], at: [0, 0.1, 2.3], rot: [-0.12, 0, 0] },
+    { shape: 'box', color: 'player', size: [0.12, 0.7, 0.5], at: [-1.6, 2.0, -1.3] },
+    { shape: 'cone', color: 'vent', radius: 0.16, height: 0.4, at: [1.5, 1.8, -1.3], count: 2, spread: [0.3, 0, 0.4] },
+  ],
+}
+
+const landingPad: GenBlueprint = {
+  id: 'landing-pad',
+  seed: 0x1a4d,
+  palette: COMP,
+  parts: [
+    // a wide flat deck: the whole read is "something lands here"
+    { shape: 'cylinder', color: 'deck', radius: 2.5, height: 0.3, at: [0, 0.15, 0], segments: 12 },
+    { shape: 'cylinder', color: 'plate', radius: 2.1, height: 0.12, at: [0, 0.32, 0], segments: 12 },
+    { shape: 'cylinder', color: 'player', radius: 1.1, height: 0.14, at: [0, 0.36, 0], segments: 12 },
+    { shape: 'box', color: 'deck', size: [0.24, 0.16, 2.0], at: [0, 0.42, 0] },
+    // corner lights and a control shack
+    { shape: 'cone', color: 'vent', radius: 0.12, height: 0.5, at: [-1.9, 0.5, -1.9], count: 4, spread: [1.9, 0, 1.9] },
+    { shape: 'box', color: 'plate', size: [1.0, 1.1, 0.9], at: [-2.3, 0.75, 1.9] },
+    { shape: 'box', color: 'visor', size: [0.8, 0.24, 0.1], at: [-2.3, 1.05, 2.36] },
+  ],
+}
+
 export const STRUCTURE_BLUEPRINTS: Record<string, GenBlueprint> = {
   fortress,
   watchtower,
@@ -364,4 +425,7 @@ export const STRUCTURE_BLUEPRINTS: Record<string, GenBlueprint> = {
   'dark-fortress': darkFortress,
   'orc-pit': orcPit,
   'ogre-pen': ogrePen,
+  'command-post': commandPost,
+  'barrack-block': barrackBlock,
+  'landing-pad': landingPad,
 }

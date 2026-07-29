@@ -385,6 +385,110 @@ const orcBow: GenBlueprint = {
   ],
 }
 
+
+// ---- The Compact ----
+// Sleek where badgers are furry and orcs are ragged: pale composite plate,
+// visored helms, no snouts on show. The flyers are the read — hulls with no
+// legs at all, drawn riding above the ground by the renderer.
+const TECH = {
+  plate: '#b9c0c8',
+  plateDark: '#7c848d',
+  visor: '#3fd0e0',
+  hull: '#8e979f',
+  hullDark: '#5d666e',
+  vent: '#ff8a3a',
+  gun: '#4a5058',
+}
+
+function trooperCore(): GenPart[] {
+  return [
+    { shape: 'capsule', color: 'plateDark', radius: 0.085, height: 0.16, at: [-0.13, 0.19, 0] },
+    { shape: 'capsule', color: 'plateDark', radius: 0.085, height: 0.16, at: [0.13, 0.19, 0] },
+    { shape: 'capsule', color: 'plate', radius: 0.24, height: 0.3, at: [0, 0.56, 0] },
+    { shape: 'cylinder', color: 'player', radius: 0.26, radiusTop: 0.22, height: 0.26, at: [0, 0.52, 0] },
+    // sealed helm, visor instead of a face
+    { shape: 'sphere', color: 'plate', radius: 0.19, at: [0, 0.94, 0] },
+    { shape: 'box', color: 'visor', size: [0.24, 0.07, 0.1], at: [0, 0.94, 0.17] },
+    { shape: 'box', color: 'plateDark', size: [0.1, 0.16, 0.1], at: [0, 1.1, -0.06] },
+    { shape: 'box', color: 'plateDark', size: [0.44, 0.2, 0.16], at: [0, 0.72, -0.16] },
+  ]
+}
+
+function techArm(side: 'armL' | 'armR', drop = 0): GenPart {
+  const x = side === 'armL' ? -0.3 : 0.3
+  return {
+    shape: 'capsule', color: 'plate', radius: 0.075, height: 0.24,
+    at: [x, 0.58 - drop, 0.04], rot: [0, 0, side === 'armL' ? 0.22 : -0.22],
+    group: side, pivot: [x * 0.82, 0.78, 0],
+  }
+}
+
+const trooper: GenBlueprint = {
+  id: 'trooper',
+  seed: 0x7200,
+  palette: TECH,
+  parts: [
+    ...trooperCore(),
+    techArm('armR'),
+    // rifle held across the body, barrel forward
+    { shape: 'box', color: 'gun', size: [0.07, 0.1, 0.62], at: [0.26, 0.62, 0.3], group: 'armR', pivot: [0.24, 0.78, 0] },
+    { shape: 'cylinder', color: 'plateDark', radius: 0.035, height: 0.2, at: [0.26, 0.62, 0.66], rot: [1.57, 0, 0], group: 'armR', pivot: [0.24, 0.78, 0] },
+    techArm('armL', 0.04),
+  ],
+}
+
+const lancerTrooper: GenBlueprint = {
+  id: 'lancer-trooper',
+  seed: 0x7201,
+  palette: TECH,
+  parts: [
+    ...trooperCore(),
+    // shoulder-mounted launcher, angled up: it only shoots at the sky
+    { shape: 'box', color: 'gun', size: [0.16, 0.16, 0.7], at: [0.2, 1.0, -0.05], rot: [-0.55, 0, 0] },
+    { shape: 'cylinder', color: 'plateDark', radius: 0.05, height: 0.24, at: [0.2, 1.28, 0.24], rot: [-0.55, 0, 0] },
+    { shape: 'cone', color: 'vent', radius: 0.06, height: 0.14, at: [0.2, 0.78, -0.34], rot: [2.6, 0, 0] },
+    techArm('armR', -0.06),
+    techArm('armL', 0.04),
+  ],
+}
+
+const skiff: GenBlueprint = {
+  id: 'skiff',
+  seed: 0x5417,
+  palette: TECH,
+  parts: [
+    // no legs: a hull. Reads as airborne even before the altitude offset.
+    { shape: 'sphere', color: 'hull', radius: 0.42, at: [0, 0.5, 0.05], scale: [1, 0.5, 1.5] },
+    { shape: 'box', color: 'visor', size: [0.3, 0.08, 0.24], at: [0, 0.52, 0.6] },
+    { shape: 'box', color: 'player', size: [1.5, 0.07, 0.34], at: [0, 0.5, -0.1] },
+    { shape: 'cylinder', color: 'hullDark', radius: 0.11, height: 0.34, at: [-0.66, 0.5, -0.14], rot: [1.57, 0, 0] },
+    { shape: 'cylinder', color: 'hullDark', radius: 0.11, height: 0.34, at: [0.66, 0.5, -0.14], rot: [1.57, 0, 0] },
+    { shape: 'cone', color: 'vent', radius: 0.09, height: 0.24, at: [-0.66, 0.5, -0.4], rot: [-1.57, 0, 0] },
+    { shape: 'cone', color: 'vent', radius: 0.09, height: 0.24, at: [0.66, 0.5, -0.4], rot: [-1.57, 0, 0] },
+    { shape: 'box', color: 'gun', size: [0.06, 0.06, 0.4], at: [0, 0.36, 0.5] },
+  ],
+}
+
+const gunship: GenBlueprint = {
+  id: 'gunship',
+  seed: 0x9457,
+  palette: TECH,
+  parts: [
+    { shape: 'sphere', color: 'hull', radius: 0.62, at: [0, 0.6, 0], scale: [1.05, 0.55, 1.55], jitter: 0.03 },
+    { shape: 'box', color: 'hullDark', size: [0.5, 0.22, 1.1], at: [0, 0.34, 0.1] },
+    { shape: 'box', color: 'visor', size: [0.4, 0.1, 0.3], at: [0, 0.66, 0.86] },
+    // stub wings with pods, in the owner's colours
+    { shape: 'box', color: 'player', size: [2.4, 0.09, 0.5], at: [0, 0.6, -0.16] },
+    { shape: 'cylinder', color: 'gun', radius: 0.13, height: 0.6, at: [-0.95, 0.48, 0.1], rot: [1.57, 0, 0] },
+    { shape: 'cylinder', color: 'gun', radius: 0.13, height: 0.6, at: [0.95, 0.48, 0.1], rot: [1.57, 0, 0] },
+    // engines and exhaust
+    { shape: 'cylinder', color: 'hullDark', radius: 0.19, height: 0.5, at: [-0.5, 0.62, -0.8], rot: [1.57, 0, 0] },
+    { shape: 'cylinder', color: 'hullDark', radius: 0.19, height: 0.5, at: [0.5, 0.62, -0.8], rot: [1.57, 0, 0] },
+    { shape: 'cone', color: 'vent', radius: 0.15, height: 0.4, at: [-0.5, 0.62, -1.2], rot: [-1.57, 0, 0] },
+    { shape: 'cone', color: 'vent', radius: 0.15, height: 0.4, at: [0.5, 0.62, -1.2], rot: [-1.57, 0, 0] },
+  ],
+}
+
 export const UNIT_BLUEPRINTS: Record<string, GenBlueprint> = {
   'badger-sword': swordsman,
   'badger-spear': spearman,
@@ -397,6 +501,10 @@ export const UNIT_BLUEPRINTS: Record<string, GenBlueprint> = {
   'orc-sword': orcSword,
   'orc-spear': orcSpear,
   'orc-bow': orcBow,
+  trooper,
+  'lancer-trooper': lancerTrooper,
+  skiff,
+  gunship,
   catapult,
   gnasher,
 }
