@@ -28,6 +28,9 @@ const RING_OWN = new THREE.Color(0x7ee787)
 const RING_ALLY = new THREE.Color(0xffe27a)
 const RING_ENEMY = new THREE.Color(0xff6a5a)
 const MAX_RENDER_PLAYERS = 8
+// Half-width of the sun's shadow box, in world units. Big enough to cover the
+// visible ground at normal zoom with room for tall things just off-screen.
+const SHADOW_HALF = 70
 const BLAST_COLOR = new THREE.Color(0xffa33a) // burning shell
 const DUST_COLOR = new THREE.Color(0xd8cfc0) // hooves
 
@@ -51,18 +54,49 @@ interface Corpse {
   ground: number
 }
 
+/**
+ * Screen-space HP bars, drawn as pooled DOM elements.
+ *
+ * These are the one part of the frame that scales with the size of the battle
+ * AND touches the DOM, so it is written to do as little as possible: every
+ * style is cached and only rewritten when it actually changes, off-screen
+ * units are dropped before they cost anything, and the total is capped. In a
+ * four-way brawl the naive version wrote six inline styles per damaged unit
+ * per frame — thousands of style mutations a second, most of them setting a
+ * value to what it already was.
+ */
+const MAX_HP_BARS = 120
+
+interface BarEntry {
+  root: HTMLDivElement
+  fill: HTMLDivElement
+  left: number
+  top: number
+  pct: number
+  friendly: boolean
+  shown: boolean
+}
+
 class HealthBars {
-  private pool: { root: HTMLDivElement; fill: HTMLDivElement }[] = []
+  private pool: BarEntry[] = []
   private used = 0
 
-  private acquire(): { root: HTMLDivElement; fill: HTMLDivElement } {
+  private acquire(): BarEntry {
     if (this.used < this.pool.length) return this.pool[this.used++]
     const root = document.createElement('div')
     root.className = 'hpbar'
     const fill = document.createElement('i') as unknown as HTMLDivElement
     root.appendChild(fill)
     document.body.appendChild(root)
-    const entry = { root, fill }
+    const entry: BarEntry = {
+      root,
+      fill,
+      left: NaN,
+      top: NaN,
+      pct: -1,
+      friendly: false,
+      shown: false,
+    }
     this.pool.push(entry)
     this.used++
     return entry
@@ -72,17 +106,47 @@ class HealthBars {
     this.used = 0
   }
 
+  get full(): boolean {
+    return this.used >= MAX_HP_BARS
+  }
+
   show(x: number, y: number, frac: number, friendly: boolean): void {
+    if (this.used >= MAX_HP_BARS) return
     const e = this.acquire()
-    e.root.style.display = 'block'
-    e.root.style.left = `${x - 13}px`
-    e.root.style.top = `${y}px`
-    e.fill.style.width = `${Math.max(0, Math.min(1, frac)) * 100}%`
-    e.fill.style.background = friendly ? '#62d26f' : '#e0564a'
+    // Round to whole pixels: sub-pixel jitter would otherwise dirty the style
+    // on every frame a unit moves even slightly.
+    const left = Math.round(x - 13)
+    const top = Math.round(y)
+    if (!e.shown) {
+      e.root.style.display = 'block'
+      e.shown = true
+    }
+    if (left !== e.left) {
+      e.left = left
+      e.root.style.left = `${left}px`
+    }
+    if (top !== e.top) {
+      e.top = top
+      e.root.style.top = `${top}px`
+    }
+    const pct = Math.round(Math.max(0, Math.min(1, frac)) * 100)
+    if (pct !== e.pct) {
+      e.pct = pct
+      e.fill.style.width = `${pct}%`
+    }
+    if (friendly !== e.friendly) {
+      e.friendly = friendly
+      e.fill.style.background = friendly ? '#62d26f' : '#e0564a'
+    }
   }
 
   end(): void {
-    for (let i = this.used; i < this.pool.length; i++) this.pool[i].root.style.display = 'none'
+    for (let i = this.used; i < this.pool.length; i++) {
+      const e = this.pool[i]
+      if (!e.shown) continue // already hidden: do not touch the DOM again
+      e.root.style.display = 'none'
+      e.shown = false
+    }
   }
 }
 
@@ -113,6 +177,8 @@ export class GameRenderer {
   private lastFxTick = -1
   private hpbars = new HealthBars()
   private terrain: THREE.Mesh
+  private sun: THREE.DirectionalLight
+  private sunShadowAt = { x: NaN, z: NaN }
   private grid: WalkGrid
   private mySlot: number
   private m4 = new THREE.Matrix4()
@@ -155,13 +221,20 @@ export class GameRenderer {
     sun.position.set(40, 60, 20)
     sun.castShadow = true
     sun.shadow.mapSize.set(2048, 2048)
-    const half = Math.max(doc.cols, doc.rows) * doc.cellSize * 0.6
-    sun.shadow.camera.left = -half
-    sun.shadow.camera.right = half
-    sun.shadow.camera.top = half
-    sun.shadow.camera.bottom = -half
-    sun.shadow.camera.far = 200
+    // The shadow frustum follows the view instead of covering the whole map.
+    // Spanning a 176-unit map meant every unit on it was rendered into the
+    // shadow pass every frame, however far off-screen — and it spread a 2048²
+    // map over the entire board, so shadows were coarse as well as expensive.
+    // A tight box around what the player is looking at is both cheaper and
+    // sharper; it scales with the camera, not the map.
+    sun.shadow.camera.left = -SHADOW_HALF
+    sun.shadow.camera.right = SHADOW_HALF
+    sun.shadow.camera.top = SHADOW_HALF
+    sun.shadow.camera.bottom = -SHADOW_HALF
+    sun.shadow.camera.near = 1
+    sun.shadow.camera.far = 260
     sun.target.position.set(doc.cols * 0.5, 0, doc.rows * 0.5)
+    this.sun = sun
     this.scene.add(sun)
     this.scene.add(sun.target)
 
@@ -580,6 +653,21 @@ export class GameRenderer {
   ): void {
     this.cam.update(dtMs)
     this.animTime += dtMs / 1000
+
+    // Track the camera, but only re-aim when it has actually travelled —
+    // moving a directional light dirties its shadow map.
+    const focusX = this.cam.targetX
+    const focusZ = this.cam.targetZ
+    if (
+      !(Math.abs(focusX - this.sunShadowAt.x) < 4 && Math.abs(focusZ - this.sunShadowAt.z) < 4)
+    ) {
+      this.sunShadowAt.x = focusX
+      this.sunShadowAt.z = focusZ
+      this.sun.position.set(focusX + 40, 60, focusZ + 20)
+      this.sun.target.position.set(focusX, 0, focusZ)
+      this.sun.target.updateMatrixWorld()
+      this.sun.shadow.camera.updateProjectionMatrix()
+    }
     if (fog?.enabled) {
       fog.update(s)
       // Re-shading walks every terrain vertex and re-uploads the whole colour
@@ -843,10 +931,12 @@ export class GameRenderer {
       if (this.def.stats.isPlot[s.type[i]] && s.plotHost[i] >= 0) continue
       const maxHp = this.def.stats.maxHp[s.type[i]]
       if (s.hp[i] >= maxHp && !selection.has(i)) continue
+      if (this.hpbars.full) break // capped: a wall of bars reads as noise anyway
       this.lerpPos(s, prevX, prevZ, i, alpha, pos)
       pos.y += 1.9
       pos.project(this.camera)
-      if (pos.z > 1) continue
+      // behind the camera, or off the edge of the screen
+      if (pos.z > 1 || pos.x < -1.05 || pos.x > 1.05 || pos.y < -1.05 || pos.y > 1.05) continue
       this.hpbars.show(
         pos.x * w2 + w2,
         -pos.y * h2 + h2,
