@@ -1,0 +1,83 @@
+{
+  "schema": 1,
+  "id": "skirmish",
+  "name": "Skirmish",
+  "resources": [],
+  "entities": [
+    {
+      "id": "grunt",
+      "name": "Grunt",
+      "kind": "unit",
+      "radius": 0.42,
+      "hp": 70,
+      "visual": {
+        "model": "gen:badger-sword",
+        "tint": "owner"
+      },
+      "mover": {
+        "speed": 3.4
+      },
+      "combat": {
+        "damage": 9,
+        "range": 0.5,
+        "acquire": 7,
+        "periodTicks": 10
+      }
+    },
+    {
+      "id": "archer",
+      "name": "Archer",
+      "kind": "unit",
+      "radius": 0.38,
+      "hp": 42,
+      "visual": {
+        "model": "gen:badger-bow",
+        "tint": "owner"
+      },
+      "mover": {
+        "speed": 2.9
+      },
+      "combat": {
+        "damage": 7,
+        "range": 11,
+        "acquire": 13,
+        "periodTicks": 14
+      }
+    },
+    {
+      "id": "priest",
+      "name": "Priest",
+      "kind": "unit",
+      "radius": 0.36,
+      "hp": 46,
+      "visual": {
+        "model": "gen:badger-staff",
+        "tint": "owner"
+      },
+      "mover": {
+        "speed": 2.7
+      },
+      "abilities": [
+        {
+          "ability": "heal",
+          "autocast": true
+        }
+      ]
+    }
+  ],
+  "abilities": [
+    {
+      "id": "heal",
+      "name": "Heal",
+      "hotkey": "Q",
+      "target": "ally",
+      "hpDelta": 7,
+      "range": 4.5,
+      "periodTicks": 8,
+      "autoAcquire": "injuredAlly"
+    }
+  ],
+  "victory": {
+    "mode": "annihilation"
+  }
+}

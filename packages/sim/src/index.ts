@@ -1,0 +1,31 @@
+export * from './state.ts'
+export * from './commands.ts'
+export * from './defs/schema.ts'
+export * from './defs/compile.ts'
+export * from './step.ts'
+export * from './setup.ts'
+export * from './hash.ts'
+export * from './mapdoc.ts'
+export * from './fog.ts'
+export * from './spatial.ts'
+export * from './protocol.ts'
+export * from './math/sfc32.ts'
+export * from './path/walkgrid.ts'
+export * from './path/astar.ts'
+export * from './systems/orders.ts'
+// simpleMap generates the lobby's "Skirmish Valley" at runtime (host side only).
+export * from './mapgen/simpleMap.ts'
+// The econ-demo *rules* seed new maps in the editor, so they stay public. The
+// econDemo/cerebrateWar *generators* are build-time authoring tools —
+// gen-starter-maps.mjs imports them by path and bakes them to /maps/*.json —
+// so they stay out of the client bundle and off the runtime determinism path.
+export { ECON_DEMO_DEF } from './mapgen/econDemo.ts'
+export * from './systems/combat.ts'
+export * from './systems/casts.ts'
+export * from './systems/projectiles.ts'
+export * from './systems/charge.ts'
+export * from './systems/ai.ts'
+export * from './systems/harvest.ts'
+export * from './systems/hordes.ts'
+export * from './systems/economy.ts'
+export * from './systems/triggers.ts'

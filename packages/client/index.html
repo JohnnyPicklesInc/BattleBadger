@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0c0f14" />
+    <link rel="icon" href="/icon-192.png" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <title>BattleBadger</title>
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #0c0f14; color: #dfe6ee;
+        font-family: system-ui, -apple-system, sans-serif; user-select: none; }
+      #app { position: fixed; inset: 0; }
+      canvas { display: block; }
+
+      #boxsel { position: fixed; border: 1px solid #7ee787; background: rgba(126, 231, 135, 0.12);
+        pointer-events: none; display: none; z-index: 5; }
+
+      .hpbar { position: fixed; width: 26px; height: 4px; background: #2228; border-radius: 2px;
+        pointer-events: none; z-index: 4; overflow: hidden; display: none; }
+      .hpbar > i { display: block; height: 100%; background: #62d26f; }
+
+      #mode { position: fixed; left: 50%; transform: translateX(-50%); bottom: 208px; z-index: 6;
+        font-size: 14px; color: #ffb454; display: none; pointer-events: none;
+        text-shadow: 0 1px 3px #000; }
+
+      /* WC3-style bottom HUD */
+      #bhud { position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; display: flex;
+        align-items: flex-end; justify-content: space-between; pointer-events: none; }
+      #bhud > * { pointer-events: auto; }
+      #bhud-left { display: flex; flex-direction: column; gap: 6px; padding: 0 0 10px 10px; }
+      #menu-btn { background: rgba(16, 21, 29, 0.92); color: #dfe6ee; border: 1px solid #2a3342;
+        border-radius: 8px; padding: 7px 10px; font-size: 13px; font-weight: 600; cursor: pointer;
+        display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+      #menu-btn span { color: #74839a; font-size: 11px; font-weight: 400; }
+      #menu-btn:hover { background: rgba(38, 49, 64, 0.95); }
+      #mm-canvas { width: 176px; height: 176px; border: 1px solid #2a3342; border-radius: 8px;
+        background: #10151d; image-rendering: pixelated; cursor: crosshair; }
+
+      #bhud-center { position: absolute; left: 50%; transform: translateX(-50%); bottom: 0;
+        display: flex; align-items: center; gap: 14px;
+        background: rgba(16, 21, 29, 0.92); border: 1px solid #2a3342; border-bottom: 0;
+        border-radius: 12px 12px 0 0; padding: 10px 18px 8px 10px; min-width: 260px; }
+      /* the portrait is a button: clicking it centres the camera on that unit */
+      #portrait-btn { padding: 0; border: 0; background: none; cursor: pointer; line-height: 0;
+        border-radius: 8px; }
+      #portrait-btn:hover #portrait-canvas { border-color: #6fb7ff; }
+      #portrait-canvas { width: 96px; height: 96px; border: 1px solid #2a3342; border-radius: 8px;
+        background: radial-gradient(circle at 50% 35%, #1d2632, #0e1218); }
+      #sel-info { font-size: 13px; color: #9fb0c3; line-height: 1.7; }
+      #sel-info #sel-name { font-size: 15px; font-weight: 700; color: #dfe6ee; }
+      #sel-info #sel-hp { color: #62d26f; }
+      #sel-count { color: #dfe6ee; font-weight: 700; }
+
+      /* selection-group strip: click isolates, Shift+click removes,
+         Ctrl+click keeps that type. Every selected unit gets a slot — past
+         three rows the panel scrolls rather than dropping units. */
+      #sel-group { display: grid; grid-template-columns: repeat(8, 34px); gap: 3px;
+        align-content: start; max-height: 96px; overflow-y: auto; overscroll-behavior: contain;
+        scrollbar-width: thin; scrollbar-color: #3a4a5f transparent; }
+      #sel-group:empty { display: none; }
+      #sel-group::-webkit-scrollbar { width: 6px; }
+      #sel-group::-webkit-scrollbar-thumb { background: #3a4a5f; border-radius: 3px; }
+      .selslot { height: 30px; padding: 3px 0 2px; background: rgba(16, 21, 29, 0.92);
+        border: 1px solid #2a3342; border-radius: 5px; color: #dfe6ee; font-size: 10px;
+        font-weight: 600; cursor: pointer; overflow: hidden;
+        display: flex; flex-direction: column; align-items: center; justify-content: space-between; }
+      button.selslot:hover { background: rgba(38, 49, 64, 0.95); border-color: #3a4a5f; }
+      .selslot i { display: block; width: 24px; height: 3px; background: #2a3342; border-radius: 2px; }
+      .selslot i b { display: block; height: 100%; border-radius: 2px; background: #62d26f; }
+
+      #bhud-right { display: grid; grid-template-columns: repeat(3, 74px); gap: 6px;
+        padding: 0 10px 10px 0; }
+      #bhud-right.disabled { opacity: 0.35; pointer-events: none; }
+      button.cmd { height: 58px; background: rgba(16, 21, 29, 0.92); border: 1px solid #2a3342;
+        border-radius: 8px; color: #dfe6ee; font-size: 13px; font-weight: 600; cursor: pointer;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
+      button.cmd span { color: #ffb454; font-size: 11px; font-weight: 400; }
+      button.cmd:hover { background: rgba(38, 49, 64, 0.95); border-color: #3a4a5f; }
+      button.cmd.ability { color: #7ee787; }
+      button.cmd.ability span { color: #7ee787; opacity: 0.7; }
+      button.cmd.build { color: #6fb7ff; }
+      button.cmd.build span { color: #6fb7ff; opacity: 0.7; }
+      /* cooling down / cannot afford: legible but clearly not clickable */
+      button.cmd.unaffordable { opacity: 0.42; cursor: default; filter: saturate(0.4); }
+      button.cmd.unaffordable:hover { background: rgba(16, 21, 29, 0.92); border-color: #2a3342; }
+      button.cmd.cooling span { color: #8fa3b8; }
+      button.cmd.train { color: #ffc46b; }
+      button.cmd.train span { color: #ffc46b; opacity: 0.7; }
+      #sel-queue { color: #ffc46b; font-size: 12px; min-height: 16px; }
+
+      /* editor */
+      #ed-ui { pointer-events: none; }
+      #ed-top { position: fixed; top: 0; left: 0; right: 0; z-index: 8; display: flex; gap: 8px;
+        align-items: center; padding: 8px 12px; background: rgba(16, 21, 29, 0.94);
+        border-bottom: 1px solid #2a3342; pointer-events: auto; font-size: 13px; color: #dfe6ee; }
+      #ed-top input { background: #0e1218; color: #dfe6ee; border: 1px solid #2a3342;
+        border-radius: 6px; padding: 5px 8px; font-size: 13px; width: 180px; }
+      #ed-top button { background: #263140; color: #dfe6ee; border: 0; border-radius: 6px;
+        padding: 6px 12px; font-size: 13px; cursor: pointer; }
+      #ed-top button:hover { background: #2f3d51; }
+      #ed-top button.primary { background: #2c6cb0; }
+      #ed-top a { color: #74839a; margin-left: auto; }
+      #ed-side { position: fixed; top: 52px; left: 0; bottom: 0; width: 200px; z-index: 8;
+        background: rgba(16, 21, 29, 0.94); border-right: 1px solid #2a3342; padding: 10px;
+        overflow-y: auto; pointer-events: auto; font-size: 13px; color: #9fb0c3; }
+      .ed-group { margin-bottom: 14px; display: flex; flex-direction: column; gap: 4px; }
+      .ed-group label { font-size: 11px; text-transform: uppercase; color: #74839a; }
+      .ed-group select { background: #0e1218; color: #dfe6ee; border: 1px solid #2a3342;
+        border-radius: 6px; padding: 5px; }
+      #ed-tools button { display: block; width: 100%; text-align: left; margin-bottom: 4px;
+        background: #1b2430; color: #dfe6ee; border: 1px solid #2a3342; border-radius: 6px;
+        padding: 7px 10px; font-size: 13px; cursor: pointer; }
+      #ed-tools button.active { background: #2c6cb0; border-color: #3579c2; }
+      .ed-status { font-size: 12px; color: #74839a; white-space: pre-wrap; }
+      #toasts { position: fixed; top: 56px; left: 50%; transform: translateX(-50%); z-index: 9;
+        display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
+      .toast { background: rgba(16, 21, 29, 0.94); border: 1px solid #3a4a5f; color: #ffe27a;
+        border-radius: 8px; padding: 8px 18px; font-size: 15px; transition: opacity 0.7s; }
+      .toast.fade { opacity: 0; }
+
+      #playtest-back { position: fixed; top: 8px; left: 10px; z-index: 20;
+        background: rgba(16, 21, 29, 0.92); color: #dfe6ee; border: 1px solid #2a3342;
+        border-radius: 8px; padding: 7px 12px; font-size: 13px; font-weight: 600; cursor: pointer; }
+
+      #resbar { position: fixed; top: 8px; right: 10px; z-index: 6; display: flex; gap: 16px;
+        background: rgba(16, 21, 29, 0.92); border: 1px solid #2a3342; border-radius: 8px;
+        padding: 6px 14px; font-size: 13px; color: #9fb0c3; }
+      #resbar .res { display: flex; align-items: center; gap: 6px; }
+      #resbar .res i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+      #resbar .res b { color: #dfe6ee; min-width: 34px; text-align: right; }
+
+      .overlay { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center;
+        justify-content: center; background: rgba(8, 10, 14, 0.85); }
+      .panel { background: #151a22; border: 1px solid #2a3342; border-radius: 12px; padding: 28px 32px;
+        width: 340px; box-shadow: 0 12px 40px #0009; }
+      .panel h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: 0.5px; }
+      .panel h1 span { color: #ffb454; }
+      .panel .sub { color: #74839a; font-size: 13px; margin-bottom: 18px; }
+      .panel label { display: block; font-size: 12px; color: #9fb0c3; margin: 12px 0 4px; }
+      .panel input { width: 100%; box-sizing: border-box; background: #0e1218; color: #dfe6ee;
+        border: 1px solid #2a3342; border-radius: 6px; padding: 8px 10px; font-size: 14px; outline: none; }
+      .panel input:focus { border-color: #4aa3ff; }
+      .panel button { width: 100%; margin-top: 10px; padding: 10px; font-size: 14px; font-weight: 600;
+        border: 0; border-radius: 6px; cursor: pointer; background: #263140; color: #dfe6ee; }
+      .panel button:hover { background: #2f3d51; }
+      .panel button.primary { background: #2c6cb0; }
+      .panel button.primary:hover { background: #3579c2; }
+      .panel button:disabled { opacity: 0.45; cursor: default; }
+      .panel .status { margin-top: 14px; font-size: 13px; color: #9fb0c3; min-height: 18px; }
+      .panel .code { font-size: 30px; letter-spacing: 8px; text-align: center; color: #7ee787;
+        margin: 10px 0 2px; font-weight: 700; }
+      .row { display: flex; gap: 8px; }
+      .row > * { flex: 1; }
+      .panel button[disabled] { opacity: 0.45; cursor: default; pointer-events: none; }
+
+      /* lobby */
+      .lobby-panel { width: 660px; }
+      .lobby-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+      .lobby-left, .lobby-right { display: flex; flex-direction: column; min-width: 0; }
+      .lobby-right { border-left: 1px solid #232c39; padding-left: 22px; }
+      .lobby-hr { border: 0; border-top: 1px solid #232c39; margin: 16px 0 4px; width: 100%; }
+      .panel select { width: 100%; box-sizing: border-box; background: #0e1218; color: #dfe6ee;
+        border: 1px solid #2a3342; border-radius: 6px; padding: 8px 10px; font-size: 14px; }
+      .panel select:disabled { opacity: 0.55; }
+      .mapinfo { font-size: 12px; color: #74839a; margin: 6px 0 12px; min-height: 16px; }
+      #lb-players { list-style: none; margin: 0 0 14px; padding: 0; display: flex;
+        flex-direction: column; gap: 5px; }
+      #lb-players li { display: flex; align-items: center; gap: 9px; font-size: 13px;
+        background: #10151d; border: 1px solid #232c39; border-radius: 7px; padding: 7px 10px; }
+      #lb-players li.open { opacity: 0.5; border-style: dashed; }
+      #lb-players li i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+      #lb-players li.open i { opacity: 0.35; }
+      #lb-players .pname { color: #dfe6ee; font-weight: 600; overflow: hidden;
+        text-overflow: ellipsis; white-space: nowrap; }
+      #lb-players li.open .pname { color: #74839a; font-weight: 400; font-style: italic; }
+      #lb-players .pteam { margin-left: auto; color: #74839a; font-size: 11px; flex: none; }
+      .lobby-right .code { margin: 0 0 12px; }
+
+      #swcursor { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none;
+        display: none; will-change: transform; }
+
+      #banner { position: fixed; top: 0; left: 0; right: 0; z-index: 12; display: none;
+        background: #b03a2c; color: #fff; text-align: center; padding: 8px; font-size: 14px; }
+      #endscreen { display: none; }
+      #endscreen .panel { text-align: center; }
+      #endscreen h2 { font-size: 32px; margin: 0 0 8px; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="boxsel"></div>
+    <div id="mode">ATTACK MOVE — click a target location (Esc to cancel)</div>
+    <div id="banner"></div>
+    <div id="endscreen" class="overlay"><div class="panel"><h2 id="end-title"></h2>
+      <div class="sub" id="end-sub"></div><button class="primary" onclick="location.reload()">Back to menu</button></div></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

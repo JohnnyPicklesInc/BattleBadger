@@ -1,0 +1,17 @@
+{
+  "name": "@battlebadger/relay",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8788",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@battlebadger/sim": "*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250620.0",
+    "wrangler": "^4.0.0"
+  }
+}
