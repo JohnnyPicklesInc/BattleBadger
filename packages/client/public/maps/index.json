@@ -12,6 +12,12 @@
     "hash": 1260131524
   },
   {
+    "file": "four-corners.json",
+    "name": "Four Corners (4-player FFA, mountains & a contested centre)",
+    "mapName": "four-corners",
+    "hash": 1019714953
+  },
+  {
     "file": "charge-field.json",
     "name": "The Charge (50 horse vs a shield wall — battle test)",
     "mapName": "charge-field",

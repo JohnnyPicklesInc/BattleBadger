@@ -6,6 +6,7 @@ import { generateDunhollow } from '../packages/sim/src/mapgen/dunhollow.ts'
 import { generateEconDemo } from '../packages/sim/src/mapgen/econDemo.ts'
 import { generateChargeField } from '../packages/sim/src/mapgen/chargeField.ts'
 import { generateTrollPit } from '../packages/sim/src/mapgen/trollPit.ts'
+import { generateFourCorners } from '../packages/sim/src/mapgen/fourCorners.ts'
 import { mapContentHash } from '../packages/sim/src/hash.ts'
 
 const OUT = new URL('../packages/client/public/maps/', import.meta.url).pathname
@@ -21,6 +22,11 @@ const maps = [
     file: 'dunhollow.json',
     name: 'Siege of Dunhollow (plots, hordes & formations, 2–4 players)',
     doc: generateDunhollow(20260727),
+  },
+  {
+    file: 'four-corners.json',
+    name: 'Four Corners (4-player FFA, mountains & a contested centre)',
+    doc: generateFourCorners(20260729),
   },
   {
     file: 'charge-field.json',
