@@ -1,6 +1,6 @@
 import type { PlacedEntity, RtsMapDoc } from '../mapdoc.ts'
-import type { GameDef } from '../defs/schema.ts'
-import { DUNHOLLOW_DEF } from './dunhollow.ts'
+import { composeDef } from './factions/compose.ts'
+import { FACTION as BADGERS } from './factions/badgers.ts'
 
 // "The Pit" — one ogre against a mob of swordsmen.
 //
@@ -18,12 +18,12 @@ const TEX_DIRT = 1
 
 const MOB_PACKS = 2 // × 9 swordsmen
 
-const PIT_DEF: GameDef = {
-  ...DUNHOLLOW_DEF,
+const PIT_DEF = composeDef({
   id: 'troll-pit',
   name: 'The Pit',
+  factions: [BADGERS],
   victory: { mode: 'annihilation' },
-}
+})
 
 export function generateTrollPit(seed = 20260729): RtsMapDoc {
   const n = SIZE * SIZE

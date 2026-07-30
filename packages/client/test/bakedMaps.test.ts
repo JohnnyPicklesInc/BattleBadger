@@ -9,6 +9,7 @@ import { generateEconDemo } from '../../sim/src/mapgen/econDemo.ts'
 import { generateChargeField } from '../../sim/src/mapgen/chargeField.ts'
 import { generateTrollPit } from '../../sim/src/mapgen/trollPit.ts'
 import { generateFourCorners } from '../../sim/src/mapgen/fourCorners.ts'
+import { generateRidgeCrossing } from '../../sim/src/mapgen/skirmishRidge.ts'
 
 // These seeds must match scripts/gen-starter-maps.mjs. That coupling is the
 // point: identity comes from content, so the content has to be reproducible.
@@ -19,6 +20,7 @@ const BAKED: { file: string; gen: () => RtsMapDoc }[] = [
   { file: 'charge-field.json', gen: () => generateChargeField(20260729) },
   { file: 'troll-pit.json', gen: () => generateTrollPit(20260729) },
   { file: 'four-corners.json', gen: () => generateFourCorners(20260729) },
+  { file: 'ridge-crossing.json', gen: () => generateRidgeCrossing(20260730) },
 ]
 
 const DIR = 'packages/client/public/maps'

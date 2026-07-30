@@ -1,6 +1,7 @@
 import type { PlacedEntity, RtsMapDoc } from '../mapdoc.ts'
-import type { GameDef } from '../defs/schema.ts'
-import { DUNHOLLOW_DEF } from './dunhollow.ts'
+import { composeDef } from './factions/compose.ts'
+import { FACTION as BADGERS } from './factions/badgers.ts'
+import { FACTION as HORDE } from './factions/horde.ts'
 
 // "Four Corners" — a 4-player free-for-all on the BFME ruleset.
 //
@@ -51,12 +52,15 @@ const FACTIONS = [
 // diagonals, and every player faces one of each across the plaza.
 const SLOT_FACTION = [0, 1, 1, 0]
 
-const FOUR_DEF: GameDef = {
-  ...DUNHOLLOW_DEF,
+// Seats exactly the two factions it uses. Balance is per-map: the tuning
+// below applies here and nowhere else, so a change made for this map cannot
+// quietly rebalance Dunhollow.
+const FOUR_DEF = composeDef({
   id: 'four-corners',
   name: 'Four Corners',
+  factions: [BADGERS, HORDE],
   victory: { mode: 'annihilation' },
-}
+})
 
 // Deterministic craggy variation. Integer hash, no RNG state — this file is
 // imported by scripts/gen-starter-maps.mjs under plain Node, so it must not

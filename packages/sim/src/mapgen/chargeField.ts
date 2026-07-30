@@ -1,6 +1,6 @@
 import type { PlacedEntity, RtsMapDoc } from '../mapdoc.ts'
-import type { GameDef } from '../defs/schema.ts'
-import { DUNHOLLOW_DEF } from './dunhollow.ts'
+import { composeDef } from './factions/compose.ts'
+import { FACTION as BADGERS } from './factions/badgers.ts'
 
 // "The Charge" — a proving ground for cavalry, not a game.
 //
@@ -26,14 +26,12 @@ const CAV_PACKS = 10 // × 5 riders = 50 horsemen
 const ARCHER_PACKS = 4 // × 8 archers = 32
 const FOOT_PACKS = 4 // × 9 swordsmen = 36
 
-const CHARGE_DEF: GameDef = {
-  ...DUNHOLLOW_DEF,
+const CHARGE_DEF = composeDef({
   id: 'charge-field',
   name: 'The Charge',
-  // Dunhollow ends on triggers it does not have here; without this the field
-  // would never declare a winner.
+  factions: [BADGERS],
   victory: { mode: 'annihilation' },
-}
+})
 
 export function generateChargeField(seed = 20260729): RtsMapDoc {
   const n = SIZE * SIZE

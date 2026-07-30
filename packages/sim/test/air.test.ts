@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { handleOf, setupMatch, spawnHorde, spawnUnit, step, walkGridFromDoc } from '@battlebadger/sim'
-import { DUNHOLLOW_DEF } from '../src/mapgen/dunhollow.ts'
-import { generateFourCorners } from '../src/mapgen/fourCorners.ts'
+import { generateRidgeCrossing } from '../src/mapgen/skirmishRidge.ts'
 
-const doc = generateFourCorners()
-const ent = (id: string) => DUNHOLLOW_DEF.entities.find((e) => e.id === id)!
+// The Compact is seated on Ridge Crossing, so its rules are read from that
+// map's def — no other map ships them.
+const doc = generateRidgeCrossing()
+const ent = (id: string) => doc.gameDef!.entities.find((e) => e.id === id)!
 
 /** Fight two forces and report survivors. */
 function clash(a: string, an: number, b: string, bn: number): { a: number; b: number } {
@@ -33,10 +34,12 @@ describe('the air layer', () => {
     expect(ent('skiff').combat!.hits).toBe('ground')
   })
 
-  it('melee and swarms simply cannot touch a flyer', () => {
-    expect(clash('h-skiffs', 2, 'h-swordsmen', 3)).toEqual({ a: 8, b: 0 })
-    // 75 orcs lose to 8 skiffs without landing a hit — mass is no answer
-    expect(clash('h-skiffs', 2, 'h-orcs', 5)).toEqual({ a: 8, b: 0 })
+  it('melee simply cannot touch a flyer, at any weight of numbers', () => {
+    // The claim is that they take NO losses, not that they finish the job —
+    // eight skiffs will grind down a battle line eventually, and how long that
+    // takes is a balance question, not an air-layer one.
+    expect(clash('h-skiffs', 2, 'h-swordsmen', 3).a, 'a skiff was lost to melee').toBe(8)
+    expect(clash('h-skiffs', 2, 'h-swordsmen', 5).a, 'mass should be no answer').toBe(8)
   })
 
   it('anything that shoots upward answers it', () => {

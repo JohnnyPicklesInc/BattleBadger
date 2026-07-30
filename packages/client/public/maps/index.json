@@ -9,25 +9,31 @@
     "file": "dunhollow.json",
     "name": "Siege of Dunhollow (plots, hordes & formations, 2–4 players)",
     "mapName": "dunhollow",
-    "hash": 1602283092
+    "hash": 1124229174
   },
   {
     "file": "four-corners.json",
     "name": "Four Corners (4-player FFA, mountains & a contested centre)",
     "mapName": "four-corners",
-    "hash": 3329210217
+    "hash": 2687138871
+  },
+  {
+    "file": "ridge-crossing.json",
+    "name": "Ridge Crossing (Badgers vs the Compact — air, 2 players)",
+    "mapName": "ridge-crossing",
+    "hash": 2762454600
   },
   {
     "file": "charge-field.json",
     "name": "The Charge (50 horse vs a shield wall — battle test)",
     "mapName": "charge-field",
-    "hash": 3857261729
+    "hash": 445128179
   },
   {
     "file": "troll-pit.json",
     "name": "The Pit (one ogre vs a mob — battle test)",
     "mapName": "troll-pit",
-    "hash": 3544639778
+    "hash": 3515751392
   },
   {
     "file": "econ-demo.json",
