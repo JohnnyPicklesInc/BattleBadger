@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { setupMatch, spawnUnit, step, walkGridFromDoc } from '@battlebadger/sim'
+import { canHit, setupMatch, spawnUnit, step, walkGridFromDoc } from '@battlebadger/sim'
 import { generateFourCorners } from '../src/mapgen/fourCorners.ts'
 
 // Eagles, fell beasts and the four heroes. What matters is not that they exist
@@ -44,15 +44,66 @@ describe('the flyers', () => {
     expect(s.posX[bird], 'it should have crossed the spur').toBeGreaterThan(startX + 6)
   })
 
-  it('a ground-only weapon cannot touch it at all', () => {
-    // The reason air is worth its price: swords and spears are simply not an
-    // answer, however many of them there are.
+  it('is out of a ground weapon\'s reach while it stays up', () => {
+    // Stated against the rule itself rather than through a fight: an idle
+    // flyer auto-acquires and dives within a tick or two, so a brawl cannot
+    // observe the not-diving case at all.
+    const { s } = fresh()
+    const bird = spawnUnit(s, s.def.entIndex.get('eagle')!, 0, 88, 88)
+    const orcType = s.def.entIndex.get('orc')!
+    const archerType = s.def.entIndex.get('orc-archer')!
+    expect(s.swooping[bird]).toBe(0)
+    expect(canHit(s, orcType, bird), 'a sword should not reach it up there').toBe(false)
+    expect(canHit(s, archerType, bird), 'an arrow should').toBe(true)
+  })
+
+  it('is a ground target for as long as the dive lasts', () => {
+    const { s } = fresh()
+    const bird = spawnUnit(s, s.def.entIndex.get('eagle')!, 0, 88, 88)
+    const orcType = s.def.entIndex.get('orc')!
+    s.swooping[bird] = 5
+    expect(canHit(s, orcType, bird), 'committed — a sword can answer it').toBe(true)
+    s.swooping[bird] = 0
+    expect(canHit(s, orcType, bird), 'climbed out — out of reach again').toBe(false)
+  })
+
+  it('...but the moment it stoops, the men it lands among can answer', () => {
+    // ...and this is the price. A swoop is a commitment: for the length of the
+    // dive the eagle is a ground target, which is what stops air hovering out
+    // of reach and grinding an army down for free.
     const { grid, s } = fresh()
     const bird = spawnUnit(s, s.def.entIndex.get('eagle')!, 0, 88, 88)
-    for (let k = 0; k < 12; k++) spawnUnit(s, s.def.entIndex.get('orc')!, 1, 84 + k * 0.7, 90)
+    for (let k = 0; k < 12; k++) spawnUnit(s, s.def.entIndex.get('orc')!, 1, 87 + (k % 6) * 0.7, 89 + Math.floor(k / 6))
     const hp0 = s.hp[bird]
-    for (let t = 0; t < 300; t++) step(s, grid, [])
-    expect(s.hp[bird], 'twelve orcs should not have scratched it').toBe(hp0)
+    let sawDive = false
+    for (let t = 0; t < 400 && s.hp[bird] === hp0; t++) {
+      step(s, grid, [])
+      if (s.swooping[bird] > 0) sawDive = true
+    }
+    expect(sawDive, 'it should have dived to strike').toBe(true)
+    expect(s.hp[bird], 'and been hit for it').toBeLessThan(hp0)
+  })
+
+  it('beats loose light infantry but loses to massed archery', () => {
+    // The shape the swoop is for. A flyer that could sit over a formation and
+    // grind it down was the complaint; one that has to commit, and dies if it
+    // commits into the wrong thing, is the fix.
+    const fight = (foe: string, n: number): { lived: boolean; killed: number } => {
+      const { grid, s } = fresh()
+      const bird = spawnUnit(s, s.def.entIndex.get('eagle')!, 0, 88, 88)
+      const mob: number[] = []
+      for (let k = 0; k < n; k++) {
+        mob.push(spawnUnit(s, s.def.entIndex.get(foe)!, 1, 84 + (k % 5) * 1.4, 93 + Math.floor(k / 5) * 1.6))
+      }
+      for (let t = 0; t < 1500 && s.alive[bird] && mob.some((i) => s.alive[i]); t++) step(s, grid, [])
+      return { lived: s.alive[bird] === 1, killed: mob.filter((i) => !s.alive[i]).length }
+    }
+    // a dozen loose orcs: the eagle is worth its price
+    expect(fight('orc', 12).killed).toBeGreaterThan(6)
+    // a body of archers: it dies without taking the field with it
+    const vsArchers = fight('archer', 8)
+    expect(vsArchers.lived, 'archers should bring it down').toBe(false)
+    expect(vsArchers.killed, 'and not lose the field doing it').toBeLessThan(4)
   })
 
   it('archers are the answer, and it takes a real body of them', () => {

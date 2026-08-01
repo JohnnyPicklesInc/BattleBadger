@@ -235,8 +235,8 @@ describe('every player gets the same base', () => {
     }
     // Slots 1..3 and 5..7 hold nothing but their own lane; the team's lowest
     // slot additionally holds the shared courtyard and battlement pads.
-    const OWN_PLOTS = 9
-    const OWN_PADS = 3
+    const OWN_PLOTS = 8
+    const OWN_PADS = 8
     for (const slot of [1, 2, 3]) {
       expect(own[slot], `slot ${slot}`).toEqual({ 'fortress-plot': OWN_PLOTS, 'tower-plot': OWN_PADS })
     }

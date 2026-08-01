@@ -73,6 +73,22 @@ describe('unit animation groups', () => {
     }
   })
 
+  it('wings beat on Z, because an X-extent turned about X only rolls', () => {
+    // The bug this pins: wings modelled along X and hinged on X did not flap,
+    // they rolled about their own length — and the two sides counter-swung
+    // like arms, so the bird looked like it was shrugging.
+    for (const id of ['eagle', 'fell-beast']) {
+      const groups = buildGenGroups(UNIT_BLUEPRINTS[id])
+      const wings = groups.filter((g) => g.role === 'armL' || g.role === 'armR')
+      expect(wings.length, id).toBe(2)
+      for (const w of wings) expect(w.hinge, `${id} ${w.role}`).toBe('z')
+      // hinged at the shoulder, mirrored either side of the spine
+      const [l, r] = wings.sort((a, b) => a.pivot[0] - b.pivot[0])
+      expect(l.pivot[0]).toBeLessThan(0)
+      expect(r.pivot[0]).toBeGreaterThan(0)
+    }
+  })
+
   it('gates hinge their doors, so the renderer has something to swing', () => {
     for (const id of ['gate', 'sally-port']) {
       const roles = buildGenGroups(STRUCTURE_BLUEPRINTS[id]).map((g) => g.role)

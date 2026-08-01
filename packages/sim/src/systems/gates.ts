@@ -27,6 +27,14 @@ import type { SpatialHash } from '../spatial.ts'
  * Open and close every gate for this tick. Runs before pathing, so a path
  * planned this tick sees the state the unit will actually meet.
  */
+/** Count down every dive in progress. A flyer with none is back at altitude. */
+export function swoops(s: SimState): void {
+  for (let i = 0; i < s.count; i++) {
+    if (s.swooping[i] > 0 && s.alive[i]) s.swooping[i]--
+    else if (s.swooping[i] !== 0) s.swooping[i] = 0
+  }
+}
+
 export function gates(s: SimState, grid: WalkGrid, hash: SpatialHash): void {
   const radii = s.def.stats.gateRadius
   for (let i = 0; i < s.count; i++) {

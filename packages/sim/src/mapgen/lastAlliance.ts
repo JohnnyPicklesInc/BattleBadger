@@ -3,6 +3,7 @@ import { composeDef } from './factions/compose.ts'
 import { FACTION as BADGERS } from './factions/badgers.ts'
 import { FACTION as HORDE } from './factions/horde.ts'
 import { FORTIFICATIONS } from './factions/fortifications.ts'
+import { CARDINALS, DIAGONALS, ring } from './factions/shared.ts'
 
 // "The Last Alliance" — 4v4, west against east, a real fortress at each end.
 //
@@ -55,15 +56,19 @@ const WARD_X1 = 84 // tier 1 runs from the citadel edge out to here — where th
 const WARD_Z0 = 34
 const WARD_Z1 = H - 34
 
-// Where each player's own things go, relative to their keep. Three columns of
-// plots now rather than two, and the keeps stand 40 apart instead of 22, so a
-// player's base is somewhere with lanes through it rather than a tight block.
-const KEEP_X = 72
+// Each player's base is a ring around their keep, the same shape a keep's own
+// expansion ring makes on an open map — it just has to be authored here,
+// because four of them share one enclosure and four overlapping rings deal one
+// ally twelve plots and another nine.
+//
+// The keep sits in the MIDDLE of the ward rather than against its outer edge,
+// so the ring is a circle rather than a circle with one side shaved off by the
+// cliff.
+const KEEP_X = 60
 const KEEP_Z = [52, 92, 132, 172]
-const PLOT_COLUMNS = [62, 52, 42] // build plots, west of the keep
-const PLOT_ROWS = [-12, 0, 12]
-const PAD_X = 80 // this player's tower pads, east of the keep
-const PAD_ROWS = [-8, 0, 8]
+const PLOT_RING = 11 // build plots, eight of them evenly around the keep
+const PAD_RING = 18 // towers: one to each quarter, out on the approaches
+const PAD_INNER = 16 // and four drawn in, filling the gaps between them
 
 // Ground the whole team may build on, in the courtyard and along the wall.
 const SHARED_PLOT_X = 96
@@ -286,10 +291,12 @@ export function generateLastAlliance(seed = 20260731): RtsMapDoc {
       const kz = KEEP_Z[k]
       placed.push({ def: fort.keep, owner: slot, x: fx(KEEP_X) + 0.5, z: kz + 0.5 })
       startLocations.push({ x: fx(KEEP_X) + 0.5, z: kz + 0.5 })
-      for (const px of PLOT_COLUMNS) {
-        for (const dz of PLOT_ROWS) put(fort.plot, px, kz + dz, ALONG_Z, slot)
+      for (const o of ring([...CARDINALS, ...DIAGONALS], PLOT_RING)) {
+        put(fort.plot, KEEP_X + o.dx, kz + o.dz, ALONG_Z, slot)
       }
-      for (const dz of PAD_ROWS) put('tower-plot', PAD_X, kz + dz, ALONG_Z, slot)
+      for (const o of [...ring(CARDINALS, PAD_RING), ...ring(DIAGONALS, PAD_INNER)]) {
+        put('tower-plot', KEEP_X + o.dx, kz + o.dz, ALONG_Z, slot)
+      }
       // A starting battalion each, formed up in the courtyard behind the wall
       // rather than on the ward — they are the garrison, not a reserve.
       fort.army.forEach((ticket, a) => {

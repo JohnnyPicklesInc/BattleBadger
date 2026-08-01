@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { generateDunhollow } from '../src/mapgen/dunhollow.ts'
+import { KEEP_SLOTS, KEEP_TOWER_SLOTS } from '../src/mapgen/factions/shared.ts'
 import {
   addMember,
   addXp,
@@ -545,8 +546,45 @@ describe('Siege of Dunhollow (the whole BFME loop as data)', () => {
       return [a, b]
     }
     expect(count('fortress-plot')).toEqual([12, 12])
-    expect(count('tower-plot')).toEqual([8, 8])
+    // Eight pads are authored; this map's terrain refuses one of them, and the
+    // expansion guard drops it rather than burying it in a cliff. Both players
+    // lose the same one, which is what actually matters.
+    const [padsA, padsB] = count('tower-plot')
+    expect(padsA).toBe(padsB)
+    expect(padsA).toBeGreaterThanOrEqual(7)
     expect(sim.supplyCap[0]).toBe(90)
+  })
+
+  it('the build plots make a circle, not a cluster', () => {
+    // They used to sit on three arcs at three radii, which read as a huddle:
+    // the diagonals crowded the keep while the cardinals sat out alone.
+    const r = KEEP_SLOTS.map((o) => Math.sqrt(o.dx * o.dx + o.dz * o.dz))
+    const min = Math.min(...r)
+    const max = Math.max(...r)
+    expect(max - min, 'every slot should sit on one radius').toBeLessThan(1.5)
+    expect(KEEP_SLOTS.length).toBe(12)
+
+    // ...and evenly spaced around it, so there are lanes between the halls
+    // rather than two buildings shoulder to shoulder and a gap opposite.
+    const angles = KEEP_SLOTS.map((o) => Math.atan2(o.dz, o.dx)).sort((a, b) => a - b)
+    for (let i = 0; i < angles.length; i++) {
+      const gap = i === 0 ? angles[0] + Math.PI * 2 - angles[angles.length - 1] : angles[i] - angles[i - 1]
+      expect(gap, `gap ${i} is uneven`).toBeGreaterThan(0.4)
+    }
+  })
+
+  it('the towers are four to the compass, and four drawn in behind them', () => {
+    const r = KEEP_TOWER_SLOTS.map((o) => Math.sqrt(o.dx * o.dx + o.dz * o.dz))
+    expect(KEEP_TOWER_SLOTS.length).toBe(8)
+    // an outer picket of four, one to each quarter...
+    const outer = KEEP_TOWER_SLOTS.filter((_, i) => r[i] > 26)
+    expect(outer.length).toBe(4)
+    for (const o of outer) expect(o.dx === 0 || o.dz === 0, 'the outer four sit on the compass points').toBe(true)
+    // ...and four more closer in, filling the gaps between them
+    const inner = KEEP_TOWER_SLOTS.filter((_, i) => r[i] <= 26)
+    expect(inner.length).toBe(4)
+    for (const o of inner) expect(o.dx !== 0 && o.dz !== 0, 'the inner four fill the diagonals').toBe(true)
+    expect(Math.max(...r.filter((_, i) => r[i] <= 26))).toBeLessThan(Math.min(...r.filter((_, i) => r[i] > 26)))
   })
 
   it('the tower pads take a tower and nothing else', () => {

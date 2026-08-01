@@ -1,4 +1,4 @@
-import type { GenBlueprint, GenPart } from './blueprint.ts'
+import type { GenBlueprint, GenPart, Vec3 } from './blueprint.ts'
 
 // Unit blueprints: stout battle badgers. Shared anatomy comes from helpers so
 // a new troop type is a palette + gear list, not a re-sculpt. The 'player'
@@ -494,47 +494,88 @@ const gunship: GenBlueprint = {
 // Flyers hang at y ~2.5 so they read as airborne from a top-down camera; the
 // wings are armL/armR so the renderer's stride beat becomes a wingbeat.
 
-const EAGLE = { feather: '#b9a06a', feathDark: '#7d6437', beak: '#e0c15a', talon: '#3b3730' }
+const EAGLE = { feather: '#a8925f', feathDark: '#6f5930', feathLight: '#cbb888', beak: '#e8c65a', talon: '#3b3730' }
+
+// Wings are built in two segments — an inner arm and a swept outer hand — with
+// separate primaries, so the silhouette is a wing rather than a plank. Both
+// segments live in the same group, so the whole wing beats as one piece.
+function wing(side: 'armL' | 'armR', palette: 'feather' | 'membrane', dark: string): GenPart[] {
+  const dir = side === 'armL' ? -1 : 1
+  const pivot: Vec3 = [dir * 0.34, 2.55, 0]
+  return [
+    // inner: thick at the shoulder, thinning outboard
+    {
+      shape: 'box', color: palette, size: [1.25, 0.13, 1.15],
+      at: [dir * 1.0, 2.56, -0.05], rot: [0, 0, dir * -0.06],
+      group: side, pivot, hinge: 'z', jitter: 0.04,
+    },
+    // outer: swept back and tapered, the part that reads as a wing tip
+    {
+      shape: 'box', color: palette, size: [1.35, 0.09, 0.78],
+      at: [dir * 2.28, 2.62, -0.34], rot: [0, dir * 0.26, dir * -0.16],
+      group: side, hinge: 'z', jitter: 0.05,
+    },
+    // primaries: three long feathers fanning off the trailing edge
+    {
+      shape: 'box', color: dark, size: [0.9, 0.05, 0.2],
+      at: [dir * 2.75, 2.6, -0.72], rot: [0, dir * 0.5, dir * -0.2],
+      count: 3, spread: [0.32, 0.02, 0.26], tilt: 0.14, group: side, hinge: 'z',
+    },
+    // a band of owner colour along the leading edge, visible from above
+    {
+      shape: 'box', color: 'player', size: [2.1, 0.06, 0.22],
+      at: [dir * 1.5, 2.63, 0.42], rot: [0, 0, dir * -0.1], group: side, hinge: 'z',
+    },
+  ]
+}
 
 const eagle: GenBlueprint = {
   id: 'eagle',
   seed: 0x51a1,
   palette: EAGLE,
   parts: [
-    { shape: 'sphere', color: 'feather', radius: 0.55, at: [0, 2.5, 0], scale: [0.9, 0.65, 1.7], jitter: 0.05 },
-    { shape: 'sphere', color: 'feather', radius: 0.3, at: [0, 2.75, 1.15], jitter: 0.04 },
-    { shape: 'cone', color: 'beak', radius: 0.13, height: 0.42, at: [0, 2.72, 1.5], rot: [1.57, 0, 0] },
-    // tail
-    { shape: 'box', color: 'feathDark', size: [0.7, 0.07, 0.8], at: [0, 2.4, -1.3], jitter: 0.04 },
-    // wings, hinged at the shoulders
-    { shape: 'box', color: 'feather', size: [2.2, 0.09, 1.0], at: [-1.3, 2.6, 0], group: 'armL', pivot: [-0.35, 2.55, 0], jitter: 0.05 },
-    { shape: 'box', color: 'feather', size: [2.2, 0.09, 1.0], at: [1.3, 2.6, 0], group: 'armR', pivot: [0.35, 2.55, 0], jitter: 0.05 },
-    { shape: 'box', color: 'player', size: [1.9, 0.05, 0.3], at: [-1.3, 2.66, -0.4], group: 'armL' },
-    { shape: 'box', color: 'player', size: [1.9, 0.05, 0.3], at: [1.3, 2.66, -0.4], group: 'armR' },
-    { shape: 'cylinder', color: 'talon', radius: 0.07, height: 0.5, at: [-0.25, 2.15, 0.4], count: 2, spread: [0.5, 0, 0] },
+    // body: a tapered spindle rather than a ball, so it has a direction
+    { shape: 'sphere', color: 'feather', radius: 0.42, at: [0, 2.5, -0.1], scale: [1.0, 0.92, 2.0], jitter: 0.05 },
+    { shape: 'sphere', color: 'feathLight', radius: 0.3, at: [0, 2.4, 0.35], scale: [0.9, 0.8, 1.4], jitter: 0.04 },
+    // neck and head, held forward
+    { shape: 'capsule', color: 'feathLight', radius: 0.16, height: 0.22, at: [0, 2.62, 0.92], rot: [1.2, 0, 0] },
+    { shape: 'sphere', color: 'feathLight', radius: 0.21, at: [0, 2.66, 1.18], jitter: 0.03 },
+    { shape: 'cone', color: 'beak', radius: 0.1, height: 0.36, at: [0, 2.62, 1.44], rot: [1.45, 0, 0] },
+    { shape: 'sphere', color: 'feathDark', radius: 0.045, at: [-0.1, 2.74, 1.26] },
+    { shape: 'sphere', color: 'feathDark', radius: 0.045, at: [0.1, 2.74, 1.26] },
+    // tail: a fan of three, not a paddle
+    { shape: 'box', color: 'feathDark', size: [0.26, 0.05, 0.95], at: [0, 2.42, -1.35], count: 3, spread: [0.3, 0.02, 0.1], tilt: 0.12, jitter: 0.03 },
+    // legs tucked up under the body, talons forward
+    { shape: 'capsule', color: 'talon', radius: 0.06, height: 0.2, at: [-0.2, 2.26, 0.28], rot: [0.7, 0, 0] },
+    { shape: 'capsule', color: 'talon', radius: 0.06, height: 0.2, at: [0.2, 2.26, 0.28], rot: [0.7, 0, 0] },
+    { shape: 'cone', color: 'talon', radius: 0.05, height: 0.17, at: [-0.2, 2.14, 0.44], rot: [2.2, 0, 0] },
+    { shape: 'cone', color: 'talon', radius: 0.05, height: 0.17, at: [0.2, 2.14, 0.44], rot: [2.2, 0, 0] },
+    ...wing('armL', 'feather', 'feathDark'),
+    ...wing('armR', 'feather', 'feathDark'),
   ],
 }
 
-const FELL = { hide: '#4a4550', hideDark: '#2e2b34', membrane: '#5d4450', horn: '#c9c2ae' }
+const FELL = { membrane: '#4a4550', hide: '#332f3a', hideLight: '#5d5566', horn: '#c9c2ae' }
 
 const fellBeast: GenBlueprint = {
   id: 'fell-beast',
   seed: 0x51a2,
   palette: FELL,
   parts: [
-    { shape: 'sphere', color: 'hide', radius: 0.5, at: [0, 2.5, 0], scale: [0.85, 0.6, 1.8], jitter: 0.06 },
-    // long neck and narrow head, the opposite silhouette to the eagle
-    { shape: 'cylinder', color: 'hide', radius: 0.17, radiusTop: 0.12, height: 1.1, at: [0, 2.7, 1.1], rot: [1.2, 0, 0], jitter: 0.04 },
-    { shape: 'cone', color: 'hideDark', radius: 0.19, height: 0.6, at: [0, 2.9, 1.75], rot: [1.45, 0, 0], jitter: 0.04 },
-    { shape: 'cone', color: 'horn', radius: 0.06, height: 0.3, at: [0, 3.05, 1.55], rot: [-0.5, 0, 0], count: 2, spread: [0.12, 0, 0] },
-    // barbed tail
-    { shape: 'cylinder', color: 'hideDark', radius: 0.13, radiusTop: 0.04, height: 1.9, at: [0, 2.42, -1.5], rot: [1.5, 0, 0], jitter: 0.04 },
-    // ribbed membrane wings
-    { shape: 'box', color: 'membrane', size: [2.5, 0.06, 1.15], at: [-1.45, 2.6, -0.1], group: 'armL', pivot: [-0.3, 2.55, 0], tilt: 0.05, jitter: 0.06 },
-    { shape: 'box', color: 'membrane', size: [2.5, 0.06, 1.15], at: [1.45, 2.6, -0.1], group: 'armR', pivot: [0.3, 2.55, 0], tilt: 0.05, jitter: 0.06 },
-    { shape: 'cylinder', color: 'hideDark', radius: 0.05, height: 2.4, at: [-1.45, 2.66, 0.2], rot: [0, 0, 1.57], group: 'armL' },
-    { shape: 'cylinder', color: 'hideDark', radius: 0.05, height: 2.4, at: [1.45, 2.66, 0.2], rot: [0, 0, 1.57], group: 'armR' },
-    { shape: 'box', color: 'player', size: [0.34, 0.5, 0.34], at: [0, 2.95, -0.35] },
+    // leaner and longer than the eagle, and it leads with a neck rather than a head
+    { shape: 'sphere', color: 'hide', radius: 0.38, at: [0, 2.5, -0.2], scale: [0.95, 0.85, 2.1], jitter: 0.06 },
+    { shape: 'cylinder', color: 'hide', radius: 0.16, radiusTop: 0.1, height: 1.2, at: [0, 2.66, 0.75], rot: [1.25, 0, 0], jitter: 0.04 },
+    { shape: 'cone', color: 'hideLight', radius: 0.17, height: 0.62, at: [0, 2.82, 1.42], rot: [1.5, 0, 0], jitter: 0.04 },
+    { shape: 'cone', color: 'horn', radius: 0.05, height: 0.28, at: [-0.08, 2.95, 1.22], rot: [-0.6, 0, 0] },
+    { shape: 'cone', color: 'horn', radius: 0.05, height: 0.28, at: [0.08, 2.95, 1.22], rot: [-0.6, 0, 0] },
+    // a long barbed tail, the thing that distinguishes it at a glance
+    { shape: 'cylinder', color: 'hide', radius: 0.11, radiusTop: 0.03, height: 2.0, at: [0, 2.42, -1.6], rot: [1.5, 0, 0], jitter: 0.04 },
+    { shape: 'cone', color: 'horn', radius: 0.08, height: 0.34, at: [0, 2.4, -2.65], rot: [-1.5, 0, 0] },
+    { shape: 'capsule', color: 'hide', radius: 0.06, height: 0.24, at: [-0.18, 2.28, 0.1], rot: [0.8, 0, 0] },
+    { shape: 'capsule', color: 'hide', radius: 0.06, height: 0.24, at: [0.18, 2.28, 0.1], rot: [0.8, 0, 0] },
+    ...wing('armL', 'membrane', 'hide'),
+    ...wing('armR', 'membrane', 'hide'),
+    { shape: 'box', color: 'player', size: [0.3, 0.42, 0.3], at: [0, 2.86, -0.5] },
   ],
 }
 

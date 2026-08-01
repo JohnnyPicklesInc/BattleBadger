@@ -87,17 +87,24 @@ const ENTITIES: EntityDef[] = [
       // way past the wall. An eagle ignores the gate entirely, which is
       // exactly why archers on the battlement matter and why it wears cavalry
       // armour: arrows hit it at full rate and nothing else can reach it.
-      id: 'eagle', name: 'Great Eagle', kind: 'unit', radius: 0.85, hp: 520,
+      id: 'eagle', name: 'Great Eagle', kind: 'unit', radius: 0.85, hp: 430,
       armorType: 'cavalry', xpValue: 45,
       flying: true,
       vision: 24,
+      // It has to come down to kill. For 26 ticks either side of the strike it
+      // is a GROUND target, which is what turns air from a unit that hovers
+      // out of reach and grinds an army down into one that commits, hurts, and
+      // has to survive the answer.
+      swoopTicks: 16,
       visual: { model: 'gen:eagle', scale: 1.2, tint: 'owner' },
       mover: { speed: 7.0 },
       combat: {
-        damage: 62, range: 1.5, acquire: 13, periodTicks: 16, damageType: 'sword', hits: 'both',
-        // It stoops, snatches and drops. The knockback is the whole reason to
-        // fly one over a formation rather than shoot into it.
-        splashRadius: 1.6, splashEdgePct: 45, knockback: 3.4, knockdownTicks: 4,
+        // A heavy blow on a long cycle rather than a fast grinder: the whole
+        // unit is now one stoop at a time.
+        damage: 82, range: 1.5, acquire: 13, periodTicks: 40, damageType: 'sword', hits: 'both',
+        // It snatches and drops. Knockdown is gone — a stoop that also
+        // stunlocked the men it landed among left them nothing to answer with.
+        splashRadius: 1.2, splashEdgePct: 40, knockback: 3.0,
       },
     },
     {
@@ -177,7 +184,7 @@ const ENTITIES: EntityDef[] = [
     {
       id: 'h-eagles', name: 'Great Eagles', kind: 'unit', radius: 0.85, hp: 0,
       supplyCost: 16, buildTimeTicks: 260,
-      cost: [{ resource: 'res', amount: 1100 }],
+      cost: [{ resource: 'res', amount: 1000 }],
       visual: { model: 'gen:eagle', scale: 1.2, tint: 'owner' },
       horde: { unit: 'eagle', count: 2, spacing: 3.2 },
     },

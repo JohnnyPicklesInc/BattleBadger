@@ -16,7 +16,7 @@ import { PLAYER_COLORS, modelGeometry } from './unitMeshes.ts'
 import { buildTerrainMesh, shadeTerrainFog } from './terrainMesh.ts'
 import { resolveModel } from './assets.ts'
 import { genGroups } from '../gen/build.ts'
-import type { GenGroupRole } from '../gen/blueprint.ts'
+import type { GenGroupRole, HingeAxis } from '../gen/blueprint.ts'
 
 // One drawable piece of a unit type: gen: units get a mesh per animation
 // group (body, arms hinged at `pivot`); everything else is a single 'body'.
@@ -24,6 +24,7 @@ interface UnitPart {
   im: THREE.InstancedMesh
   role: GenGroupRole
   pivot: [number, number, number]
+  hinge: HingeAxis
 }
 
 const RING_OWN = new THREE.Color(0x7ee787)
@@ -280,7 +281,7 @@ export class GameRenderer {
                 new THREE.MeshLambertMaterial({ vertexColors: true }),
                 256,
               )
-              parts.push({ im, role: g.role, pivot: g.pivot })
+              parts.push({ im, role: g.role, pivot: g.pivot, hinge: g.hinge })
             }
           }
         }
@@ -289,7 +290,7 @@ export class GameRenderer {
           const mat = new THREE.MeshLambertMaterial({
             color: e.visual.tint === 'none' ? new THREE.Color(0x9aa4ae) : ownerColors[owner],
           })
-          parts.push({ im: new THREE.InstancedMesh(geo, mat, 256), role: 'body', pivot: [0, 0, 0] })
+          parts.push({ im: new THREE.InstancedMesh(geo, mat, 256), role: 'body', pivot: [0, 0, 0], hinge: 'x' })
         }
         for (const p of parts) {
           p.im.castShadow = true
@@ -670,7 +671,18 @@ export class GameRenderer {
     const z = prevZ[i] + (s.posZ[i] - prevZ[i]) * alpha
     // The sim is 2D; altitude is drawn here, so a flyer riding over a mountain
     // clears it visually without the simulation knowing about height at all.
-    const lift = this.def.stats.flying[s.type[i]] === 1 ? FLY_HEIGHT : 0
+    // A flyer sits at altitude unless it is diving, and a dive is a real
+    // commitment: it is a ground target for the whole of it, so it has to LOOK
+    // like it is down there.
+    let lift = 0
+    if (this.def.stats.flying[s.type[i]] === 1) {
+      const dive = this.def.stats.swoopTicks[s.type[i]]
+      const t = dive > 0 ? Math.min(1, s.swooping[i] / dive) : 0
+      // ease in and out so the bird arcs through the strike rather than
+      // teleporting between two heights
+      const e = t * t * (3 - 2 * t)
+      lift = FLY_HEIGHT - (FLY_HEIGHT - 0.9) * e
+    }
     out.set(x, this.grid.heightAtWorld(x, z) + lift, z)
   }
 
@@ -770,6 +782,15 @@ export class GameRenderer {
       // Gates swing their doors on the sim's open/closed state. Eased here
       // rather than in the sim because how fast a door LOOKS like it moves is
       // not something two clients have to agree about.
+      // A bird beats its wings whether or not it is going anywhere, and beats
+      // them harder pulling out of a stoop than gliding. Phase is offset per
+      // entity so a flight does not flap as one body.
+      let wingBeat = 0
+      if (this.def.stats.flying[ty] === 1) {
+        const diving = s.swooping[i] > 0
+        const rate = diving ? 13 : 7.5
+        wingBeat = Math.sin(this.animTime * rate + i * 0.7) * (diving ? 0.85 : 0.55)
+      }
       let doorSwing = 0 // gates only: doors turn about the vertical, not the walk axis
       if (this.def.stats.gateRadius[ty] > 0) {
         const want = s.gateOpen[i] === 1 ? 1 : 0
@@ -790,24 +811,34 @@ export class GameRenderer {
           part.im.setMatrixAt(slot, this.m4)
           continue
         }
-        // hinged group: rotate around its pivot, riding the base matrix.
-        // A 'weapon' ignores the walk cycle and only fires — a catapult arm
-        // must not flap while the engine rolls.
-        const rx =
-          part.role === 'weapon'
-            ? armChop * 1.7
-            : part.role === 'armL'
-              ? armSwing
-              : -armSwing - armChop * 1.4
+        // A hinged group turns around its own pivot, riding the base matrix.
+        // Which AXIS it turns on is authored per group, because the three cases
+        // are genuinely different motions: a limb swings on X, a door turns on
+        // its vertical jamb, and a wing — which extends along X — has to beat
+        // on Z, since turning an X-extent about X only rolls it about its own
+        // length.
+        const mirrored = part.role === 'armR'
+        let angle: number
+        if (doorSwing !== 0) {
+          angle = mirrored ? -doorSwing : doorSwing
+        } else if (part.hinge === 'z') {
+          // Wings beat in UNISON, so the right one is the mirror of the left
+          // rather than its counter-swing. Arms counter-swing because a walking
+          // biped's do; a bird whose wings alternated would be falling.
+          angle = mirrored ? -wingBeat : wingBeat
+        } else if (part.role === 'weapon') {
+          angle = armChop * 1.7
+        } else {
+          angle = part.role === 'armL' ? armSwing : -armSwing - armChop * 1.4
+        }
         const [px, py, pz] = part.pivot
         this.m4c.makeTranslation(px, py, pz)
-        // A door turns on a vertical jamb. Everything else — arms in a stride,
-        // a catapult throwing — hinges on the walk axis, so gates are the one
-        // case that rotates about Y instead of X.
         this.m4c.multiply(
-          doorSwing !== 0
-            ? this.m4b.makeRotationY(part.role === 'armL' ? doorSwing : -doorSwing)
-            : this.m4b.makeRotationX(rx),
+          part.hinge === 'y' || doorSwing !== 0
+            ? this.m4b.makeRotationY(angle)
+            : part.hinge === 'z'
+              ? this.m4b.makeRotationZ(angle)
+              : this.m4b.makeRotationX(angle),
         )
         this.m4c.multiply(this.m4d.makeTranslation(-px, -py, -pz))
         this.m4d.multiplyMatrices(this.m4, this.m4c)
@@ -862,7 +893,7 @@ export class GameRenderer {
           // One arrow per loosing, however many frames the tick spans.
           this.lastShotDrawn[i] = s.lastAttackTick[i]
           if (this.arrowFx.length < MAX_ARROWS) {
-            const tLift = this.def.stats.flying[s.type[t]] === 1 ? FLY_HEIGHT : 0
+            const tLift = this.def.stats.flying[s.type[t]] === 1 && s.swooping[t] <= 0 ? FLY_HEIGHT : 0
             this.arrowFx.push({
               x0: pos.x, y0: pos.y + 1.15, z0: pos.z,
               x1: tx, y1: this.grid.heightAtWorld(tx, tz) + tLift + 0.85, z1: tz,

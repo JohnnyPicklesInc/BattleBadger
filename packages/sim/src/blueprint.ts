@@ -20,11 +20,22 @@ export type Vec3 = [number, number, number]
 //              and anything else that would look absurd flapping as it rolls.
 export type GenGroupRole = 'body' | 'armL' | 'armR' | 'weapon'
 
+/**
+ * Which axis a hinged group turns on.
+ *
+ * An arm swinging in a stride pivots on X. A door on its jamb turns on Y. A
+ * WING has to turn on Z: it extends along X, and rotating an X-extent about X
+ * merely rolls it about its own length — which is exactly why the first eagles
+ * looked like they were shrugging rather than flying.
+ */
+export type HingeAxis = 'x' | 'y' | 'z'
+
 export interface GenPart {
   shape: 'box' | 'cylinder' | 'cone' | 'sphere' | 'capsule' | 'lathe'
   color: string // palette slot name; 'player' is reserved for the owner color
   group?: GenGroupRole
   pivot?: Vec3 // rotation hinge for a non-body group (e.g. the shoulder)
+  hinge?: HingeAxis // which axis that group turns on; default 'x'
   // shape dimensions (each shape reads the ones it needs)
   size?: Vec3 // box: width, height, depth
   radius?: number

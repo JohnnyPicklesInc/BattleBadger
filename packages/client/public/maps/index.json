@@ -9,37 +9,37 @@
     "file": "dunhollow.json",
     "name": "Siege of Dunhollow (plots, hordes & formations, 2–4 players)",
     "mapName": "dunhollow",
-    "hash": 891561665
+    "hash": 245586507
   },
   {
     "file": "four-corners.json",
     "name": "Four Corners (4-player FFA, mountains & a contested centre)",
     "mapName": "four-corners",
-    "hash": 2014052539
+    "hash": 1149731735
   },
   {
     "file": "last-alliance.json",
     "name": "The Last Alliance (4v4 siege — west vs east, fortress at each end)",
     "mapName": "last-alliance",
-    "hash": 3979455228
+    "hash": 1527331024
   },
   {
     "file": "ridge-crossing.json",
     "name": "Ridge Crossing (Badgers vs the Compact — air, 2 players)",
     "mapName": "ridge-crossing",
-    "hash": 1677828077
+    "hash": 2131035231
   },
   {
     "file": "charge-field.json",
     "name": "The Charge (50 horse vs a shield wall — battle test)",
     "mapName": "charge-field",
-    "hash": 1545729260
+    "hash": 2045094942
   },
   {
     "file": "troll-pit.json",
     "name": "The Pit (one ogre vs a mob — battle test)",
     "mapName": "troll-pit",
-    "hash": 3685587748
+    "hash": 4263599880
   },
   {
     "file": "econ-demo.json",

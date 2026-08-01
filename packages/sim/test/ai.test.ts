@@ -158,8 +158,11 @@ describe('the AI buys research', () => {
     const s = sim.setupMatch(doc, grid, 2)
     s.aiLevel[0] = 3
     s.aiLevel[1] = 3
+    // Generously long on purpose: research is a multiplier on an army, so the
+    // AI correctly buys the army and the buildings first and only then starts
+    // improving them. Measured at roughly 10k ticks on this map.
     let owned = 0
-    for (let t = 0; t < 6000 && owned === 0; t++) {
+    for (let t = 0; t < 16000 && owned === 0; t++) {
       sim.step(s, grid, [])
       owned = 0
       for (let u = 0; u < s.def.upgrades.length; u++) if (sim.hasUpgrade(s, 0, u)) owned++

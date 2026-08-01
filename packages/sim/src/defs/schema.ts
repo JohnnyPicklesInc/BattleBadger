@@ -147,6 +147,13 @@ export interface EntityDef {
   // That split is the whole point: air is only interesting because most ground
   // weapons cannot answer it.
   flying?: boolean
+  // A flyer that must come down to strike. It dives, hits, and climbs out,
+  // and for the whole of that it counts as a GROUND target — so spears and
+  // swords can answer it in the moment it is committed.
+  //
+  // This is what stops air being a unit that hovers out of reach and grinds an
+  // army down: the damage is real, but so is the window it opens.
+  swoopTicks?: number
   // Sight radius for fog of war. Defaults to the larger of the unit's acquire
   // range and a floor, so a unit can always see whatever it auto-engages —
   // otherwise it would shoot at things its owner cannot see.

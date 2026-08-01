@@ -12,7 +12,7 @@ import { aiCommands } from './systems/ai.ts'
 import { harvest } from './systems/harvest.ts'
 import { construction, income, production, supplyPower } from './systems/economy.ts'
 import { triggers } from './systems/triggers.ts'
-import { gates } from './systems/gates.ts'
+import { gates, swoops } from './systems/gates.ts'
 
 // Scratch spatial hash — transient within one step, never part of hashed state.
 const hash = new SpatialHash()
@@ -34,6 +34,9 @@ export function step(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]): void {
   // Before pathing, so a path planned this tick meets the gate state the unit
   // will actually arrive at rather than last tick's.
   gates(s, grid, hash)
+  // Dives tick down before targeting, so a flyer that has climbed out is out
+  // of a spearman's reach on the same tick it regains its altitude.
+  swoops(s)
   acquireTargets(s, hash)
   harvest(s, grid)
   updateOrders(s, grid)

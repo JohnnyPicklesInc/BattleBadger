@@ -96,6 +96,7 @@ export interface GameDefCompiled {
     chgRecoilPct: Int32Array
     gateRadius: Float64Array // >0 = a gate that opens for its owners
     gateManual: Uint8Array // 1 = starts barred and is worked by hand
+    swoopTicks: Int32Array // >0 = a flyer that dives to strike and is grounded while it does
     crusherLevel: Int32Array // what this unit can flatten; 0 = nothing
     crushableLevel: Int32Array // how easily it is flattened
     chargeGuard: Int32Array // damage returned to a charger that connects
@@ -255,6 +256,7 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
     chgRecoilPct: new Int32Array(n),
     gateRadius: new Float64Array(n),
     gateManual: new Uint8Array(n),
+    swoopTicks: new Int32Array(n),
     crusherLevel: new Int32Array(n),
     crushableLevel: new Int32Array(n),
     chargeGuard: new Int32Array(n),
@@ -328,6 +330,7 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
     else if (e.combat?.hits === 'both') stats.hitMask[i] = 3
     stats.gateRadius[i] = e.gate?.openRadius ?? 0
     stats.gateManual[i] = e.gate?.manual ? 1 : 0
+    stats.swoopTicks[i] = e.swoopTicks ?? 0
     stats.crusherLevel[i] = e.crusherLevel ?? 0
     stats.chargeGuard[i] = e.chargeGuard ?? 0
     // Buildings are uncrushable unless an author deliberately says otherwise —

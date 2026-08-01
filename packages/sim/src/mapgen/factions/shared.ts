@@ -13,46 +13,40 @@ export const CRUSH_FOOT = 1
 export const CRUSH_MOUNTED = 2
 export const CRUSH_ENGINE = 3
 
-// The build plots ringing a keep.
-//
-// Held well off the keep rather than hugging it. Plots pressed against the
-// citadel made a base one solid blob: no lanes between the buildings, nowhere
-// for a defender to stand, and a single catapult shot landing on four things
-// at once. At this radius a base is somewhere you fight rather than a wall of
-// masonry, and there is room to walk between the halls.
-const R = 15
-const D = 11 // the diagonals, held to roughly the same distance
-export const KEEP_SLOTS = [
-  { dx: R, dz: 0 },
-  { dx: -R, dz: 0 },
-  { dx: 0, dz: R },
-  { dx: 0, dz: -R },
-  { dx: D, dz: D },
-  { dx: -D, dz: D },
-  { dx: D, dz: -D },
-  { dx: -D, dz: -D },
-  // a second, wider arc — a keep is worth building a real base around
-  { dx: 22, dz: 8 },
-  { dx: 22, dz: -8 },
-  { dx: -22, dz: 8 },
-  { dx: -22, dz: -8 },
+// Twelve compass points as literal unit vectors, and the four cardinals.
+// Authored rather than computed because trigonometry is banned in this package
+// (scripts/check-sim-purity.mjs) — the same reason the AI carries its own copy.
+export const COMPASS: [number, number][] = [
+  [1, 0], [0.87, 0.5], [0.5, 0.87],
+  [0, 1], [-0.5, 0.87], [-0.87, 0.5],
+  [-1, 0], [-0.87, -0.5], [-0.5, -0.87],
+  [0, -1], [0.5, -0.87], [0.87, -0.5],
 ]
+export const CARDINALS: [number, number][] = [[1, 0], [0, 1], [-1, 0], [0, -1]]
+export const DIAGONALS: [number, number][] = [[0.71, 0.71], [-0.71, 0.71], [-0.71, -0.71], [0.71, -0.71]]
 
-// Small pads further out, on the approaches. They take a tower and nothing
-// else, so the outer ring is defence rather than more economy — the reason to
-// push your perimeter out is to see and shoot, not to earn.
-const T = 30
-const TD = 22
-export const KEEP_TOWER_SLOTS = [
-  { dx: T, dz: 0 },
-  { dx: -T, dz: 0 },
-  { dx: 0, dz: T },
-  { dx: 0, dz: -T },
-  { dx: TD, dz: TD },
-  { dx: -TD, dz: TD },
-  { dx: TD, dz: -TD },
-  { dx: -TD, dz: -TD },
-]
+/** Place `dirs` on a circle of `radius`, rounded to whole cells. */
+export function ring(dirs: [number, number][], radius: number): { dx: number; dz: number }[] {
+  // floor(+0.5) rather than rounding — see the purity check.
+  const snap = (v: number): number => Math.floor(v * radius + (v < 0 ? -0.5 : 0.5))
+  return dirs.map(([x, z]) => ({ dx: snap(x), dz: snap(z) }))
+}
+
+// The build plots ringing a keep: a genuine circle, twelve slots evenly spaced
+// on one radius.
+//
+// It used to be three arcs at three different distances, which read as a
+// cluster rather than a ring and left the diagonals crowded against the keep
+// while the cardinals sat out on their own. Held well off the citadel either
+// way: plots pressed against it made a base one solid blob, with no lanes
+// between the buildings and a single catapult shot landing on four things.
+export const KEEP_SLOTS = ring(COMPASS, 15)
+
+// Towers. Four out on the approaches, one to each quarter of the compass, and
+// four more drawn in toward the keep — a picket you can see from, and a closer
+// ring you fall back to. They take a tower and nothing else, so pushing the
+// perimeter out is about seeing and shooting rather than earning.
+export const KEEP_TOWER_SLOTS = [...ring(CARDINALS, 30), ...ring(DIAGONALS, 22)]
 
 export const STANCES: FormationDef[] = [
   { id: 'block', name: 'Block', kind: 'block', hotkey: 'B' },

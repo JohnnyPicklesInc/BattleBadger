@@ -116,7 +116,7 @@ function detonate(s: SimState, hash: SpatialHash, k: number): void {
     for (let i = 0; i < s.count; i++) {
       if (!s.alive[i] || s.hidden[i] || st.untargetable[s.type[i]]) continue
       if (allied(s, s.owner[i], pr.owner[k])) continue
-      if (!canHit(s, pr.srcType[k], s.type[i])) continue
+      if (!canHit(s, pr.srcType[k], i)) continue
       const dx = s.posX[i] - cx
       const dz = s.posZ[i] - cz
       const r = st.radius[s.type[i]]
@@ -136,7 +136,7 @@ function detonate(s: SimState, hash: SpatialHash, k: number): void {
       if (!s.alive[i] || s.hidden[i] || st.untargetable[s.type[i]]) return
       if (allied(s, s.owner[i], pr.owner[k])) return
       // a ground-only shell blows up under a gunship, not on it
-      if (!canHit(s, pr.srcType[k], s.type[i])) return
+      if (!canHit(s, pr.srcType[k], i)) return
       const dx = s.posX[i] - cx
       const dz = s.posZ[i] - cz
       const reach = splash + st.radius[s.type[i]]

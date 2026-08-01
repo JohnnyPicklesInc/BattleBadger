@@ -21,7 +21,7 @@ export function acquireTargets(s: SimState, hash: SpatialHash): void {
     const cur = s.target[i]
     if (cur >= 0) {
       let drop = !s.alive[cur] || s.hidden[cur] === 1
-      if (!drop && mode !== 2 && !canHit(s, ty, s.type[cur])) drop = true
+      if (!drop && mode !== 2 && !canHit(s, ty, cur)) drop = true
       if (!drop && allied(s, s.owner[cur], s.owner[i])) {
         // ally target (heal-style): drop once fully healed
         drop = s.hp[cur] >= st.maxHp[s.type[cur]]
@@ -49,7 +49,7 @@ export function acquireTargets(s: SimState, hash: SpatialHash): void {
     let bestDSq = acquire * acquire
     hash.forNeighbors(s.posX[i], s.posZ[i], acquire, (j) => {
       if (!s.alive[j] || j === i || st.untargetable[s.type[j]]) return
-      if (mode !== 2 && !canHit(s, ty, s.type[j])) return // wrong layer
+      if (mode !== 2 && !canHit(s, ty, j)) return // wrong layer
       if (mode === 2) {
         if (!allied(s, s.owner[j], s.owner[i]) || s.hp[j] >= st.maxHp[s.type[j]]) return
       } else if (allied(s, s.owner[j], s.owner[i])) return
@@ -80,8 +80,16 @@ export function acquireTargets(s: SimState, hash: SpatialHash): void {
  * ends up looking broken is a ground army that locks onto a gunship and
  * stands there.
  */
-export function canHit(s: SimState, attackerType: number, victimType: number): boolean {
-  const need = s.def.stats.flying[victimType] === 1 ? 2 : 1
+/**
+ * Can this weapon reach that entity's layer?
+ *
+ * Takes the victim's ID rather than its type because a swooping flyer is on
+ * the ground for as long as its dive lasts — which is the entire point of the
+ * swoop, and cannot be answered from the type alone.
+ */
+export function canHit(s: SimState, attackerType: number, victim: number): boolean {
+  const airborne = s.def.stats.flying[s.type[victim]] === 1 && s.swooping[victim] <= 0
+  const need = airborne ? 2 : 1
   return (s.def.stats.hitMask[attackerType] & need) !== 0
 }
 
@@ -181,9 +189,12 @@ export function combat(s: SimState, grid: WalkGrid): void {
       s.hp[tgt] = Math.min(max, s.hp[tgt] + ab.hpDelta)
       s.cooldown[i] = ab.periodTicks
       s.lastAttackTick[i] = s.tick
-    } else if (st.damage[ty] > 0 && canHit(s, ty, s.type[tgt])) {
+    } else if (st.damage[ty] > 0 && canHit(s, ty, tgt)) {
       // Attacker-side scaling happens here for both weapon kinds; the armor
       // matrix and defender scaling are applied on impact for a shell.
+      // A swooper commits: it is on the deck from the moment it strikes until
+      // it has climbed out, and anything with a spear can reach it meanwhile.
+      if (st.swoopTicks[ty] > 0) s.swooping[i] = st.swoopTicks[ty]
       const outgoing = Math.floor((attackDamage(s, i) * outgoingPct(s, i)) / 100)
       if (st.projSpeed[ty] > 0) {
         // A flying shot is aimed at the ground the target occupies RIGHT NOW.
@@ -208,7 +219,7 @@ export function combat(s: SimState, grid: WalkGrid): void {
           if (j === tgt || j === i) continue
           if (!s.alive[j] || s.hidden[j] || st.untargetable[s.type[j]]) continue
           if (allied(s, s.owner[j], s.owner[i])) continue
-          if (!canHit(s, ty, s.type[j])) continue
+          if (!canHit(s, ty, j)) continue
           const sx = s.posX[j] - s.posX[tgt]
           const sz = s.posZ[j] - s.posZ[tgt]
           const reach = splash + st.radius[s.type[j]]

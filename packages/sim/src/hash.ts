@@ -96,6 +96,8 @@ export function stateHash(s: SimState): number {
     // A gate is player-controlled and changes walkability, so two clients
     // disagreeing about one would diverge in pathing rather than loudly.
     h = fnv1aInt(h, s.gateOpen[i] | (s.gateMode[i] << 1))
+    // A diving flyer is a ground target, so this decides who can reach it.
+    h = fnv1aInt(h, s.swooping[i])
     h = fnv1aInt(h, s.target[i] | (s.forced[i] << 24) | (s.chased[i] << 25))
     h = fnv1aInt(h, s.followTarget[i])
     h = fnv1aInt(h, quant(s.homeX[i]))

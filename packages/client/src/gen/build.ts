@@ -1,7 +1,7 @@
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { rngFloat, rngFromSeed } from '@battlebadger/sim'
-import type { GenBlueprint, GenGroupRole, GenPart, Vec3 } from './blueprint.ts'
+import type { GenBlueprint, GenGroupRole, GenPart, HingeAxis, Vec3 } from './blueprint.ts'
 import { findBlueprint } from './registry.ts'
 
 // One animation group of a built blueprint: merged geometry plus the hinge the
@@ -9,6 +9,8 @@ import { findBlueprint } from './registry.ts'
 export interface GenGroup {
   role: GenGroupRole
   pivot: Vec3
+  /** Axis this group turns on — 'x' for a limb, 'y' for a door, 'z' for a wing. */
+  hinge: HingeAxis
   geometry: THREE.BufferGeometry
 }
 
@@ -54,7 +56,7 @@ function partGeometry(p: GenPart): THREE.BufferGeometry {
 // stream — and therefore the mesh — never depends on how parts are grouped.
 export function buildGenGroups(bp: GenBlueprint, playerColor: THREE.Color | null = null): GenGroup[] {
   const rng = rngFromSeed(bp.seed >>> 0)
-  const buckets = new Map<GenGroupRole, { pivot: Vec3; pieces: THREE.BufferGeometry[] }>()
+  const buckets = new Map<GenGroupRole, { pivot: Vec3; hinge: HingeAxis; pieces: THREE.BufferGeometry[] }>()
   const pos = new THREE.Vector3()
   const quat = new THREE.Quaternion()
   const scl = new THREE.Vector3()
@@ -107,10 +109,11 @@ export function buildGenGroups(bp: GenBlueprint, playerColor: THREE.Color | null
       const role = p.group ?? 'body'
       let bucket = buckets.get(role)
       if (!bucket) {
-        bucket = { pivot: [0, 0, 0], pieces: [] }
+        bucket = { pivot: [0, 0, 0], hinge: 'x', pieces: [] }
         buckets.set(role, bucket)
       }
       if (p.pivot) bucket.pivot = p.pivot
+      if (p.hinge) bucket.hinge = p.hinge
       bucket.pieces.push(g)
     }
   }
@@ -118,7 +121,7 @@ export function buildGenGroups(bp: GenBlueprint, playerColor: THREE.Color | null
   for (const [role, b] of buckets) {
     const merged = mergeGeometries(b.pieces, false) ?? new THREE.BufferGeometry()
     merged.computeVertexNormals()
-    groups.push({ role, pivot: b.pivot, geometry: merged })
+    groups.push({ role, pivot: b.pivot, hinge: b.hinge, geometry: merged })
   }
   return groups
 }

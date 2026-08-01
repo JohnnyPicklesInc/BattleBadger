@@ -195,6 +195,8 @@ export interface SimState {
   upgTakenPct: Int32Array
   upgRangePct: Int32Array
   upgSpeedPct: Int32Array
+  // Ticks left in a dive. While this is running the flyer counts as ground.
+  swooping: Int32Array
   gateOpen: Uint8Array // gates only: 1 while the footprint is standing open
   gateMode: Uint8Array // gates only: how it decides — see GateMode
   alive: Uint8Array
@@ -296,6 +298,7 @@ export function createSim(seed: number, def: GameDefCompiled): SimState {
     upgTakenPct: new Int32Array(8 * def.entities.length).fill(100),
     upgRangePct: new Int32Array(8 * def.entities.length).fill(100),
     upgSpeedPct: new Int32Array(8 * def.entities.length).fill(100),
+    swooping: new Int32Array(MAX_UNITS),
     gateOpen: new Uint8Array(MAX_UNITS),
     gateMode: new Uint8Array(MAX_UNITS),
     projectiles: createProjectileStore(),
@@ -474,6 +477,7 @@ export function spawnUnit(s: SimState, typeIdx: number, owner: number, x: number
   // A great gate starts barred and is worked by hand; a sally port opens for
   // whoever walks up to it.
   s.gateOpen[id] = 0
+  s.swooping[id] = 0
   s.gateMode[id] = s.def.stats.gateManual[typeIdx] ? GateMode.Shut : GateMode.Auto
   s.kind[id] = def.kind === 'building' ? Kind.Building : Kind.Unit
   s.posX[id] = x

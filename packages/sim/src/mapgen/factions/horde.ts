@@ -48,15 +48,18 @@ const ENTITIES: EntityDef[] = [
       // A fell beast. The Horde's answer to an eagle and the mirror of it:
       // faster and cheaper, but thinner — the same trade the rest of this
       // faction makes. Cavalry armour, so archers are the answer to it.
-      id: 'fell-beast', name: 'Fell Beast', kind: 'unit', radius: 0.8, hp: 400,
+      id: 'fell-beast', name: 'Fell Beast', kind: 'unit', radius: 0.8, hp: 350,
       armorType: 'cavalry', xpValue: 40,
       flying: true,
       vision: 24,
+      // A shorter dive than the eagle's: it is in and out faster, and thinner
+      // for it. The same trade this faction makes everywhere.
+      swoopTicks: 13,
       visual: { model: 'gen:fell-beast', scale: 1.2, tint: 'owner' },
       mover: { speed: 7.8 },
       combat: {
-        damage: 50, range: 1.4, acquire: 13, periodTicks: 15, damageType: 'sword', hits: 'both',
-        splashRadius: 1.4, splashEdgePct: 45, knockback: 3.6, knockdownTicks: 4,
+        damage: 66, range: 1.4, acquire: 13, periodTicks: 36, damageType: 'sword', hits: 'both',
+        splashRadius: 1.1, splashEdgePct: 40, knockback: 3.2,
       },
     },
     {
@@ -133,7 +136,7 @@ const ENTITIES: EntityDef[] = [
     {
       id: 'h-fell-beasts', name: 'Fell Beasts', kind: 'unit', radius: 0.8, hp: 0,
       supplyCost: 15, buildTimeTicks: 240,
-      cost: [{ resource: 'res', amount: 950 }],
+      cost: [{ resource: 'res', amount: 880 }],
       visual: { model: 'gen:fell-beast', scale: 1.2, tint: 'owner' },
       horde: { unit: 'fell-beast', count: 2, spacing: 3.0 },
     },
