@@ -1,5 +1,5 @@
 import { registerSW } from 'virtual:pwa-register'
-import type { RtsMapDoc } from '@battlebadger/sim'
+import { mapSlotCount, type RtsMapDoc } from '@battlebadger/sim'
 import { Game, type GameEndInfo } from './game/game.ts'
 import { LocalLoopback } from './net/transport.ts'
 import { loadAssetGeometries } from './render/assets.ts'
@@ -64,7 +64,13 @@ if (location.hash === '#editor') {
   })
   document.body.appendChild(back)
   void loadAssetGeometries(doc).then((assets) => {
-    new Game(app, doc, 0, new LocalLoopback(), showEnd, assets, 2)
+    // The map says how many slots it seats and which of them are computers.
+    // Hardcoding two meant playtesting a four-player map ran it as a duel with
+    // half the bases inert.
+    const slots = mapSlotCount(doc)
+    const ai = Array.from({ length: slots }, (_, i) => doc.aiLevels?.[i] ?? (i === 0 ? 0 : 2))
+    ai[0] = 0 // you are always slot 0 in a playtest
+    new Game(app, doc, 0, new LocalLoopback(), showEnd, assets, slots, ai)
   })
 } else {
   showLobby(({ slot, transport, players, doc: lobbyDoc, aiLevels }) => {

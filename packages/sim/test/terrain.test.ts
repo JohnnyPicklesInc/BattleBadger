@@ -69,7 +69,7 @@ describe('cliff terrain derivation', () => {
     const sealed = cliffDoc()
     sealed.ramp = Array.from({ length: 16 * 16 }, () => 0)
     const grid2 = walkGridFromDoc(sealed)
-    expect(findPath(grid2, 2, 7, 7, 7)).toBeNull()
+    expect(findPath(grid2, 2, 7, 7, 7, true)).toBeNull()
   })
 
   it('generated skirmish map v2: starts walkable and mutually reachable', () => {

@@ -1,3 +1,4 @@
+import { grantUpgrade } from './upgrades.ts'
 import { Kind, Order, addMember, allied, createHorde, spawnUnit, type SimState } from '../state.ts'
 import type { WalkGrid } from '../path/walkgrid.ts'
 import { blockCells } from '../setup.ts'
@@ -13,6 +14,21 @@ export function canAfford(s: SimState, player: number, defIdx: number): boolean 
     if (s.resources[player * numRes + r] < cost[r]) return false
   }
   return true
+}
+
+export function canAffordUpgrade(s: SimState, player: number, upIdx: number): boolean {
+  const cost = s.def.upgradeCost[upIdx]
+  const numRes = s.def.resources.length
+  for (let r = 0; r < numRes; r++) {
+    if (s.resources[player * numRes + r] < cost[r]) return false
+  }
+  return true
+}
+
+export function deductUpgrade(s: SimState, player: number, upIdx: number): void {
+  const cost = s.def.upgradeCost[upIdx]
+  const numRes = s.def.resources.length
+  for (let r = 0; r < numRes; r++) s.resources[player * numRes + r] -= cost[r]
 }
 
 export function deduct(s: SimState, player: number, defIdx: number, sign: number): void {
@@ -216,6 +232,19 @@ export function spawnHorde(
   return spawned
 }
 
+// Is a building already standing where one is about to go? Plots and keeps
+// only — units get pushed out of a new footprint, buildings do not.
+function occupiedBy(s: SimState, x: number, z: number, radius: number): boolean {
+  for (let i = 0; i < s.count; i++) {
+    if (!s.alive[i] || s.kind[i] !== Kind.Building) continue
+    const dx = s.posX[i] - x
+    const dz = s.posZ[i] - z
+    const r = radius + s.def.stats.radius[s.type[i]]
+    if (dx * dx + dz * dz < r * r) return true
+  }
+  return false
+}
+
 export function spawnBuilding(
   s: SimState,
   grid: WalkGrid,
@@ -261,12 +290,18 @@ export function spawnBuilding(
     // the work proceeds, so raising a barracks in the open is a real risk.
     s.hp[id] = Math.max(1, Math.floor(st.maxHp[defIdx] / 2))
   }
-  // a fortress brings its ring of expansion plots with it
-  const expPlot = s.def.expansionPlot[defIdx]
-  if (expPlot >= 0) {
-    const offsets = s.def.expansionOffsets[defIdx]
-    for (let o = 0; o + 1 < offsets.length; o += 2) {
-      const p = spawnBuilding(s, grid, expPlot, owner, x + offsets[o], z + offsets[o + 1], false)
+  // A fortress brings its rings of expansion plots with it — but only the ones
+  // that have somewhere to go. A slot landing in a cliff, in the sea, or on top
+  // of a neighbour's plot used to spawn anyway: on a map where several keeps
+  // share one enclosure that stacked pads on each other and buried others in
+  // the rock. Skipping them keeps the ring honest about what it actually got.
+  for (const ring of s.def.expansionRings[defIdx]) {
+    for (let o = 0; o + 1 < ring.offsets.length; o += 2) {
+      const px = x + ring.offsets[o]
+      const pz = z + ring.offsets[o + 1]
+      if (!grid.isWalkableWorld(px, pz)) continue
+      if (occupiedBy(s, px, pz, st.radius[ring.plot])) continue
+      const p = spawnBuilding(s, grid, ring.plot, owner, px, pz, false)
       s.plotParent[p] = id
     }
   }
@@ -350,6 +385,16 @@ export function production(s: SimState, grid: WalkGrid): void {
     if (powerDeficit(s, s.owner[i]) && (s.tick & 1) === 1) continue
     s.queueTicks[i]++
     const unitDef = q[0]
+    // A negative entry is research rather than a unit: nothing spawns, the
+    // owner simply comes to own it.
+    if (unitDef < 0) {
+      const up = -1 - unitDef
+      if (s.queueTicks[i] < Math.max(1, s.def.upgrades[up].buildTimeTicks)) continue
+      grantUpgrade(s, s.owner[i], up)
+      q.shift()
+      s.queueTicks[i] = 0
+      continue
+    }
     const needed = Math.max(1, s.def.entities[unitDef].buildTimeTicks ?? 10)
     if (s.queueTicks[i] < needed) continue
 

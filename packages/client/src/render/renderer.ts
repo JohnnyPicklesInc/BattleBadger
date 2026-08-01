@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import {
   MAX_UNITS,
   type AbilityDef,
@@ -9,6 +10,7 @@ import {
   type WalkGrid,
 } from '@battlebadger/sim'
 import { RtsCamera } from './camera.ts'
+import { BattleAudio } from './audio.ts'
 import type { MouseCursor } from '../input/cursor.ts'
 import { PLAYER_COLORS, modelGeometry } from './unitMeshes.ts'
 import { buildTerrainMesh, shadeTerrainFog } from './terrainMesh.ts'
@@ -33,6 +35,10 @@ const MAX_RENDER_PLAYERS = 8
 const SHADOW_HALF = 70
 // How high a flyer rides above the ground it is over.
 const FLY_HEIGHT = 4.2
+// Arrows live about a fifth of a second each, so this is a ceiling on how many
+// can be in the air at once, not on how many may be fired.
+const MAX_ARROWS = 512
+const ARROW_LIFE_MS = 200
 const BLAST_COLOR = new THREE.Color(0xffa33a) // burning shell
 const DUST_COLOR = new THREE.Color(0xd8cfc0) // hooves
 
@@ -155,11 +161,22 @@ class HealthBars {
 export class GameRenderer {
   readonly scene = new THREE.Scene()
   readonly cam: RtsCamera
+  readonly audio = new BattleAudio()
   private renderer: THREE.WebGLRenderer
   private units: UnitPart[][][] = [] // [owner][type][part]
   private rings: THREE.InstancedMesh
-  private beams: THREE.LineSegments
-  private beamPositions: Float32Array
+  // Arrows in flight. Render-only: the sim resolved the hit the instant the
+  // bow was loosed, so these are a picture of a shot that has already landed.
+  // They cannot miss, cannot be dodged, and cannot change who died.
+  private arrows: THREE.InstancedMesh
+  private arrowFx: {
+    x0: number; y0: number; z0: number
+    x1: number; y1: number; z1: number
+    age: number
+  }[] = []
+  // Last attack tick we drew an arrow for, per entity — the render loop runs
+  // at frame rate, so without this a single volley would spawn a dozen.
+  private lastShotDrawn = new Int32Array(MAX_UNITS).fill(-1)
   private healBeams: THREE.LineSegments
   private healBeamPositions: Float32Array
   private marker: THREE.Mesh
@@ -188,6 +205,7 @@ export class GameRenderer {
   private m4c = new THREE.Matrix4()
   private m4d = new THREE.Matrix4()
   private animTime = 0 // seconds of wall clock, drives render-only unit motion
+  private doorOpen = new Float32Array(4096) // per entity, eased gate door angle
   private v3 = new THREE.Vector3()
 
   private def: GameDefCompiled
@@ -363,15 +381,24 @@ export class GameRenderer {
     this.rings.frustumCulled = false
     this.scene.add(this.rings)
 
-    this.beamPositions = new Float32Array(MAX_UNITS * 6)
-    const beamGeo = new THREE.BufferGeometry()
-    beamGeo.setAttribute('position', new THREE.BufferAttribute(this.beamPositions, 3))
-    this.beams = new THREE.LineSegments(
-      beamGeo,
-      new THREE.LineBasicMaterial({ color: 0xffe27a, transparent: true, opacity: 0.85 }),
+    // A shaft and a head, modelled pointing along +Z so the flight basis
+    // orients it the same way a unit's facing does.
+    const shaft = new THREE.CylinderGeometry(0.035, 0.035, 1.0, 5)
+    shaft.rotateX(Math.PI / 2)
+    const head = new THREE.ConeGeometry(0.08, 0.26, 5)
+    head.rotateX(Math.PI / 2)
+    head.translate(0, 0, 0.6)
+    const fletch = new THREE.BoxGeometry(0.02, 0.16, 0.22)
+    fletch.translate(0, 0, -0.42)
+    const arrowGeo = mergeGeometries([shaft, head, fletch], false)!
+    this.arrows = new THREE.InstancedMesh(
+      arrowGeo,
+      new THREE.MeshBasicMaterial({ color: 0xe8d9a8 }),
+      MAX_ARROWS,
     )
-    this.beams.frustumCulled = false
-    this.scene.add(this.beams)
+    this.arrows.count = 0
+    this.arrows.frustumCulled = false
+    this.scene.add(this.arrows)
 
     this.healBeamPositions = new Float32Array(MAX_UNITS * 6)
     const healGeo = new THREE.BufferGeometry()
@@ -693,7 +720,6 @@ export class GameRenderer {
     const fwd = new THREE.Vector3()
     const pos = this.v3
     let ringCount = 0
-    let beamVerts = 0
     let healVerts = 0
     let carryCount = 0
 
@@ -741,6 +767,17 @@ export class GameRenderer {
           armChop = lunge
         }
       }
+      // Gates swing their doors on the sim's open/closed state. Eased here
+      // rather than in the sim because how fast a door LOOKS like it moves is
+      // not something two clients have to agree about.
+      let doorSwing = 0 // gates only: doors turn about the vertical, not the walk axis
+      if (this.def.stats.gateRadius[ty] > 0) {
+        const want = s.gateOpen[i] === 1 ? 1 : 0
+        const held = this.doorOpen[i] ?? 0
+        const next = held + Math.max(-0.06, Math.min(0.06, want - held))
+        this.doorOpen[i] = next
+        doorSwing = next * 1.5
+      }
       if (s.kind[i] === 1 && s.buildTicks[i] > 0) {
         // under construction: rise out of the ground
         const total = Math.max(1, this.def.entities[ty].buildTimeTicks ?? 1)
@@ -764,7 +801,14 @@ export class GameRenderer {
               : -armSwing - armChop * 1.4
         const [px, py, pz] = part.pivot
         this.m4c.makeTranslation(px, py, pz)
-        this.m4c.multiply(this.m4b.makeRotationX(rx))
+        // A door turns on a vertical jamb. Everything else — arms in a stride,
+        // a catapult throwing — hinges on the walk axis, so gates are the one
+        // case that rotates about Y instead of X.
+        this.m4c.multiply(
+          doorSwing !== 0
+            ? this.m4b.makeRotationY(part.role === 'armL' ? doorSwing : -doorSwing)
+            : this.m4b.makeRotationX(rx),
+        )
         this.m4c.multiply(this.m4d.makeTranslation(-px, -py, -pz))
         this.m4d.multiplyMatrices(this.m4, this.m4c)
         part.im.setMatrixAt(slot, this.m4d)
@@ -790,28 +834,43 @@ export class GameRenderer {
         this.carryMesh.setMatrixAt(carryCount++, this.m4)
       }
 
-      // effect beams for a couple of ticks after a cast: ranged shot (gold),
-      // ally-cast e.g. heal (green)
+      // A shot or a cast in the last couple of ticks: a bow looses an arrow,
+      // a healer draws a beam.
       const tgtOk = s.target[i] >= 0 && s.alive[s.target[i]]
       const isHealer = tgtOk && s.playerTeam[s.owner[s.target[i]]] === s.playerTeam[s.owner[i]]
       // a projectile weapon draws a flying shell instead of an instant tracer
       const isRanged = this.def.stats.atkRange[ty] > 2 && this.def.stats.projSpeed[ty] <= 0
-      if ((isRanged || isHealer) && tgtOk && s.tick - s.lastAttackTick[i] < 2) {
+      if (tgtOk && s.tick - s.lastAttackTick[i] < 2) {
         const t = s.target[i]
-        const arr = isHealer ? this.healBeamPositions : this.beamPositions
-        let verts = isHealer ? healVerts : beamVerts
-        arr[verts * 3] = pos.x
-        arr[verts * 3 + 1] = pos.y + 1.2
-        arr[verts * 3 + 2] = pos.z
-        verts++
         const tx = prevX[t] + (s.posX[t] - prevX[t]) * alpha
         const tz = prevZ[t] + (s.posZ[t] - prevZ[t]) * alpha
-        arr[verts * 3] = tx
-        arr[verts * 3 + 1] = this.grid.heightAtWorld(tx, tz) + 0.8
-        arr[verts * 3 + 2] = tz
-        verts++
-        if (isHealer) healVerts = verts
-        else beamVerts = verts
+        if (isHealer) {
+          // A cast stays a beam — it is magic, not ballistics.
+          const arr = this.healBeamPositions
+          arr[healVerts * 3] = pos.x
+          arr[healVerts * 3 + 1] = pos.y + 1.2
+          arr[healVerts * 3 + 2] = pos.z
+          healVerts++
+          arr[healVerts * 3] = tx
+          arr[healVerts * 3 + 1] = this.grid.heightAtWorld(tx, tz) + 0.8
+          arr[healVerts * 3 + 2] = tz
+          healVerts++
+        } else if (!isRanged && this.lastShotDrawn[i] !== s.lastAttackTick[i]) {
+          this.lastShotDrawn[i] = s.lastAttackTick[i]
+          this.audio.emit('melee', pos.x, pos.z)
+        } else if (isRanged && this.lastShotDrawn[i] !== s.lastAttackTick[i]) {
+          // One arrow per loosing, however many frames the tick spans.
+          this.lastShotDrawn[i] = s.lastAttackTick[i]
+          if (this.arrowFx.length < MAX_ARROWS) {
+            const tLift = this.def.stats.flying[s.type[t]] === 1 ? FLY_HEIGHT : 0
+            this.arrowFx.push({
+              x0: pos.x, y0: pos.y + 1.15, z0: pos.z,
+              x1: tx, y1: this.grid.heightAtWorld(tx, tz) + tLift + 0.85, z1: tz,
+              age: 0,
+            })
+            this.audio.emit('bow', pos.x, pos.z)
+          }
+        }
       }
     }
 
@@ -862,18 +921,71 @@ export class GameRenderer {
     this.shells.count = shellCount
     this.shells.instanceMatrix.needsUpdate = true
 
+    // Arrows in flight: advance, arc, and point along the way they are going.
+    // Removed by age rather than by arrival, so a shot at something that dies
+    // mid-flight still completes instead of vanishing.
+    {
+      let n = 0
+      const fwd = new THREE.Vector3()
+      const up = new THREE.Vector3(0, 1, 0)
+      const right = new THREE.Vector3()
+      const trueUp = new THREE.Vector3()
+      for (let k = this.arrowFx.length - 1; k >= 0; k--) {
+        const a = this.arrowFx[k]
+        a.age += dtMs
+        if (a.age >= ARROW_LIFE_MS) {
+          this.arrowFx.splice(k, 1)
+          continue
+        }
+        const t = a.age / ARROW_LIFE_MS
+        const x = a.x0 + (a.x1 - a.x0) * t
+        const z = a.z0 + (a.z1 - a.z0) * t
+        const span = Math.hypot(a.x1 - a.x0, a.z1 - a.z0)
+        // A shallow lob, scaled by range: a point-blank shot flies flat.
+        const lob = Math.min(1.6, span * 0.09) * 4 * t * (1 - t)
+        const y = a.y0 + (a.y1 - a.y0) * t + lob
+        if (fog && !fog.visibleAtWorld(x, z)) continue
+        // Point it along its own velocity, lob included, so it noses over.
+        const dLob = Math.min(1.6, span * 0.09) * 4 * (1 - 2 * t)
+        fwd.set(a.x1 - a.x0, a.y1 - a.y0 + dLob, a.z1 - a.z0)
+        if (fwd.lengthSq() < 1e-6) fwd.set(0, 0, 1)
+        fwd.normalize()
+        right.crossVectors(up, fwd)
+        if (right.lengthSq() < 1e-6) right.set(1, 0, 0)
+        right.normalize()
+        trueUp.crossVectors(fwd, right)
+        this.m4.makeBasis(right, trueUp, fwd)
+        this.m4.setPosition(x, y, z)
+        this.arrows.setMatrixAt(n++, this.m4)
+        if (n >= MAX_ARROWS) break
+      }
+      this.arrows.count = n
+      this.arrows.visible = n > 0
+      if (n > 0) this.arrows.instanceMatrix.needsUpdate = true
+    }
+
     this.flingFromEvents(s, fog)
     this.updateCorpses(dtMs)
 
-    // impact flashes raised by the sim this tick
+    // Effects and sound raised by the sim this tick. Both are read off the
+    // same event list, so anything the sim says happened is seen and heard.
     for (const ev of s.events) {
       if (ev.t === 'impact' && this.blastFx.length < 64) {
         this.blastFx.push({ x: ev.x, z: ev.z, r: Math.max(0.8, ev.radius), age: 0, dust: false })
+        this.audio.emit('siege', ev.x, ev.z)
       } else if (ev.t === 'trample' && this.blastFx.length < 64) {
         // hooves kick up dust, not fire
         this.blastFx.push({ x: ev.x, z: ev.z, r: 1.1, age: 0, dust: true })
+      } else if (ev.t === 'died') {
+        this.audio.emit('death', ev.x, ev.z)
+      } else if (ev.t === 'gateOpened' || ev.t === 'gateClosed') {
+        this.audio.emit('gate', ev.x, ev.z)
+      } else if (ev.t === 'upgradeDone' && ev.player === this.mySlot) {
+        // Only your own research chimes — eight players' worth would be noise.
+        this.audio.emit('chime', this.cam.targetX, this.cam.targetZ)
       }
     }
+    this.audio.flush(this.cam.targetX, this.cam.targetZ)
     let blastCount = 0
     for (let n = this.blastFx.length - 1; n >= 0; n--) {
       const fx = this.blastFx[n]
@@ -910,9 +1022,6 @@ export class GameRenderer {
       im.visible = c > 0
       if (c > 0) im.instanceMatrix.needsUpdate = true
     }
-    const beamGeo = this.beams.geometry
-    beamGeo.setDrawRange(0, beamVerts)
-    ;(beamGeo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true
     const healGeo = this.healBeams.geometry
     healGeo.setDrawRange(0, healVerts)
     ;(healGeo.getAttribute('position') as THREE.BufferAttribute).needsUpdate = true

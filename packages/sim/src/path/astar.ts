@@ -7,12 +7,25 @@ const DX = [1, -1, 0, 0, 1, 1, -1, -1]
 const DY = [0, 0, 1, -1, 1, -1, 1, -1]
 const COST = [10, 10, 10, 10, 14, 14, 14, 14]
 
+/**
+ * Grid A* from (sx,sy) to (tx,ty).
+ *
+ * When the goal cannot be reached at all, returns the best-effort path to the
+ * closest cell the search DID reach, rather than nothing. "Get as close as you
+ * can" is what an army ordered at a walled fortress should do: it marches up to
+ * the gate and, being in acquire range of it, starts breaking it down. Refusing
+ * to move at all reads as the order having been ignored.
+ *
+ * Pass `exact` to opt out, for callers that genuinely need reachability rather
+ * than movement.
+ */
 export function findPath(
   grid: WalkGrid,
   sx: number,
   sy: number,
   tx: number,
   ty: number,
+  exact = false,
 ): number[] | null {
   const cols = grid.cols
   const rows = grid.rows
@@ -81,10 +94,20 @@ export function findPath(
   f[start] = h[start]
   push(start)
 
+  // Closest node the search reached, by heuristic distance to the goal. Tie
+  // broken on lower g then lower index, so the fallback is as deterministic as
+  // the path itself.
+  let nearest = start
+  let nearestH = h[start]
+
   while (heapSize > 0) {
     const cur = pop()
     if (closed[cur]) continue
     closed[cur] = 1
+    if (h[cur] < nearestH || (h[cur] === nearestH && (g[cur] < g[nearest] || (g[cur] === g[nearest] && cur < nearest)))) {
+      nearest = cur
+      nearestH = h[cur]
+    }
     if (cur === goal) {
       const out: number[] = []
       for (let c = goal; c !== -1; c = parent[c]) out.push(c)
@@ -111,7 +134,12 @@ export function findPath(
       }
     }
   }
-  return null
+  // Unreachable. Walk out to whatever we got closest to.
+  if (exact || nearest === start) return null
+  const out: number[] = []
+  for (let c = nearest; c !== -1; c = parent[c]) out.push(c)
+  out.reverse()
+  return out
 }
 
 // Greedy string-pull: from each point, jump to the furthest visible cell center.

@@ -532,17 +532,51 @@ describe('Siege of Dunhollow (the whole BFME loop as data)', () => {
 
   it('compiles and sets up both fortresses with their plot rings', () => {
     const { sim } = play(1)
-    const plots = sim.def.entIndex.get('fortress-plot')!
-    let p0 = 0
-    let p1 = 0
-    for (let i = 0; i < sim.count; i++) {
-      if (!sim.alive[i] || sim.type[i] !== plots) continue
-      if (sim.owner[i] === 0) p0++
-      else p1++
+    // Two rings now: build plots close in, tower pads out on the approaches.
+    const count = (def: string): [number, number] => {
+      const type = sim.def.entIndex.get(def)!
+      let a = 0
+      let b = 0
+      for (let i = 0; i < sim.count; i++) {
+        if (!sim.alive[i] || sim.type[i] !== type) continue
+        if (sim.owner[i] === 0) a++
+        else b++
+      }
+      return [a, b]
     }
-    expect(p0).toBe(6)
-    expect(p1).toBe(6)
+    expect(count('fortress-plot')).toEqual([12, 12])
+    expect(count('tower-plot')).toEqual([8, 8])
     expect(sim.supplyCap[0]).toBe(90)
+  })
+
+  it('the tower pads take a tower and nothing else', () => {
+    // The outer ring is defence, not more economy: the reason to push your
+    // perimeter out should be to see and shoot, not to earn.
+    const { sim } = play(1)
+    const pad = sim.def.entities[sim.def.entIndex.get('tower-plot')!]
+    expect(pad.plot!.accepts).toEqual(['watchtower'])
+    const inner = sim.def.entities[sim.def.entIndex.get('fortress-plot')!]
+    expect(inner.plot!.accepts).toContain('barracks')
+  })
+
+  it('build plots stand clear of the keep rather than against it', () => {
+    // Plots pressed against the citadel made a base one solid blob — no lanes
+    // between buildings and a single catapult shot landing on four things.
+    const { sim } = play(1)
+    const keepType = sim.def.entIndex.get('fortress')!
+    const plotType = sim.def.entIndex.get('fortress-plot')!
+    let keep = -1
+    for (let i = 0; i < sim.count; i++) if (sim.alive[i] && sim.type[i] === keepType && sim.owner[i] === 0) keep = i
+    expect(keep).toBeGreaterThanOrEqual(0)
+    const keepR = sim.def.stats.radius[keepType]
+    const plotR = sim.def.stats.radius[plotType]
+    for (let i = 0; i < sim.count; i++) {
+      if (!sim.alive[i] || sim.type[i] !== plotType || sim.plotParent[i] !== keep) continue
+      const dx = sim.posX[i] - sim.posX[keep]
+      const dz = sim.posZ[i] - sim.posZ[keep]
+      const gap = Math.sqrt(dx * dx + dz * dz) - keepR - plotR
+      expect(gap, `plot at ${dx},${dz} is touching the keep`).toBeGreaterThan(3)
+    }
   })
 
   it('a farm on a plot funds the war with no worker on the map', () => {

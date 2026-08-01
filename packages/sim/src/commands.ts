@@ -13,6 +13,8 @@ export type CommandKind =
   | 'cancel'
   | 'rally'
   | 'formation' // switch a horde's stance (index in `def`)
+  | 'gate' // work a gate: open / shut / auto (GateMode in `def`)
+  | 'research' // start an upgrade at a building (upgrade index in `def`)
 
 // What a client sends. `player` is never trusted from the payload — the relay
 // stamps it from the connection. `units`/`target` are entity HANDLES
@@ -30,6 +32,7 @@ export interface Command {
   // cancel: index into the building's production queue
   target?: number
   // build/train: entity def index to construct/produce
+  // formation: stance index. gate: a GateMode.
   def?: number
 }
 

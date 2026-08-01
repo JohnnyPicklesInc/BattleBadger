@@ -8,6 +8,7 @@ import { generateChargeField } from '../packages/sim/src/mapgen/chargeField.ts'
 import { generateTrollPit } from '../packages/sim/src/mapgen/trollPit.ts'
 import { generateFourCorners } from '../packages/sim/src/mapgen/fourCorners.ts'
 import { generateRidgeCrossing } from '../packages/sim/src/mapgen/skirmishRidge.ts'
+import { generateLastAlliance } from '../packages/sim/src/mapgen/lastAlliance.ts'
 import { mapContentHash } from '../packages/sim/src/hash.ts'
 
 const OUT = new URL('../packages/client/public/maps/', import.meta.url).pathname
@@ -28,6 +29,11 @@ const maps = [
     file: 'four-corners.json',
     name: 'Four Corners (4-player FFA, mountains & a contested centre)',
     doc: generateFourCorners(20260729),
+  },
+  {
+    file: 'last-alliance.json',
+    name: 'The Last Alliance (4v4 siege — west vs east, fortress at each end)',
+    doc: generateLastAlliance(20260731),
   },
   {
     file: 'ridge-crossing.json',

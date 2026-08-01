@@ -38,8 +38,13 @@ export interface PlotDef {
   neutral?: boolean // any player may claim it (outer-map settlements)
 }
 
-// Structures a building spawns plots for when it appears — the ring of
-// expansion slots around a fortress. Offsets are relative to the building.
+// Structures a building spawns plots for when it appears — the expansion slots
+// around a fortress. Offsets are relative to the building.
+//
+// A keep needs more than one KIND of slot: a wide ring of full build plots for
+// its economy and barracks, and a further ring of small pads that take nothing
+// but a tower. So an entity may declare several rings, each with its own plot
+// type and its own offsets.
 export interface ExpansionDef {
   plot: string // plot entity id
   offsets: { dx: number; dz: number }[]
@@ -112,7 +117,7 @@ export interface EntityDef {
   horde?: HordeDef // this def is a horde ticket, not a world entity
   placement?: 'free' | 'plot' // 'plot' = must be built on a matching build plot
   plot?: PlotDef // this entity IS a build plot
-  expansion?: ExpansionDef // plots this building spawns around itself
+  expansion?: ExpansionDef | ExpansionDef[] // plots this building spawns around itself
   untargetable?: boolean // never auto-acquired, never attackable (plots, markers)
   // ---- crush hierarchy (SAGE's crusher/crushable levels) ----
   // A charge flattens anything whose crushableLevel is STRICTLY BELOW its
@@ -207,6 +212,25 @@ export interface EntityDef {
       recoilPct?: number
     }
   }
+  // A gate: a wall section that stands open for its owners and barred to
+  // everyone else. There is no team-aware pathing here and there does not need
+  // to be — the gate simply unblocks its own footprint while friends are close
+  // and no enemy is, which is what a gate looks like from the outside anyway.
+  //
+  // The result is that an attacker finds it shut and has to break it, while the
+  // defenders walk through, and a sally port lets infantry out without opening
+  // the wall to whoever is standing outside it.
+  gate?: {
+    openRadius: number // how close a friendly must be for it to swing open
+    // A great gate is a decision, not a door sensor: it starts BARRED and its
+    // owners work it by hand. A postern is the opposite — nobody wants to click
+    // a sally port open every time a battalion files out, so it stays automatic.
+    //
+    // This only sets the STARTING mode. Either kind can be put on any of the
+    // three settings at runtime, so a team that wants their gate on the sensor
+    // may have it.
+    manual?: boolean
+  }
   income?: IncomeDef
   harvester?: {
     carryCapacity: number
@@ -256,6 +280,34 @@ export interface AbilityDef {
   affects?: 'enemies' | 'allies' | 'all'
 }
 
+/**
+ * A researched improvement, bought once and owned by the player for the match.
+ *
+ * Percentages, not flat numbers, and applied where the stat is USED rather than
+ * baked into the compiled tables — the tables are per entity TYPE and an
+ * upgrade is per player, so two armies of the same unit have to be able to hit
+ * differently. Everything is integer percent, like formation stances, so it
+ * cannot drift between clients.
+ *
+ * Hit points are deliberately absent: raising a maximum retroactively means
+ * deciding what happens to the wounded, and that is a design question rather
+ * than an arithmetic one.
+ */
+export interface UpgradeDef {
+  id: string
+  name: string
+  hotkey?: string
+  cost: { resource: string; amount: number }[]
+  buildTimeTicks: number
+  requires?: string[] // entity ids the owner must have alive & complete
+  soldBy: string[] // buildings that research it
+  appliesTo: string[] // entity ids it improves
+  damagePct?: number // +25 = deals 125%
+  armorPct?: number // +25 = takes 75%
+  rangePct?: number // +20 = reaches 120%
+  speedPct?: number // +10 = moves 110%
+}
+
 export interface VictoryDef {
   mode: 'annihilation' | 'buildingsDestroyed' | 'triggersOnly'
 }
@@ -274,7 +326,14 @@ export interface GameDef {
   hordeLevels?: HordeLevelDef[]
   entities: EntityDef[]
   abilities: AbilityDef[]
+  upgrades?: UpgradeDef[]
   victory: VictoryDef
+}
+
+/** An entity's expansion rings, however the author wrote them (one or many). */
+export function expansionRings(e: EntityDef): ExpansionDef[] {
+  if (!e.expansion) return []
+  return Array.isArray(e.expansion) ? e.expansion : [e.expansion]
 }
 
 // Structural + referential validation. Returns a list of problems (empty = ok).
@@ -294,6 +353,13 @@ export function validateGameDef(def: GameDef): string[] {
   for (const e of def.entities) {
     if (entIds.has(e.id)) push(`duplicate entity id "${e.id}"`)
     entIds.add(e.id)
+    // The type says visual is required, but a def can arrive from a JSON file
+    // or an editor form where nothing enforced that. Without a model the
+    // renderer dereferences undefined rather than falling back, so this is the
+    // difference between a message and a broken editor.
+    if (!e.visual || typeof e.visual.model !== 'string' || e.visual.model === '') {
+      push(`entity "${e.id}": needs a visual model`)
+    }
   }
   const dmgTypes = new Set(def.damageTypes ?? [])
   const armTypes = new Set(def.armorTypes ?? [])
@@ -376,10 +442,10 @@ export function validateGameDef(def: GameDef): string[] {
     if (e.armorType && !armTypes.has(e.armorType)) push(`${where}: unknown armorType "${e.armorType}"`)
     for (const a of e.plot?.accepts ?? []) if (!entIds.has(a)) push(`${where}: plot accepts unknown "${a}"`)
     if (e.plot && e.kind !== 'building') push(`${where}: plots must be buildings`)
-    if (e.expansion) {
-      if (!entIds.has(e.expansion.plot)) push(`${where}: unknown expansion plot "${e.expansion.plot}"`)
-      else if (!def.entities.find((x) => x.id === e.expansion!.plot)?.plot)
-        push(`${where}: expansion "${e.expansion.plot}" is not a plot`)
+    for (const ring of expansionRings(e)) {
+      if (!entIds.has(ring.plot)) push(`${where}: unknown expansion plot "${ring.plot}"`)
+      else if (!def.entities.find((x) => x.id === ring.plot)?.plot)
+        push(`${where}: expansion "${ring.plot}" is not a plot`)
     }
     if (e.placement === 'plot' && e.kind !== 'building') push(`${where}: only buildings use plot placement`)
     if (e.combat?.damageType && !dmgTypes.has(e.combat.damageType))
@@ -415,5 +481,28 @@ export function validateGameDef(def: GameDef): string[] {
   }
   if (!['annihilation', 'buildingsDestroyed', 'triggersOnly'].includes(def.victory.mode))
     push(`bad victory mode`)
+  const upIds = new Set<string>()
+  for (const u of def.upgrades ?? []) {
+    const where = `upgrade "${u.id}"`
+    if (upIds.has(u.id)) push(`duplicate upgrade id "${u.id}"`)
+    upIds.add(u.id)
+    if (u.appliesTo.length === 0) push(`${where}: improves nothing`)
+    for (const a of u.appliesTo) if (!entIds.has(a)) push(`${where}: applies to unknown "${a}"`)
+    if (u.soldBy.length === 0) push(`${where}: is not sold anywhere`)
+    for (const b of u.soldBy) {
+      const seller = def.entities.find((x) => x.id === b)
+      if (!seller) push(`${where}: sold by unknown "${b}"`)
+      else if (seller.kind !== 'building') push(`${where}: "${b}" is not a building`)
+    }
+    for (const r of u.requires ?? []) if (!entIds.has(r)) push(`${where}: requires unknown "${r}"`)
+    for (const c of u.cost) if (!resIds.has(c.resource)) push(`${where}: unknown resource "${c.resource}"`)
+    // An upgrade that changes nothing is almost always a typo in the field name
+    if (
+      u.damagePct === undefined && u.armorPct === undefined &&
+      u.rangePct === undefined && u.speedPct === undefined
+    ) {
+      push(`${where}: has no effect`)
+    }
+  }
   return errs
 }

@@ -17,6 +17,17 @@ export class RtsCamera {
   private minZ: number
   private maxZ: number
 
+  /** Re-fence the camera after the map it is looking at changes size. */
+  setBounds(minX: number, maxX: number, minZ: number, maxZ: number): void {
+    this.minX = minX
+    this.maxX = maxX
+    this.minZ = minZ
+    this.maxZ = maxZ
+    this.tx = Math.max(minX, Math.min(maxX, this.tx))
+    this.tz = Math.max(minZ, Math.min(maxZ, this.tz))
+    this.apply()
+  }
+
   constructor(
     cursor: MouseCursor,
     aspect: number,

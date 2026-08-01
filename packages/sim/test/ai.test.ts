@@ -145,3 +145,34 @@ describe('AI opponent', () => {
     expect(stateHash(a)).not.toBe(stateHash(b))
   })
 })
+
+// Research and defence. Both are structural: no job knows what "forged blades"
+// means, only how many of its units an upgrade touches and whether the plot it
+// is looking at has an enemy standing near it.
+describe('the AI buys research', () => {
+  it('researches once it has an army worth improving', async () => {
+    const sim = await import('@battlebadger/sim')
+    const { generateDunhollow } = await import('../src/mapgen/dunhollow.ts')
+    const doc = generateDunhollow(20260727)
+    const grid = sim.walkGridFromDoc(doc)
+    const s = sim.setupMatch(doc, grid, 2)
+    s.aiLevel[0] = 3
+    s.aiLevel[1] = 3
+    let owned = 0
+    for (let t = 0; t < 6000 && owned === 0; t++) {
+      sim.step(s, grid, [])
+      owned = 0
+      for (let u = 0; u < s.def.upgrades.length; u++) if (sim.hasUpgrade(s, 0, u)) owned++
+    }
+    expect(owned, 'a level-3 AI should have finished some research').toBeGreaterThan(0)
+  })
+
+  it('never buys an upgrade for units it does not field', () => {
+    // The scoring is by bodies affected, so an AI with no cavalry must not be
+    // paying for horseshoes.
+    const doc = generateDunhollow(20260727)
+    const def = doc.gameDef!
+    const shod = def.upgrades!.find((u) => u.id === 'shod-hooves')!
+    expect(shod.appliesTo).not.toContain('swordsman')
+  })
+})

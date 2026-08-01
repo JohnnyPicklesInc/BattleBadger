@@ -1,4 +1,5 @@
 import type { SimState } from '../state.ts'
+import { speedPct } from './upgrades.ts'
 
 // Hordes (BFME battalions). A horde ticket def is what a barracks trains and
 // what a command point is spent on; training it spawns N soldier entities and
@@ -153,7 +154,7 @@ export function incomingPct(s: SimState, id: number): number {
 
 // Movement speed after the formation's speed modifier (porcupine is slow).
 export function unitSpeed(s: SimState, id: number): number {
-  const base = s.def.stats.speed[s.type[id]]
+  const base = (s.def.stats.speed[s.type[id]] * speedPct(s, id)) / 100
   const horde = s.hordeOf[id]
   if (horde < 0) return base
   const f = activeFormation(s, horde)

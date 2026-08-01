@@ -1,5 +1,6 @@
 import type { PlayerCommand } from '../commands.ts'
 import {
+  GateMode,
   Harv,
   Kind,
   Order,
@@ -12,18 +13,10 @@ import {
   TICK_S,
 } from '../state.ts'
 import { findPath, stringPull } from '../path/astar.ts'
+import { attackRange, hasUpgrade, upgradeInProgress, upgradeRequiresMet } from './upgrades.ts'
 import type { WalkGrid } from '../path/walkgrid.ts'
 import { nodeUsable } from './harvest.ts'
-import {
-  canAfford,
-  deduct,
-  freePlotAt,
-  plotClaimable,
-  requiresMet,
-  spawnBuilding,
-  supplyRoom,
-  validPlacement,
-} from './economy.ts'
+import { canAfford, canAffordUpgrade, deduct, deductUpgrade, freePlotAt, plotClaimable, requiresMet, spawnBuilding, supplyRoom, validPlacement } from './economy.ts'
 import {
   activeFormation,
   formationSlot,
@@ -161,6 +154,22 @@ export function applyCommands(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]
       if (pad < 0 || !plotClaimable(s, c.player, pad)) continue
       deduct(s, c.player, defIdx, 1)
       spawnBuilding(s, grid, defIdx, c.player, c.x, c.z, true)
+      continue
+    }
+
+    // Also before selection resolution: resolveUnits drops anything the
+    // commanding player does not OWN, and four players share a fortress whose
+    // walls belong to one of them. A gate only its owner could work would
+    // strand the other three outside their own keep.
+    if (c.kind === 'gate') {
+      const mode = (c.def ?? GateMode.Auto) | 0
+      if (mode < GateMode.Auto || mode > GateMode.Shut) continue
+      for (const raw of c.units) {
+        const b = resolveHandle(s, raw | 0)
+        if (b < 0 || s.def.stats.gateRadius[s.type[b]] <= 0) continue
+        if (!allied(s, s.owner[b], c.player)) continue
+        s.gateMode[b] = mode
+      }
       continue
     }
 
@@ -412,6 +421,26 @@ export function applyCommands(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]
       continue
     }
 
+    if (c.kind === 'research') {
+      const up = (c.def ?? -1) | 0
+      if (up < 0 || up >= s.def.upgrades.length) continue
+      if (hasUpgrade(s, c.player, up)) continue
+      // One at a time across the whole base: queueing the same research at two
+      // barracks would charge twice for a thing you can only own once.
+      if (upgradeInProgress(s, c.player, up)) continue
+      if (!upgradeRequiresMet(s, c.player, up)) continue
+      for (const b of ids) {
+        if (s.kind[b] !== Kind.Building || s.buildTicks[b] > 0) continue
+        if (!s.def.upgradeSoldBy[s.type[b]].includes(up)) continue
+        if (!canAffordUpgrade(s, c.player, up)) break
+        deductUpgrade(s, c.player, up)
+        // Negative entries are research; the production loop reads them back.
+        s.queue[b].push(-1 - up)
+        break
+      }
+      continue
+    }
+
     if (c.kind === 'rally') {
       for (const b of ids) {
         if (s.kind[b] !== Kind.Building) continue
@@ -500,7 +529,7 @@ export function applyCommands(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]
 export function targetReach(s: SimState, i: number, tgt: number): number {
   const st = s.def.stats
   const ally = allied(s, s.owner[tgt], s.owner[i])
-  const range = ally && st.allyAb[s.type[i]] >= 0 ? s.def.abilities[st.allyAb[s.type[i]]].range : st.atkRange[s.type[i]]
+  const range = ally && st.allyAb[s.type[i]] >= 0 ? s.def.abilities[st.allyAb[s.type[i]]].range : attackRange(s, i)
   return range + st.radius[s.type[i]] + st.radius[s.type[tgt]]
 }
 

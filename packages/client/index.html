@@ -29,11 +29,12 @@
         align-items: flex-end; justify-content: space-between; pointer-events: none; }
       #bhud > * { pointer-events: auto; }
       #bhud-left { display: flex; flex-direction: column; gap: 6px; padding: 0 0 10px 10px; }
-      #menu-btn { background: rgba(16, 21, 29, 0.92); color: #dfe6ee; border: 1px solid #2a3342;
+      #menu-btn, #sound-btn { background: rgba(16, 21, 29, 0.92); color: #dfe6ee; border: 1px solid #2a3342;
         border-radius: 8px; padding: 7px 10px; font-size: 13px; font-weight: 600; cursor: pointer;
         display: flex; justify-content: space-between; align-items: center; gap: 10px; }
       #menu-btn span { color: #74839a; font-size: 11px; font-weight: 400; }
-      #menu-btn:hover { background: rgba(38, 49, 64, 0.95); }
+      #menu-btn:hover, #sound-btn:hover { background: rgba(38, 49, 64, 0.95); }
+      #sound-btn { font-size: 12px; padding: 5px 10px; }
       #mm-canvas { width: 176px; height: 176px; border: 1px solid #2a3342; border-radius: 8px;
         background: #10151d; image-rendering: pixelated; cursor: crosshair; }
 
@@ -154,6 +155,37 @@
       .row > * { flex: 1; }
       .panel button[disabled] { opacity: 0.45; cursor: default; pointer-events: none; }
 
+      /* schema-driven forms (editor/forms.ts) */
+      .fm-field { display: block; margin: 8px 0 0; }
+      .fm-label { display: block; font-size: 12px; color: #9fb0c3; margin-bottom: 3px; }
+      .fm-hint { display: block; font-size: 11px; color: #6b7789; margin-top: 2px; }
+      .fm-group { border: 1px solid #232c39; border-radius: 8px; padding: 8px 10px; margin: 10px 0; }
+      .fm-grouphead { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+      .fm-grouphead b { flex: 1; }
+      .fm-grouphead input[type=checkbox] { width: auto; margin: 0; }
+      .fm-grouphead button { width: auto; margin: 0; padding: 3px 9px; font-size: 12px; }
+      .fm-groupbody { margin-top: 2px; }
+      .fm-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap;
+        border-top: 1px solid #1c232e; padding-top: 6px; margin-top: 6px; }
+      .fm-row > .fm-field { flex: 1; min-width: 90px; margin-top: 0; }
+      .fm-row > .fm-group { flex: 1 0 100%; }
+      .fm-row > button { width: auto; margin: 0 0 2px; padding: 4px 9px; font-size: 12px; }
+      .fm-field input[type=checkbox] { width: auto; }
+      .fm-vec { display: flex; gap: 6px; }
+      .fm-cols { display: flex; gap: 14px; align-items: flex-start; }
+      .fm-list { width: 210px; flex: none; max-height: 420px; overflow: auto;
+        border: 1px solid #232c39; border-radius: 8px; padding: 4px; }
+      .fm-list button { width: 100%; margin: 2px 0; padding: 6px 8px; font-size: 12px;
+        text-align: left; background: #10151d; }
+      .fm-list button.active { background: #2c6cb0; }
+      .fm-body { flex: 1; min-width: 0; max-height: 420px; overflow: auto; padding-right: 4px; }
+      .fm-slots { display: flex; flex-direction: column; gap: 6px; }
+      .fm-slot { display: flex; align-items: center; gap: 8px; font-size: 13px;
+        background: #10151d; border: 1px solid #232c39; border-radius: 7px; padding: 6px 9px; }
+      .fm-slot .fm-swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+      .fm-slot span.n { flex: 1; }
+      .fm-slot select { width: auto; padding: 4px 8px; font-size: 12px; }
+
       /* lobby */
       .lobby-panel { width: 660px; }
       .lobby-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
@@ -175,7 +207,15 @@
         text-overflow: ellipsis; white-space: nowrap; }
       #lb-players li.open .pname { color: #74839a; font-weight: 400; font-style: italic; }
       #lb-players .pteam { margin-left: auto; color: #74839a; font-size: 11px; flex: none; }
-      .lobby-right .code { margin: 0 0 12px; }
+      .lobby-right .code { margin: 0 0 6px; }
+      .mapshot { position: relative; width: 100%; aspect-ratio: 1 / 1; background: #0b0f16;
+        border: 1px solid #232c39; border-radius: 8px; overflow: hidden; }
+      .mapshot canvas { display: block; width: 100%; height: 100%; }
+      .mapshot-empty { position: absolute; inset: 0; display: none; align-items: center;
+        justify-content: center; text-align: center; padding: 0 16px; font-size: 12px; color: #74839a; }
+      .mapcaption { font-size: 12px; color: #9fb0c3; margin: 8px 0 10px; min-height: 16px; }
+      #lb-roombox { margin-bottom: 12px; }
+      #lb-roombox button { margin-top: 4px; padding: 7px; font-size: 13px; }
 
       #swcursor { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none;
         display: none; will-change: transform; }

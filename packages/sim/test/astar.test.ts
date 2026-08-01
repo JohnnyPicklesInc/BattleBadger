@@ -32,7 +32,7 @@ describe('grid A*', () => {
 
   it('returns null when unreachable', () => {
     const g = makeGrid(['.....', '#####', '.....'])
-    expect(findPath(g, 2, 0, 2, 2)).toBeNull()
+    expect(findPath(g, 2, 0, 2, 2, true)).toBeNull()
   })
 
   it('never cuts corners diagonally', () => {

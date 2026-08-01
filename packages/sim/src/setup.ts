@@ -109,7 +109,14 @@ export function setupMatch(doc: RtsMapDoc, grid: WalkGrid, playerCount = 2): Sim
   for (const p of placed) {
     const typeIdx = def.entIndex.get(p.def)!
     if (def.entities[typeIdx].kind === 'building') {
-      spawnBuilding(s, grid, typeIdx, p.owner, p.x, p.z, false)
+      const id = spawnBuilding(s, grid, typeIdx, p.owner, p.x, p.z, false)
+      if (id >= 0 && p.facing) {
+        const len = Math.sqrt(p.facing.x * p.facing.x + p.facing.z * p.facing.z)
+        if (len > 0) {
+          s.faceX[id] = p.facing.x / len
+          s.faceZ[id] = p.facing.z / len
+        }
+      }
       continue
     }
     let x = p.x

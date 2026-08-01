@@ -2,6 +2,7 @@ import type { PlayerCommand } from '../commands.ts'
 import type { WalkGrid } from '../path/walkgrid.ts'
 import { Harv, Kind, Order, handleOf, type SimState } from '../state.ts'
 import { plotClaimable, requiresMet, supplyRoom, validPlacement } from './economy.ts'
+import { hasUpgrade, upgradeInProgress, upgradeRequiresMet } from './upgrades.ts'
 
 // Computer opponents.
 //
@@ -275,9 +276,55 @@ function reserveCost(s: SimState, defIdx: number, reserve: Reserve): void {
   }
 }
 
+const THREAT_R = 26
+
+/**
+ * Where this slot is being attacked, or null.
+ *
+ * A single point rather than a per-plot test, because a per-plot test is
+ * plots x units and a big siege map has a hundred plots and hundreds of units.
+ * The nearest enemy to the base centroid is a good enough answer to "which end
+ * of my base is on fire", and it costs one pass.
+ */
+function threatPoint(s: SimState, slot: number): { x: number; z: number } | null {
+  let bx = 0
+  let bz = 0
+  let n = 0
+  for (let b = 0; b < s.count; b++) {
+    if (!s.alive[b] || s.owner[b] !== slot || s.kind[b] !== Kind.Building) continue
+    bx += s.posX[b]
+    bz += s.posZ[b]
+    n++
+  }
+  if (n === 0) return null
+  bx /= n
+  bz /= n
+  let best = -1
+  let bestD = Infinity
+  for (let i = 0; i < s.count; i++) {
+    if (!s.alive[i] || s.hidden[i] || s.kind[i] !== Kind.Unit) continue
+    if (!isEnemy(s, slot, i)) continue
+    if (s.def.stats.damage[s.type[i]] <= 0) continue
+    const dx = s.posX[i] - bx
+    const dz = s.posZ[i] - bz
+    const d = dx * dx + dz * dz
+    if (d < bestD) {
+      bestD = d
+      best = i
+    }
+  }
+  if (best < 0) return null
+  return { x: s.posX[best], z: s.posZ[best] }
+}
+
 /** How badly this slot wants `defIdx` on a plot, ignoring whether it can pay. */
-function plotPriority(s: SimState, slot: number, defIdx: number, incomeCount: number): number {
+function plotPriority(s: SimState, slot: number, defIdx: number, incomeCount: number, threatened: boolean): number {
   const e = s.def.entities[defIdx]
+  // Something that shoots, on a plot the enemy is actually near, outranks the
+  // economy — this is what puts an engine on a siege emplacement while the wall
+  // is being hit rather than four hundred ticks later. Gated on already having
+  // an income, because an AI that fortifies before it earns never does either.
+  if (threatened && incomeCount > 0 && (e.combat?.damage ?? 0) > 0) return 900
   if (e.income) return incomeCount < INCOME_TARGET ? 400 : 200
   if (e.trainer) {
     // the first of each production building matters far more than the second
@@ -304,6 +351,7 @@ function jobBuildPlot(s: SimState, slot: number, c: Caps, reserve: Reserve, out:
   for (let i = 0; i < s.count; i++) {
     if (s.alive[i] && s.owner[i] === slot && s.def.entities[s.type[i]].income) incomeCount++
   }
+  const threat = threatPoint(s, slot)
 
   let bestPlot = -1
   let bestDef = -1
@@ -321,7 +369,11 @@ function jobBuildPlot(s: SimState, slot: number, c: Caps, reserve: Reserve, out:
     for (const id of plot.accepts) {
       const t = s.def.entIndex.get(id)
       if (t === undefined || !requiresMet(s, slot, t)) continue
-      const pri = plotPriority(s, slot, t, incomeCount)
+      const nearThreat =
+        threat !== null &&
+        (threat.x - s.posX[p]) * (threat.x - s.posX[p]) + (threat.z - s.posZ[p]) * (threat.z - s.posZ[p]) <
+          THREAT_R * THREAT_R
+      const pri = plotPriority(s, slot, t, incomeCount, nearThreat)
       if (pri > bestPri) {
         bestPri = pri
         bestDef = t
@@ -424,6 +476,64 @@ function jobBuildFree(
  * Gather idle soldiers and throw them at the nearest enemy once there are
  * enough. Gate: owning anything with a weapon — true on every map.
  */
+/**
+ * Buy research. Gate: the def has upgrades and this slot owns a building that
+ * sells one.
+ *
+ * Scored by what the slot ACTUALLY FIELDS, not by what the upgrade claims: an
+ * armour upgrade for cavalry is worth nothing to an army with no horses, and
+ * the AI has no business paying for it. That keeps this structural — no job
+ * knows what "forged blades" means, only how many of its units an upgrade
+ * touches and by how much.
+ */
+function jobResearch(s: SimState, slot: number, reserve: Reserve, out: PlayerCommand[]): void {
+  const ups = s.def.upgrades
+  if (ups.length === 0) return
+
+  // How many of this slot's units each entity type accounts for, so an upgrade
+  // can be priced against the army that exists.
+  const owned = new Int32Array(s.def.entities.length)
+  for (let i = 0; i < s.count; i++) {
+    if (s.alive[i] && s.owner[i] === slot && s.kind[i] === Kind.Unit) owned[s.type[i]]++
+  }
+
+  let bestB = -1
+  let bestUp = -1
+  let bestScore = 0
+  for (let b = 0; b < s.count; b++) {
+    if (!s.alive[b] || s.owner[b] !== slot || s.kind[b] !== Kind.Building) continue
+    if (s.buildTicks[b] > 0) continue
+    for (const u of s.def.upgradeSoldBy[s.type[b]]) {
+      if (hasUpgrade(s, slot, u) || upgradeInProgress(s, slot, u)) continue
+      if (!upgradeRequiresMet(s, slot, u)) continue
+      const def = ups[u]
+      const weight =
+        (def.damagePct ?? 0) + (def.armorPct ?? 0) + (def.rangePct ?? 0) + (def.speedPct ?? 0)
+      let bodies = 0
+      for (const t of s.def.upgradeApplies[u]) bodies += owned[t]
+      const score = bodies * weight
+      // Nothing to improve yet: skip rather than save for it, or an AI with a
+      // barracks and no soldiers would sit on its money.
+      if (score <= 0) continue
+      if (score > bestScore) {
+        bestScore = score
+        bestUp = u
+        bestB = b
+      }
+    }
+  }
+  if (bestUp < 0) return
+  const n = s.def.resources.length
+  const cost = s.def.upgradeCost[bestUp]
+  for (let r = 0; r < n; r++) {
+    // Research waits its turn behind buildings and troops: it is a multiplier
+    // on an army, so it is worth nothing to a player who has neither.
+    if (s.resources[slot * n + r] - reserve[r] < cost[r]) return
+  }
+  for (let r = 0; r < n; r++) reserve[r] += cost[r]
+  out.push({ kind: 'research', player: slot, units: [handleOf(s, bestB)], x: 0, z: 0, def: bestUp })
+}
+
 function jobArmy(s: SimState, slot: number, level: number, out: PlayerCommand[]): void {
   const st = s.def.stats
   const idle: number[] = []
@@ -474,6 +584,7 @@ export function aiCommands(s: SimState, grid: WalkGrid): PlayerCommand[] {
     jobBuildPlot(s, slot, c, reserve, out)
     jobBuildFree(s, grid, slot, reserve, out)
     jobProduce(s, slot, c, reserve, out)
+    jobResearch(s, slot, reserve, out)
     jobArmy(s, slot, lvl, out)
   }
   return out

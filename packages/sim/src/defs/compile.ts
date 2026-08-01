@@ -1,5 +1,13 @@
 import { fnv1aInit, fnv1aInt } from '../hash.ts'
-import { validateGameDef, type AbilityDef, type EntityDef, type GameDef, type ResourceDef } from './schema.ts'
+import {
+  expansionRings as ringsOf,
+  validateGameDef,
+  type AbilityDef,
+  type EntityDef,
+  type GameDef,
+  type ResourceDef,
+  type UpgradeDef,
+} from './schema.ts'
 
 // Compiled form: dense arrays + id→index maps + precomputed tables. The sim's
 // hot loops index these by int and never touch strings.
@@ -14,6 +22,13 @@ export interface GameDefCompiled {
   abIndex: Map<string, number>
   // per-entity precomputed:
   costVec: Int32Array[] // [entIdx] → Int32Array(numResources)
+  // ---- upgrades ----
+  upgrades: UpgradeDef[]
+  upgradeIndex: Map<string, number>
+  upgradeCost: Int32Array[] // [upIdx] → Int32Array(numResources)
+  upgradeApplies: number[][] // [upIdx] → entity type indices it improves
+  upgradeRequires: number[][] // [upIdx] → entity type indices the owner needs
+  upgradeSoldBy: number[][] // [entIdx] → upgrade indices this building researches
   entAbilities: number[][] // [entIdx] → ability indices
   entAutocast: boolean[][] // parallel to entAbilities
   requiresIdx: number[][] // [entIdx] → entity indices
@@ -33,8 +48,10 @@ export interface GameDefCompiled {
   }[][]
   hordeLevels: { xp: number; damagePct: number; damageTakenPct: number }[]
   plotAcceptsIdx: number[][] // [plot entIdx] → entity indices it hosts
-  expansionPlot: Int32Array // [entIdx] → plot entity index spawned around it, -1
-  expansionOffsets: number[][] // [entIdx] → flat [dx0, dz0, dx1, dz1, ...]
+  // [entIdx] → the rings of plots this building brings with it. Each ring has
+  // its own plot type, so a keep can ring itself with build plots and then with
+  // tower pads further out.
+  expansionRings: { plot: number; offsets: number[] }[][]
   supplyName: string
   supplyHardCap: number // 0 = uncapped
   powerEnabled: boolean
@@ -77,6 +94,8 @@ export interface GameDefCompiled {
     chgCooldown: Int32Array
     chgKnockdown: Int32Array
     chgRecoilPct: Int32Array
+    gateRadius: Float64Array // >0 = a gate that opens for its owners
+    gateManual: Uint8Array // 1 = starts barred and is worked by hand
     crusherLevel: Int32Array // what this unit can flatten; 0 = nothing
     crushableLevel: Int32Array // how easily it is flattened
     chargeGuard: Int32Array // damage returned to a charger that connects
@@ -119,6 +138,19 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
     for (const c of e.cost ?? []) v[resIndex.get(c.resource)!] = c.amount
     return v
   })
+  const upgrades = def.upgrades ?? []
+  const upgradeIndex = new Map(upgrades.map((u, i) => [u.id, i]))
+  const upgradeCost = upgrades.map((u) => {
+    const v = new Int32Array(def.resources.length)
+    for (const c of u.cost) v[resIndex.get(c.resource)!] = c.amount
+    return v
+  })
+  const upgradeApplies = upgrades.map((u) => u.appliesTo.map((a) => entIndex.get(a)!))
+  const upgradeRequires = upgrades.map((u) => (u.requires ?? []).map((r) => entIndex.get(r)!))
+  const upgradeSoldBy = def.entities.map((e) =>
+    upgrades.map((u, i) => (u.soldBy.includes(e.id) ? i : -1)).filter((i) => i >= 0),
+  )
+
   const entAbilities = def.entities.map((e) => (e.abilities ?? []).map((a) => abIndex.get(a.ability)!))
   const entAutocast = def.entities.map((e) => (e.abilities ?? []).map((a) => a.autocast === true))
   const requiresIdx = def.entities.map((e) => (e.requires ?? []).map((r) => entIndex.get(r)!))
@@ -154,16 +186,13 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
   }))
 
   const plotAcceptsIdx = def.entities.map((e) => (e.plot?.accepts ?? []).map((a) => entIndex.get(a)!))
-  const expansionPlot = new Int32Array(def.entities.length).fill(-1)
-  const expansionOffsets = def.entities.map((e) => {
-    if (!e.expansion) return []
-    const flat: number[] = []
-    for (const o of e.expansion.offsets) flat.push(o.dx, o.dz)
-    return flat
-  })
-  def.entities.forEach((e, i) => {
-    if (e.expansion) expansionPlot[i] = entIndex.get(e.expansion.plot)!
-  })
+  const expansionRings = def.entities.map((e) =>
+    ringsOf(e).map((r) => {
+      const offsets: number[] = []
+      for (const o of r.offsets) offsets.push(o.dx, o.dz)
+      return { plot: entIndex.get(r.plot)!, offsets }
+    }),
+  )
 
   // damage/armor matrix: default 100% everywhere, overridden per authored pair
   const dmgTypeIndex = new Map((def.damageTypes ?? []).map((t, i) => [t, i]))
@@ -224,6 +253,8 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
     chgCooldown: new Int32Array(n).fill(30),
     chgKnockdown: new Int32Array(n),
     chgRecoilPct: new Int32Array(n),
+    gateRadius: new Float64Array(n),
+    gateManual: new Uint8Array(n),
     crusherLevel: new Int32Array(n),
     crushableLevel: new Int32Array(n),
     chargeGuard: new Int32Array(n),
@@ -295,6 +326,8 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
     stats.flying[i] = e.flying ? 1 : 0
     if (e.combat?.hits === 'air') stats.hitMask[i] = 2
     else if (e.combat?.hits === 'both') stats.hitMask[i] = 3
+    stats.gateRadius[i] = e.gate?.openRadius ?? 0
+    stats.gateManual[i] = e.gate?.manual ? 1 : 0
     stats.crusherLevel[i] = e.crusherLevel ?? 0
     stats.chargeGuard[i] = e.chargeGuard ?? 0
     // Buildings are uncrushable unless an author deliberately says otherwise —
@@ -333,6 +366,12 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
     abilities: def.abilities,
     abIndex,
     costVec,
+    upgrades,
+    upgradeIndex,
+    upgradeCost,
+    upgradeApplies,
+    upgradeRequires,
+    upgradeSoldBy,
     entAbilities,
     entAutocast,
     requiresIdx,
@@ -345,8 +384,7 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
     hordeFormations,
     hordeLevels,
     plotAcceptsIdx,
-    expansionPlot,
-    expansionOffsets,
+    expansionRings,
     supplyName: def.supplyName ?? '',
     supplyHardCap: def.supplyHardCap ?? 0,
     powerEnabled: def.powerEnabled === true,

@@ -44,19 +44,25 @@ export async function idbDelete(key: string): Promise<void> {
   })
 }
 
+/** Every key under a prefix, sorted. The store is shared by prefix — maps use
+ * 'lib:', the ruleset shelf uses 'rules:' — so one database opens, not two. */
+export async function idbKeys(prefix: string): Promise<string[]> {
+  const db = await open()
+  const keys = await new Promise<string[]>((resolve, reject) => {
+    const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAllKeys()
+    req.onsuccess = () => resolve((req.result as string[]).filter((k) => k.startsWith(prefix)))
+    req.onerror = () => reject(req.error as Error)
+  })
+  return keys.sort()
+}
+
 export interface LibraryEntry {
   key: string
   name: string
 }
 
 export async function listLibrary(): Promise<LibraryEntry[]> {
-  const db = await open()
-  const keys = await new Promise<string[]>((resolve, reject) => {
-    const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAllKeys()
-    req.onsuccess = () => resolve((req.result as string[]).filter((k) => k.startsWith('lib:')))
-    req.onerror = () => reject(req.error as Error)
-  })
-  return keys.sort().map((key) => ({ key, name: key.slice(4) }))
+  return (await idbKeys('lib:')).map((key) => ({ key, name: key.slice(4) }))
 }
 
 export async function saveToLibrary(doc: RtsMapDoc, json?: string): Promise<string> {

@@ -1,7 +1,6 @@
 import * as THREE from 'three'
 import {
   TICK_MS,
-  deriveTerrain,
   type FogState,
   type FormationDef,
   type GameDefCompiled,
@@ -11,6 +10,7 @@ import {
 import { PLAYER_COLORS, modelGeometry } from '../render/unitMeshes.ts'
 import { resolveModel } from '../render/assets.ts'
 import type { RtsCamera } from '../render/camera.ts'
+import { terrainImage } from './mapPreview.ts'
 
 // WC3-style bottom HUD: menu + minimap on the left, unit portrait bottom
 // center, command card lower right. All buttons also work under pointer-lock
@@ -38,6 +38,13 @@ export interface HudActions {
   buildOnPlot(defIdx: number): void
   hordeFormations(): FormationDef[]
   setFormation(index: number): void
+  setMuted(on: boolean): void
+  researchOptions(): number[]
+  researchReady(up: number): boolean
+  research(up: number): void
+  selectedGates(): number[]
+  gateMode(): number
+  setGateMode(mode: number): void
   // ticks until the selection can cast this ability; 0 = ready
   abilityCooldown(abIdx: number): number
   // jump the camera to a unit (portrait click)
@@ -123,6 +130,7 @@ export class Hud {
     this.root.innerHTML = `
       <div id="bhud-left">
         <button id="menu-btn">☰ Menu <span>F10</span></button>
+        <button id="sound-btn" title="Mute battle sound">🔊 Sound</button>
         <canvas id="mm-canvas" width="${MM_SIZE}" height="${MM_SIZE}"></canvas>
       </div>
       <div id="bhud-center">
@@ -143,6 +151,20 @@ export class Hud {
         <button class="cmd" id="cmd-patrol">Patrol<span>P</span></button>
       </div>`
     document.body.appendChild(this.root)
+    // Battle sound is synthesised, so muting is a gain of zero rather than a
+    // download that never happens — the toggle costs nothing either way.
+    const soundBtn = this.root.querySelector<HTMLButtonElement>('#sound-btn')!
+    let muted = localStorage.getItem('bb-muted') === '1'
+    const applyMute = (): void => {
+      this.actions.setMuted(muted)
+      soundBtn.textContent = muted ? '🔇 Sound' : '🔊 Sound'
+      localStorage.setItem('bb-muted', muted ? '1' : '0')
+    }
+    soundBtn.addEventListener('click', () => {
+      muted = !muted
+      applyMute()
+    })
+    applyMute()
 
     this.menuOverlay = document.createElement('div')
     this.menuOverlay.className = 'overlay'
@@ -322,26 +344,10 @@ export class Hud {
     this.mmFogCtx!.putImageData(img, 0, 0)
   }
 
+  // Shared with the lobby's map shot, so the map you picked and the minimap you
+  // play with are painted by the same code.
   private buildMinimapBackground(): HTMLCanvasElement {
-    const c = document.createElement('canvas')
-    c.width = this.doc.cols
-    c.height = this.doc.rows
-    const ctx = c.getContext('2d')!
-    const img = ctx.createImageData(this.doc.cols, this.doc.rows)
-    const { walkable, heights } = deriveTerrain(this.doc)
-    for (let i = 0; i < this.doc.cols * this.doc.rows; i++) {
-      const walk = walkable[i] === 1
-      const t = Math.min(1, Math.max(0, heights[i] / 4))
-      const [r, g, b] = walk
-        ? [40 + t * 40, 84 + t * 40, 36 + t * 22]
-        : [92 + t * 26, 82 + t * 22, 72 + t * 18]
-      img.data[i * 4] = r
-      img.data[i * 4 + 1] = g
-      img.data[i * 4 + 2] = b
-      img.data[i * 4 + 3] = 255
-    }
-    ctx.putImageData(img, 0, 0)
-    return c
+    return terrainImage(this.doc)
   }
 
   update(
@@ -458,6 +464,55 @@ export class Hud {
           title: `${costTitle(defIdx)} — built on this plot`,
           onClick: () => this.actions.buildOnPlot(defIdx),
         })
+      }
+      // Research the selected building sells. Shown greyed when its
+      // prerequisite is missing rather than hidden, so a player can see what a
+      // building will eventually offer.
+      for (const up of this.actions.researchOptions()) {
+        const u = this.def.upgrades?.[up]
+        if (!u) continue
+        const ready = this.actions.researchReady(up)
+        const n = this.def.resources.length
+        const afford = u.cost.every((c) => {
+          const ri = this.def.resIndex.get(c.resource)
+          return ri === undefined || sim.resources[this.mySlot * n + ri] >= c.amount
+        })
+        const price = u.cost.map((c) => `${c.amount}${(c.resource[0] ?? '').toLowerCase()}`).join(' ')
+        const bits: string[] = []
+        if (u.damagePct) bits.push(`+${u.damagePct}% damage`)
+        if (u.armorPct) bits.push(`-${u.armorPct}% damage taken`)
+        if (u.rangePct) bits.push(`+${u.rangePct}% range`)
+        if (u.speedPct) bits.push(`+${u.speedPct}% speed`)
+        buttons.push({
+          key: `up${up}`,
+          label: u.name,
+          sub: price,
+          cls: 'train',
+          disabled: !ready || !afford,
+          title: `${bits.join(', ')} — ${u.appliesTo.join(', ')}${ready ? '' : ' (needs its prerequisite)'}`,
+          onClick: () => this.actions.research(up),
+        })
+      }
+      // A gate is worked by hand: the whole question a siege asks is when to
+      // open the front of your fortress, so it is a decision rather than a
+      // sensor. Sally ports are on Auto and can be left there.
+      if (this.actions.selectedGates().length > 0) {
+        const mode = this.actions.gateMode()
+        const GATE_MODES: { m: number; label: string; sub: string; title: string }[] = [
+          { m: 1, label: 'Open', sub: 'O', title: 'Hold the gate open' },
+          { m: 2, label: 'Shut', sub: 'C', title: 'Bar the gate' },
+          { m: 0, label: 'Auto', sub: 'U', title: 'Open for nearby allies, bar it when an enemy is close' },
+        ]
+        for (const g of GATE_MODES) {
+          buttons.push({
+            key: `gt${g.m}`,
+            label: g.label,
+            sub: g.sub,
+            cls: mode === g.m ? 'ability cooling' : 'ability',
+            title: g.title,
+            onClick: () => this.actions.setGateMode(g.m),
+          })
+        }
       }
       // Formation stances for the selected battalions.
       this.actions.hordeFormations().forEach((f, i) => {

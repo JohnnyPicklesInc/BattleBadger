@@ -79,6 +79,9 @@ export function stateHash(s: SimState): number {
   h = fnv1aInt(h, s.winner)
   h = fnv1aInt(h, s.playerCount)
   for (let p = 0; p < 8; p++) h = fnv1aInt(h, s.playerTeam[p] | (s.aiLevel[p] << 8))
+  // Research changes what every unit a player owns does, so two clients
+  // disagreeing about it would diverge in damage rather than loudly.
+  for (let i = 0; i < s.upgradeOwned.length; i++) h = fnv1aInt(h, s.upgradeOwned[i])
   const numRes = s.def.resources.length
   for (let p = 0; p < 2; p++) {
     for (let r = 0; r < numRes; r++) h = fnv1aInt(h, s.resources[p * numRes + r])
@@ -90,6 +93,9 @@ export function stateHash(s: SimState): number {
     h = fnv1aInt(h, quant(s.posZ[i]))
     h = fnv1aInt(h, s.hp[i])
     h = fnv1aInt(h, s.order[i] | (s.kind[i] << 4) | (s.hidden[i] << 8) | (s.harvState[i] << 9))
+    // A gate is player-controlled and changes walkability, so two clients
+    // disagreeing about one would diverge in pathing rather than loudly.
+    h = fnv1aInt(h, s.gateOpen[i] | (s.gateMode[i] << 1))
     h = fnv1aInt(h, s.target[i] | (s.forced[i] << 24) | (s.chased[i] << 25))
     h = fnv1aInt(h, s.followTarget[i])
     h = fnv1aInt(h, quant(s.homeX[i]))

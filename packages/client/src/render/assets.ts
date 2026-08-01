@@ -2,11 +2,18 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import type { RtsMapDoc } from '@battlebadger/sim'
 import { genGeometry } from '../gen/build.ts'
+import { useMapBlueprints } from '../gen/registry.ts'
 
-// Loads the map's embedded .glb assets into geometries keyed by asset id.
-// Any failure logs and falls back to placeholders — visuals never enter the
-// sim, so a broken model can never desync or break a match.
+// Loads the map's own visuals: its procedural blueprints, and its embedded
+// .glb assets as geometries keyed by asset id. Any failure logs and falls back
+// to placeholders — visuals never enter the sim, so a broken model can never
+// desync or break a match.
+//
+// Blueprint registration lives here, on the one path every game start takes,
+// so a new caller cannot forget it and silently render the built-in model
+// where the map meant its own.
 export async function loadAssetGeometries(doc: RtsMapDoc): Promise<Map<string, THREE.BufferGeometry>> {
+  useMapBlueprints(doc)
   const out = new Map<string, THREE.BufferGeometry>()
   const assets = (doc.assets ?? []).filter((a) => a.kind === 'glb' && a.data)
   if (assets.length === 0) return out

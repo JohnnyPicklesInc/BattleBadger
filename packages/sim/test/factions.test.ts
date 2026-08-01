@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { setupMatch, walkGridFromDoc } from '@battlebadger/sim'
+import { expansionRings, setupMatch, walkGridFromDoc } from '@battlebadger/sim'
 import { generateDunhollow } from '../src/mapgen/dunhollow.ts'
 import { generateFourCorners } from '../src/mapgen/fourCorners.ts'
 
@@ -14,8 +14,9 @@ describe('two factions on one ruleset', () => {
   // keep decides its expansion plot, the plot decides which buildings you may
   // raise, and those decide what you can train.
   it('each keep gates a different building set', () => {
-    const badgerPlot = ent('fortress').expansion!.plot
-    const hordePlot = ent('dark-fortress').expansion!.plot
+    // the first ring is the build plots; later rings are the tower pads
+    const badgerPlot = expansionRings(ent('fortress'))[0].plot
+    const hordePlot = expansionRings(ent('dark-fortress'))[0].plot
     expect(badgerPlot).not.toBe(hordePlot)
     const badgerBuilds = new Set(ent(badgerPlot).plot!.accepts)
     const hordeBuilds = new Set(ent(hordePlot).plot!.accepts)

@@ -24,6 +24,16 @@ export type OrderKind = (typeof Order)[keyof typeof Order]
 
 export const Kind = { Unit: 0, Building: 1 } as const
 
+/**
+ * How a gate decides whether to stand open.
+ *   Auto — opens for a nearby friendly when no enemy is close (sally ports)
+ *   Open — held open regardless, because a player said so
+ *   Shut — barred regardless, ditto
+ * A manual gate starts Shut; an automatic one starts Auto. Either can be put
+ * on any setting at runtime.
+ */
+export const GateMode = { Auto: 0, Open: 1, Shut: 2 } as const
+
 // Waypoints as flat [x0, z0, x1, z1, ...]; i = current waypoint index.
 export interface UnitPath {
   pts: number[]
@@ -40,6 +50,9 @@ export type SimEvent =
   | { t: 'panCamera'; player: number; x: number; z: number }
   | { t: 'impact'; x: number; z: number; radius: number }
   | { t: 'trample'; x: number; z: number }
+  | { t: 'gateOpened'; idx: number; x: number; z: number }
+  | { t: 'gateClosed'; idx: number; x: number; z: number }
+  | { t: 'upgradeDone'; player: number; upgrade: number }
 
 export const Harv = { None: 0, ToNode: 1, Gathering: 2, Inside: 3, ToDropoff: 4 } as const
 
@@ -173,6 +186,17 @@ export interface SimState {
   hordeOf: Int32Array // entity → horde index, -1 = loose unit
   trig: TriggerRuntime
   entityBlocked: number[][] // per entity: walkgrid cells blocked (buildings)
+  // Upgrades a player has finished, [player * upgradeCount + upIdx].
+  upgradeOwned: Uint8Array
+  // Derived from upgradeOwned: integer percentages by [player * types + type].
+  // Rebuilt when research completes rather than looked up per blow, because
+  // these are read in the innermost combat and movement loops.
+  upgDamagePct: Int32Array
+  upgTakenPct: Int32Array
+  upgRangePct: Int32Array
+  upgSpeedPct: Int32Array
+  gateOpen: Uint8Array // gates only: 1 while the footprint is standing open
+  gateMode: Uint8Array // gates only: how it decides — see GateMode
   alive: Uint8Array
   hidden: Uint8Array // 1 = inside a node (WC3 mine); skipped by motion/combat/render
   gen: Uint16Array
@@ -267,6 +291,13 @@ export function createSim(seed: number, def: GameDefCompiled): SimState {
     powerUsed: new Int32Array(8),
     powerProvided: new Int32Array(8),
     entityBlocked: Array.from({ length: MAX_UNITS }, () => []),
+    upgradeOwned: new Uint8Array(8 * Math.max(1, def.upgrades.length)),
+    upgDamagePct: new Int32Array(8 * def.entities.length).fill(100),
+    upgTakenPct: new Int32Array(8 * def.entities.length).fill(100),
+    upgRangePct: new Int32Array(8 * def.entities.length).fill(100),
+    upgSpeedPct: new Int32Array(8 * def.entities.length).fill(100),
+    gateOpen: new Uint8Array(MAX_UNITS),
+    gateMode: new Uint8Array(MAX_UNITS),
     projectiles: createProjectileStore(),
     hordes: createHordeStore(),
     hordeOf: new Int32Array(MAX_UNITS).fill(-1),
@@ -440,6 +471,10 @@ export function spawnUnit(s: SimState, typeIdx: number, owner: number, x: number
   s.rallyX[id] = 0
   s.rallyZ[id] = 0
   s.entityBlocked[id] = []
+  // A great gate starts barred and is worked by hand; a sally port opens for
+  // whoever walks up to it.
+  s.gateOpen[id] = 0
+  s.gateMode[id] = s.def.stats.gateManual[typeIdx] ? GateMode.Shut : GateMode.Auto
   s.kind[id] = def.kind === 'building' ? Kind.Building : Kind.Unit
   s.posX[id] = x
   s.posZ[id] = z

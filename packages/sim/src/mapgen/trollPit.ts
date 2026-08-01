@@ -1,6 +1,7 @@
 import type { PlacedEntity, RtsMapDoc } from '../mapdoc.ts'
 import { composeDef } from './factions/compose.ts'
 import { FACTION as BADGERS } from './factions/badgers.ts'
+import { FACTION as HORDE } from './factions/horde.ts'
 
 // "The Pit" — one ogre against a mob of swordsmen.
 //
@@ -9,8 +10,9 @@ import { FACTION as BADGERS } from './factions/badgers.ts'
 // how many footmen does it take to bring a troll down, and does it take any
 // of them with it?
 //
-// Rules come from Dunhollow so the units and damage matrix are the real ones;
-// only the victory mode changes, so the pit actually resolves.
+// Both factions are seated because the fight needs both: the ogre is a Horde
+// unit and the mob it is thrown at is badger infantry. Only the victory mode
+// differs from a real map, so the pit actually resolves.
 
 const SIZE = 96
 const TEX_GRASS = 0
@@ -21,7 +23,7 @@ const MOB_PACKS = 2 // × 9 swordsmen
 const PIT_DEF = composeDef({
   id: 'troll-pit',
   name: 'The Pit',
-  factions: [BADGERS],
+  factions: [BADGERS, HORDE],
   victory: { mode: 'annihilation' },
 })
 

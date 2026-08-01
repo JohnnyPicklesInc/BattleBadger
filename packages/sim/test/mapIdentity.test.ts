@@ -35,6 +35,12 @@ describe('map identity is content, not filename', () => {
       ['a pre-placed unit', (d) => d.placed!.push({ def: 'peon', owner: 0, x: 5, z: 5 })],
       ['a rules change', (d) => (d.gameDef!.entities[0].hp += 1)],
       ['a different seed', (d) => (d.seed += 1)],
+      // Authored models ride the content hash for free — they are part of the
+      // doc, so two players cannot disagree about what a map looks like.
+      [
+        'an authored blueprint',
+        (d) => (d.blueprints = [{ id: 'x', seed: 1, palette: {}, parts: [{ shape: 'box', color: 'player' }] }]),
+      ],
     ]
     for (const [what, edit] of edits) {
       const copy: RtsMapDoc = JSON.parse(JSON.stringify(base))

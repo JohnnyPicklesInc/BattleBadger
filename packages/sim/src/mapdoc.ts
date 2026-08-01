@@ -1,4 +1,5 @@
 import type { GameDef } from './defs/schema.ts'
+import type { GenBlueprint } from './blueprint.ts'
 
 // Versioned, engine-neutral map document (ZoneDocument lineage from MeekoQuest).
 // The sim and renderer consume only this doc — never the generator — so the
@@ -12,6 +13,12 @@ export interface PlacedEntity {
   // gives content to reserved AI slots (MOBA lane creeps, neutral garrisons):
   // pair the slot with a team via slotTeams and mark its content `always`.
   always?: boolean
+  // Which way it points, as a direction rather than an angle — the sim has no
+  // trigonometry available to turn one into the other. A model's local +Z is
+  // laid along this, so a wall section that runs east-west and one that runs
+  // north-south are the same entity placed two ways. Absent = the default
+  // spawn facing.
+  facing?: { x: number; z: number }
 }
 
 export interface PlacedDoodad {
@@ -119,7 +126,41 @@ export interface RtsMapDoc {
   regions?: MapRegion[] // named rects for triggers
   triggers?: TriggerDef[]
   assets?: AssetRef[] // custom model manifest (payload travels beside the doc)
+  // Procedural models authored into the map, resolved by a def's
+  // 'gen:<id>' visual. Checked BEFORE the client's built-ins, so a map may add
+  // its own models or replace a stock one. Render-only, and a few hundred
+  // bytes each rather than the megabytes an embedded .glb costs.
+  blueprints?: GenBlueprint[]
+  // Computer opponents the MAP asks for, by slot: 0 = human/none, 1..3 = the
+  // AI difficulty. Authored here rather than only in the lobby because a map
+  // built around AI-owned content (lane creeps, a scripted attacker) is not
+  // playable without them. aiLevel is hashed sim state, so carrying it on the
+  // doc is also the surest way for two clients to agree about it.
+  aiLevels?: number[]
   gameDef?: GameDef // inline rules; absent = skirmish preset
+}
+
+/**
+ * How many player slots this map seats. Start locations ARE the slot list —
+ * there is no separate count to keep in step with them.
+ */
+export function mapSlotCount(doc: RtsMapDoc): number {
+  return Math.max(1, Math.min(8, doc.startLocations.length))
+}
+
+/**
+ * Every owner index the map actually uses, in order. Beyond the player slots
+ * this includes the "war slots" a MOBA-style map parks its neutral armies in —
+ * content owned by a slot no human ever occupies.
+ */
+export function mapOwners(doc: RtsMapDoc): number[] {
+  const used = new Set<number>()
+  for (let i = 0; i < mapSlotCount(doc); i++) used.add(i)
+  for (const p of doc.placed ?? []) used.add(p.owner)
+  for (const t of doc.triggers ?? []) {
+    for (const a of t.actions) if (a.type === 'spawnUnits') used.add(a.owner)
+  }
+  return [...used].filter((o) => o >= 0 && o < 8).sort((a, b) => a - b)
 }
 
 // Single source of truth for terrain derivation — sim and renderer both use
@@ -180,4 +221,97 @@ export function deriveTerrain(doc: RtsMapDoc): { walkable: Uint8Array; heights: 
     for (let i = 0; i < n; i++) if (doc.walkable[i] === 0) walkable[i] = 0
   }
   return { walkable, heights }
+}
+
+// ---- resize ------------------------------------------------------------
+
+/** What a resize threw away, so the editor can say so rather than silently losing work. */
+export interface ResizeReport {
+  doc: RtsMapDoc
+  droppedDoodads: number
+  droppedPlaced: number
+  droppedStarts: number
+  droppedRegions: number
+  clampedRegions: number
+}
+
+const LAYERS = ['walkable', 'heights', 'cliffLevel', 'ramp', 'texture', 'heightJitter'] as const
+
+// Cells outside the old map need a value. Everything defaults to 0 except
+// walkability, where 0 means "wall" — new ground should be walkable, or
+// growing a map would ring the old one in an invisible barrier.
+const OUTSIDE: Record<(typeof LAYERS)[number], number> = {
+  walkable: 1,
+  heights: 0,
+  cliffLevel: 0,
+  ramp: 0,
+  texture: 0,
+  heightJitter: 0,
+}
+
+/**
+ * Change a map's dimensions, anchored at the origin corner.
+ *
+ * Growing adds open ground; shrinking crops. Anything left outside the new
+ * bounds is REMOVED rather than clamped to the edge — a unit silently teleported
+ * to the border is worse than one the author is told they lost. Regions are the
+ * exception: they are areas, so a region that merely overhangs is clipped, and
+ * only one entirely outside is dropped.
+ */
+export function resizeMap(doc: RtsMapDoc, cols: number, rows: number): ResizeReport {
+  // A mechanical guard, not a design opinion: small duel arenas are legitimate,
+  // but a map narrower than the brush border logic assumes is not a map.
+  const nc = Math.max(4, Math.min(512, Math.floor(cols)))
+  const nr = Math.max(4, Math.min(512, Math.floor(rows)))
+  const out: RtsMapDoc = { ...doc, cols: nc, rows: nr }
+
+  for (const layer of LAYERS) {
+    const src = doc[layer]
+    if (!src) continue
+    const dst = Array.from<number>({ length: nc * nr }).fill(OUTSIDE[layer])
+    const copyRows = Math.min(doc.rows, nr)
+    const copyCols = Math.min(doc.cols, nc)
+    for (let z = 0; z < copyRows; z++) {
+      for (let x = 0; x < copyCols; x++) dst[z * nc + x] = src[z * doc.cols + x]
+    }
+    out[layer] = dst
+  }
+
+  const inside = (p: { x: number; z: number }): boolean =>
+    p.x >= doc.originX && p.z >= doc.originZ && p.x < doc.originX + nc * doc.cellSize && p.z < doc.originZ + nr * doc.cellSize
+
+  const doodads = (doc.doodads ?? []).filter(inside)
+  const placed = (doc.placed ?? []).filter(inside)
+  const starts = doc.startLocations.filter(inside)
+
+  const maxX = doc.originX + nc * doc.cellSize
+  const maxZ = doc.originZ + nr * doc.cellSize
+  let clampedRegions = 0
+  const regions = (doc.regions ?? [])
+    .filter((r) => r.x0 < maxX && r.z0 < maxZ && r.x1 > doc.originX && r.z1 > doc.originZ)
+    .map((r) => {
+      const clipped = {
+        ...r,
+        x0: Math.max(doc.originX, r.x0),
+        z0: Math.max(doc.originZ, r.z0),
+        x1: Math.min(maxX, r.x1),
+        z1: Math.min(maxZ, r.z1),
+      }
+      if (clipped.x0 !== r.x0 || clipped.z0 !== r.z0 || clipped.x1 !== r.x1 || clipped.z1 !== r.z1) clampedRegions++
+      return clipped
+    })
+
+  if (doc.doodads) out.doodads = doodads
+  if (doc.placed) out.placed = placed
+  out.startLocations = starts
+  if (doc.regions) out.regions = regions
+
+  return {
+    doc: out,
+    droppedDoodads: (doc.doodads?.length ?? 0) - doodads.length,
+    droppedPlaced: (doc.placed?.length ?? 0) - placed.length,
+    droppedStarts: doc.startLocations.length - starts.length,
+    droppedRegions: (doc.regions?.length ?? 0) - regions.length,
+    clampedRegions,
+  }
 }

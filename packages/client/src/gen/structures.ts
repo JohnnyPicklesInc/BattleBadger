@@ -197,6 +197,35 @@ const plot: GenBlueprint = {
   ],
 }
 
+// A small pad on the approaches — visibly slighter than a full build plot, so
+// "this one only takes a tower" reads from the camera without a tooltip.
+const towerPlot: GenBlueprint = {
+  id: 'tower-plot',
+  seed: 0x9108,
+  palette: STONE,
+  parts: [
+    { shape: 'cylinder', color: 'stoneDark', radius: 1.3, height: 0.12, at: [0, 0.06, 0], segments: 8 },
+    { shape: 'cylinder', color: 'stone', radius: 1.0, height: 0.14, at: [0, 0.08, 0], segments: 8 },
+    { shape: 'box', color: 'stoneDark', size: [0.28, 0.5, 0.28], at: [0, 0.3, 0], count: 4, spread: [0.7, 0, 0.7], jitter: 0.03 },
+    { shape: 'box', color: 'player', size: [0.05, 0.24, 0.3], at: [0, 0.5, -0.95] },
+  ],
+}
+
+// An unclaimed expansion. Deliberately drab until somebody builds on it: a
+// neutral pad belongs to nobody, so nothing here is tinted.
+const expansionPlot: GenBlueprint = {
+  id: 'expansion-plot',
+  seed: 0x9109,
+  palette: STONE,
+  parts: [
+    { shape: 'cylinder', color: 'stoneDark', radius: 2.5, height: 0.12, at: [0, 0.06, 0], segments: 12 },
+    { shape: 'cylinder', color: 'stone', radius: 2.1, height: 0.14, at: [0, 0.08, 0], segments: 12 },
+    // a broken ring of old footings, so it reads as a place that was built on
+    { shape: 'box', color: 'stone', size: [0.5, 0.42, 0.5], at: [0, 0.24, 0], count: 6, spread: [1.9, 0.05, 1.9], tilt: 0.25, jitter: 0.05 },
+    { shape: 'cylinder', color: 'woodDark', radius: 0.07, height: 0.9, at: [0, 0.45, -1.9], tilt: 0.1 },
+  ],
+}
+
 // ---- the organic MOBA set ----
 
 const FLESH = {
@@ -408,6 +437,141 @@ const landingPad: GenBlueprint = {
   ],
 }
 
+
+// Where the flyers are kept. Both are perches rather than halls — the point of
+// the silhouette is that you can tell from across the map which side has air.
+const eyrie: GenBlueprint = {
+  id: 'eyrie',
+  seed: 0x51b1,
+  palette: { ...STONE, thatch: '#8a7444', perch: '#6b4a2f' },
+  parts: [
+    { shape: 'cylinder', color: 'stone', radius: 1.7, radiusTop: 1.4, height: 2.2, at: [0, 1.1, 0], segments: 9, jitter: 0.06 },
+    // a spire the birds come down on
+    { shape: 'cylinder', color: 'stoneDark', radius: 0.5, radiusTop: 0.34, height: 3.4, at: [0, 3.6, 0], segments: 8, jitter: 0.05 },
+    { shape: 'cone', color: 'player', radius: 0.9, height: 1.2, at: [0, 5.7, 0], segments: 8 },
+    // open perches jutting from the tower
+    { shape: 'box', color: 'perch', size: [2.6, 0.12, 0.28], at: [0, 3.2, 0], rot: [0, 0.6, 0] },
+    { shape: 'box', color: 'perch', size: [2.6, 0.12, 0.28], at: [0, 4.3, 0], rot: [0, -0.4, 0] },
+    { shape: 'box', color: 'thatch', size: [1.1, 0.5, 1.1], at: [1.4, 0.6, 0.9], rot: [0, 0.4, 0], jitter: 0.05 },
+  ],
+}
+
+const fellRoost: GenBlueprint = {
+  id: 'fell-roost',
+  seed: 0x51b2,
+  palette: { ...STONE, bone: '#cfc7b0', pitch: '#2b2630' },
+  parts: [
+    { shape: 'lathe', color: 'pitch', profile: [[2.2, 0], [1.9, 0.7], [1.2, 1.5]], at: [0, 0, 0], segments: 9, jitter: 0.09 },
+    // a cage of ribs over the pit, the opposite of the eyrie's clean spire
+    { shape: 'cylinder', color: 'bone', radius: 0.09, height: 3.2, at: [1.3, 1.6, 0], rot: [0, 0, 0.45], count: 6, spread: [1.4, 0.2, 1.4], tilt: 0.2 },
+    { shape: 'cone', color: 'bone', radius: 0.16, height: 0.6, at: [0, 3.2, 0], count: 3, spread: [0.8, 0.3, 0.8], tilt: 0.3 },
+    { shape: 'sphere', color: 'player', radius: 0.42, at: [0, 1.9, 0], scale: [1, 0.7, 1] },
+  ],
+}
+
+// ---- fortress pieces -----------------------------------------------------
+// A BFME fortress is built out of these rather than being one model, so they
+// have to tile: each sits on its own footprint and meets its neighbour flush.
+
+const KEEP_STONE = { stone: '#8d8579', stoneDark: '#6d6659', stoneLight: '#a49b8c', timber: '#4a3626', iron: '#3d4149' }
+
+const wall: GenBlueprint = {
+  id: 'wall',
+  seed: 4101,
+  palette: KEEP_STONE,
+  parts: [
+    { shape: 'box', color: 'stone', size: [3.2, 3.4, 1.9], at: [0, 1.7, 0], jitter: 0.06 },
+    // walkway lip, so the top reads as something men stand on
+    { shape: 'box', color: 'stoneLight', size: [3.3, 0.3, 2.2], at: [0, 3.5, 0], jitter: 0.03 },
+    // crenellations
+    { shape: 'box', color: 'stoneDark', size: [0.5, 0.7, 0.4], at: [-1.1, 4.0, -0.85], count: 3, spread: [1.2, 0, 0], jitter: 0.03 },
+    { shape: 'box', color: 'stoneDark', size: [0.5, 0.7, 0.4], at: [-1.1, 4.0, 0.85], count: 3, spread: [1.2, 0, 0], jitter: 0.03 },
+    { shape: 'box', color: 'player', size: [0.5, 0.9, 0.12], at: [0, 3.9, -1.0] },
+  ],
+}
+
+const wallCorner: GenBlueprint = {
+  id: 'wall-corner',
+  seed: 4102,
+  palette: KEEP_STONE,
+  parts: [
+    { shape: 'cylinder', color: 'stone', radius: 1.7, radiusTop: 1.55, height: 4.2, at: [0, 2.1, 0], segments: 8, jitter: 0.07 },
+    { shape: 'cylinder', color: 'stoneLight', radius: 1.85, height: 0.3, at: [0, 4.3, 0], segments: 8 },
+    { shape: 'box', color: 'stoneDark', size: [0.45, 0.7, 0.45], at: [0, 4.7, 0], count: 7, spread: [1.5, 0, 1.5], jitter: 0.03 },
+  ],
+}
+
+const gate: GenBlueprint = {
+  id: 'gate',
+  seed: 4103,
+  palette: KEEP_STONE,
+  parts: [
+    // flanking towers
+    { shape: 'box', color: 'stone', size: [1.8, 6.0, 2.4], at: [-2.6, 3.0, 0], jitter: 0.07 },
+    { shape: 'box', color: 'stone', size: [1.8, 6.0, 2.4], at: [2.6, 3.0, 0], jitter: 0.07 },
+    { shape: 'box', color: 'stoneDark', size: [0.5, 0.8, 0.5], at: [-2.6, 6.4, 0], count: 4, spread: [0.6, 0, 0.8], jitter: 0.03 },
+    { shape: 'box', color: 'stoneDark', size: [0.5, 0.8, 0.5], at: [2.6, 6.4, 0], count: 4, spread: [0.6, 0, 0.8], jitter: 0.03 },
+    // lintel over the archway
+    { shape: 'box', color: 'stone', size: [7.2, 1.6, 2.4], at: [0, 5.2, 0], jitter: 0.05 },
+    // the doors themselves, as swinging groups
+    { shape: 'box', color: 'timber', size: [1.7, 4.2, 0.35], at: [-0.9, 2.1, 0], group: 'armL', pivot: [-1.75, 0, 0] },
+    { shape: 'box', color: 'timber', size: [1.7, 4.2, 0.35], at: [0.9, 2.1, 0], group: 'armR', pivot: [1.75, 0, 0] },
+    { shape: 'box', color: 'iron', size: [1.8, 0.22, 0.45], at: [-0.9, 3.1, 0], group: 'armL' },
+    { shape: 'box', color: 'iron', size: [1.8, 0.22, 0.45], at: [0.9, 3.1, 0], group: 'armR' },
+    { shape: 'box', color: 'player', size: [0.6, 1.1, 0.14], at: [0, 6.4, -1.3] },
+  ],
+}
+
+const sallyPort: GenBlueprint = {
+  id: 'sally-port',
+  seed: 4104,
+  palette: KEEP_STONE,
+  parts: [
+    { shape: 'box', color: 'stone', size: [2.6, 3.4, 1.9], at: [0, 1.7, 0], jitter: 0.05 },
+    { shape: 'box', color: 'stoneDark', size: [1.3, 2.0, 0.3], at: [0, 1.0, -0.9] },
+    { shape: 'box', color: 'timber', size: [1.15, 1.9, 0.28], at: [0, 0.95, -0.95], group: 'armR', pivot: [-0.6, 0, -0.95] },
+    { shape: 'box', color: 'stoneLight', size: [2.7, 0.28, 2.1], at: [0, 3.5, 0] },
+  ],
+}
+
+const wallTower: GenBlueprint = {
+  id: 'wall-tower',
+  seed: 4105,
+  palette: KEEP_STONE,
+  parts: [
+    { shape: 'cylinder', color: 'stone', radius: 1.8, radiusTop: 1.5, height: 7.0, at: [0, 3.5, 0], segments: 9, jitter: 0.08 },
+    { shape: 'cylinder', color: 'stoneLight', radius: 2.05, height: 0.35, at: [0, 7.2, 0], segments: 9 },
+    { shape: 'box', color: 'stoneDark', size: [0.45, 0.8, 0.45], at: [0, 7.7, 0], count: 8, spread: [1.6, 0, 1.6], jitter: 0.03 },
+    { shape: 'cone', color: 'player', radius: 1.1, height: 1.8, at: [0, 8.6, 0], segments: 8 },
+  ],
+}
+
+const emplacement: GenBlueprint = {
+  id: 'emplacement',
+  seed: 4106,
+  palette: KEEP_STONE,
+  parts: [
+    { shape: 'box', color: 'stoneDark', size: [3.0, 0.4, 3.0], at: [0, 0.2, 0], jitter: 0.04 },
+    { shape: 'box', color: 'stone', size: [3.0, 0.7, 0.4], at: [0, 0.55, -1.3], jitter: 0.04 },
+    { shape: 'box', color: 'timber', size: [0.35, 0.35, 2.6], at: [-1.2, 0.5, 0], count: 2, spread: [2.4, 0, 0] },
+  ],
+}
+
+const wallCatapult: GenBlueprint = {
+  id: 'wall-catapult',
+  seed: 4107,
+  palette: { ...KEEP_STONE, rope: '#7a6a4a' },
+  parts: [
+    { shape: 'box', color: 'timber', size: [2.4, 0.4, 1.9], at: [0, 0.6, 0] },
+    { shape: 'box', color: 'timber', size: [0.35, 1.5, 0.35], at: [-0.8, 1.4, 0], count: 2, spread: [1.6, 0, 0] },
+    { shape: 'cylinder', color: 'iron', radius: 0.18, height: 2.0, at: [0, 2.0, 0], rot: [1.57, 0, 0], segments: 7 },
+    // the throwing arm swings on attack only
+    { shape: 'box', color: 'timber', size: [0.3, 3.0, 0.3], at: [0, 1.4, 0.5], rot: [-0.5, 0, 0], group: 'weapon', pivot: [0, 2.0, 0] },
+    { shape: 'sphere', color: 'stoneDark', radius: 0.42, at: [0, 2.8, 1.5], group: 'weapon', jitter: 0.06 },
+    { shape: 'box', color: 'player', size: [0.9, 0.5, 0.12], at: [0, 1.1, -1.0] },
+  ],
+}
+
 export const STRUCTURE_BLUEPRINTS: Record<string, GenBlueprint> = {
   fortress,
   watchtower,
@@ -428,4 +592,15 @@ export const STRUCTURE_BLUEPRINTS: Record<string, GenBlueprint> = {
   'command-post': commandPost,
   'barrack-block': barrackBlock,
   'landing-pad': landingPad,
+  wall,
+  'wall-corner': wallCorner,
+  gate,
+  'sally-port': sallyPort,
+  'wall-tower': wallTower,
+  emplacement,
+  'wall-catapult': wallCatapult,
+  eyrie,
+  'fell-roost': fellRoost,
+  'tower-plot': towerPlot,
+  'expansion-plot': expansionPlot,
 }

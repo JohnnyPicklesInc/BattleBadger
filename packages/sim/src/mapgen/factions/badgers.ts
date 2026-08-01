@@ -1,5 +1,5 @@
-import type { AbilityDef, EntityDef } from '../../defs/schema.ts'
-import { CRUSH_ENGINE, CRUSH_FOOT, CRUSH_MOUNTED, KEEP_SLOTS, STANCES, type Faction } from './shared.ts'
+import type { AbilityDef, EntityDef, UpgradeDef } from '../../defs/schema.ts'
+import { CRUSH_ENGINE, CRUSH_FOOT, CRUSH_MOUNTED, KEEP_SLOTS, KEEP_TOWER_SLOTS, STANCES, type Faction } from './shared.ts'
 
 // The Badgers — the BFME baseline. Expensive, durable, well-drilled: nine-man
 // battalions, cavalry that rides men down, pikes that stop it, and the only
@@ -60,29 +60,6 @@ const ENTITIES: EntityDef[] = [
       },
     },
     {
-      // A BFME troll in badger form: huge, slow, and swinging a club that
-      // throws whatever it connects with. Too heavy to be ridden down, heavy
-      // enough to flatten foot it walks over, but it is not siege — a wall
-      // shrugs it off.
-      crushableLevel: CRUSH_ENGINE, crusherLevel: CRUSH_FOOT,
-      id: 'ogre', name: 'Ogre', kind: 'unit', radius: 0.95, hp: 900,
-      armorType: 'cavalry', xpValue: 45,
-      visual: { model: 'gen:badger-ogre', scale: 1.1, tint: 'owner' },
-      mover: { speed: 3.2 },
-      combat: {
-        damage: 85, range: 1.6, acquire: 10, periodTicks: 22, damageType: 'sword',
-        // The club SWEEPS: a slow single-target hitter is simply out-DPSed by
-        // the ring of men it is standing in. Hitting the whole ring, and
-        // scattering it, is what makes the ogre worth its price.
-        splashRadius: 1.8, splashEdgePct: 40,
-        knockback: 3.2, // the whole point: bodies go flying
-        // 6 ticks, against a 22-tick swing. Longer and the sweep stunlocks
-        // everything adjacent to it — at 14 the ogre beat spearmen at even
-        // cost, which is exactly the counter it is supposed to lose to.
-        knockdownTicks: 6,
-      },
-    },
-    {
       // A siege engine, not a rifle: it is big, it is slow, and its burning
       // boulder takes a visible moment to arrive — troops can walk out from
       // under it, so it is at its best against walls and packed formations.
@@ -104,6 +81,51 @@ const ENTITIES: EntityDef[] = [
       mover: { speed: 4.8 },
       combat: { damage: 55, range: 0.9, acquire: 12, periodTicks: 10, damageType: 'sword' },
       abilities: [{ ability: 'rally-cry', autocast: true }, { ability: 'word-of-power' }],
+    },
+    {
+      // A Great Eagle. Air on this ruleset is not a separate game — it is a
+      // way past the wall. An eagle ignores the gate entirely, which is
+      // exactly why archers on the battlement matter and why it wears cavalry
+      // armour: arrows hit it at full rate and nothing else can reach it.
+      id: 'eagle', name: 'Great Eagle', kind: 'unit', radius: 0.85, hp: 520,
+      armorType: 'cavalry', xpValue: 45,
+      flying: true,
+      vision: 24,
+      visual: { model: 'gen:eagle', scale: 1.2, tint: 'owner' },
+      mover: { speed: 7.0 },
+      combat: {
+        damage: 62, range: 1.5, acquire: 13, periodTicks: 16, damageType: 'sword', hits: 'both',
+        // It stoops, snatches and drops. The knockback is the whole reason to
+        // fly one over a formation rather than shoot into it.
+        splashRadius: 1.6, splashEdgePct: 45, knockback: 3.4, knockdownTicks: 4,
+      },
+    },
+    {
+      // The mounted hero. Rides like cavalry and charges like cavalry, so the
+      // pikes that answer riders answer him too — a hero is a very good unit,
+      // not an exception to the counter web.
+      crushableLevel: CRUSH_MOUNTED, crusherLevel: CRUSH_MOUNTED,
+      id: 'marshal', name: 'Marshal', kind: 'unit', radius: 0.55, hp: 1150,
+      armorType: 'cavalry', xpValue: 60,
+      visual: { model: 'gen:badger-marshal', scale: 1.3, tint: 'owner' },
+      mover: { speed: 6.2 },
+      vision: 18,
+      combat: {
+        damage: 72, range: 1.0, acquire: 12, periodTicks: 11, damageType: 'sword',
+        charge: { minSpeed: 4.6, damage: 190, knockback: 5.5, cooldownTicks: 70, knockdownTicks: 4, recoilPct: 40 },
+      },
+      abilities: [{ ability: 'heroic-charge' }, { ability: 'rally-cry', autocast: true }],
+    },
+    {
+      // The archer hero. Outranges everything on foot and can answer a flyer,
+      // which is what makes him the counter to the other side's beasts.
+      id: 'ranger', name: 'Ranger Captain', kind: 'unit', radius: 0.4, hp: 700,
+      armorType: 'archer', xpValue: 55,
+      visual: { model: 'gen:badger-ranger', scale: 1.2, tint: 'owner' },
+      mover: { speed: 4.8 },
+      vision: 22,
+      combat: { damage: 58, range: 17, acquire: 18, periodTicks: 13, damageType: 'arrow', hits: 'both' },
+      abilities: [{ ability: 'arrow-storm' }],
     },
 
     // ---- horde tickets: what a barracks actually sells ----
@@ -139,13 +161,6 @@ const ENTITIES: EntityDef[] = [
       },
     },
     {
-      id: 'h-ogre', name: 'Ogre', kind: 'unit', radius: 0.95, hp: 0,
-      supplyCost: 12, buildTimeTicks: 170,
-      cost: [{ resource: 'res', amount: 650 }],
-      visual: { model: 'gen:badger-ogre', scale: 1.1, tint: 'owner' },
-      horde: { unit: 'ogre', count: 2, spacing: 2.6 },
-    },
-    {
       id: 'h-catapult', name: 'Catapult', kind: 'unit', radius: 0.7, hp: 0,
       supplyCost: 10, buildTimeTicks: 180,
       cost: [{ resource: 'res', amount: 600 }],
@@ -159,12 +174,33 @@ const ENTITIES: EntityDef[] = [
       visual: { model: 'placeholder:capsule', tint: 'owner' },
       horde: { unit: 'captain', count: 1, spacing: 2 }, // a hero is a horde of one
     },
+    {
+      id: 'h-eagles', name: 'Great Eagles', kind: 'unit', radius: 0.85, hp: 0,
+      supplyCost: 16, buildTimeTicks: 260,
+      cost: [{ resource: 'res', amount: 1100 }],
+      visual: { model: 'gen:eagle', scale: 1.2, tint: 'owner' },
+      horde: { unit: 'eagle', count: 2, spacing: 3.2 },
+    },
+    {
+      id: 'h-marshal', name: 'Marshal', kind: 'unit', radius: 0.55, hp: 0,
+      supplyCost: 18, buildTimeTicks: 240,
+      cost: [{ resource: 'res', amount: 1200 }],
+      visual: { model: 'gen:badger-marshal', scale: 1.3, tint: 'owner' },
+      horde: { unit: 'marshal', count: 1, spacing: 2 }, // a hero is a horde of one
+    },
+    {
+      id: 'h-ranger', name: 'Ranger Captain', kind: 'unit', radius: 0.4, hp: 0,
+      supplyCost: 15, buildTimeTicks: 220,
+      cost: [{ resource: 'res', amount: 1000 }],
+      visual: { model: 'gen:badger-ranger', scale: 1.2, tint: 'owner' },
+      horde: { unit: 'ranger', count: 1, spacing: 2 },
+    },
     // ---- plots ----
     {
       id: 'fortress-plot', name: 'Build Plot', kind: 'building', radius: 2.6, hp: 100,
       visual: { model: 'gen:plot', tint: 'owner' },
       plot: {
-        accepts: ['farm', 'barracks', 'archery-range', 'stable', 'siege-works', 'watchtower'],
+        accepts: ['farm', 'barracks', 'archery-range', 'stable', 'siege-works', 'eyrie', 'watchtower'],
       },
     },
     // ---- structures (plot-placed) ----
@@ -174,7 +210,10 @@ const ENTITIES: EntityDef[] = [
       visual: { model: 'gen:fortress', tint: 'owner' },
       combat: { damage: 40, range: 12, acquire: 13, periodTicks: 16, damageType: 'arrow', hits: 'both' },
       trainer: { trains: ['h-captain'], queueSize: 2 },
-      expansion: { plot: 'fortress-plot', offsets: KEEP_SLOTS },
+      expansion: [
+        { plot: 'fortress-plot', offsets: KEEP_SLOTS },
+        { plot: 'tower-plot', offsets: KEEP_TOWER_SLOTS },
+      ],
     },
     {
       id: 'barracks', name: 'Barracks', kind: 'building', radius: 2.2, hp: 1600,
@@ -188,7 +227,7 @@ const ENTITIES: EntityDef[] = [
       armorType: 'structure', xpValue: 25, placement: 'plot', buildTimeTicks: 150,
       cost: [{ resource: 'res', amount: 450 }],
       visual: { model: 'gen:archery-range', tint: 'owner' },
-      trainer: { trains: ['h-archers'], queueSize: 5 },
+      trainer: { trains: ['h-archers', 'h-ranger'], queueSize: 5 },
     },
     {
       id: 'stable', name: 'Stable', kind: 'building', radius: 2.4, hp: 1500,
@@ -196,7 +235,17 @@ const ENTITIES: EntityDef[] = [
       cost: [{ resource: 'res', amount: 600 }],
       requires: ['barracks'],
       visual: { model: 'gen:stable', tint: 'owner' },
-      trainer: { trains: ['h-riders'], queueSize: 3 },
+      trainer: { trains: ['h-riders', 'h-marshal'], queueSize: 3 },
+    },
+    {
+      // Where the eagles are called from. Gated behind the archery range: a
+      // side that can field air should already have the answer to it.
+      id: 'eyrie', name: 'Eyrie', kind: 'building', radius: 2.4, hp: 1400,
+      armorType: 'structure', xpValue: 30, placement: 'plot', buildTimeTicks: 200,
+      cost: [{ resource: 'res', amount: 750 }],
+      requires: ['archery-range'],
+      visual: { model: 'gen:eyrie', tint: 'owner' },
+      trainer: { trains: ['h-eagles'], queueSize: 2 },
     },
     {
       id: 'siege-works', name: 'Siege Works', kind: 'building', radius: 2.4, hp: 1500,
@@ -217,6 +266,21 @@ const ABILITIES: AbilityDef[] = [
       hpDelta: 40, range: 7, periodTicks: 60, autoAcquire: 'injuredAlly',
     },
     {
+      // The hero's charge, aimed rather than ridden: a wedge of force out in
+      // front of him. Shorter than Word of Power and on a longer leash, so it
+      // is the opener for a charge rather than a substitute for one.
+      id: 'heroic-charge', name: 'Heroic Charge', hotkey: 'C', target: 'point',
+      hpDelta: -130, range: 9, periodTicks: 180,
+      area: { shape: 'cone', radius: 9, halfAngleCos: 0.71 },
+    },
+    {
+      // A volley dropped on a spot. The reason to keep an archer hero behind
+      // the line rather than in it.
+      id: 'arrow-storm', name: 'Arrow Storm', hotkey: 'R', target: 'point',
+      hpDelta: -150, range: 20, periodTicks: 220,
+      area: { shape: 'circle', radius: 7 },
+    },
+    {
       // BFME "Word of Power": a wave that sweeps everything in a 45° arc
       // ahead of the Captain. Aimed by clicking — the cone opens from the
       // caster toward the click.
@@ -226,10 +290,64 @@ const ABILITIES: AbilityDef[] = [
     },
 ]
 
+// Research. Percentages rather than flat numbers, so an upgrade is worth the
+// same to a swordsman and to a hero, and so the counter web keeps its shape:
+// forged blades make your infantry better at what it was already good at
+// rather than papering over what it is bad at.
+const UPGRADES: UpgradeDef[] = [
+  {
+    id: 'forged-blades', name: 'Forged Blades', hotkey: 'F',
+    cost: [{ resource: 'res', amount: 800 }], buildTimeTicks: 320,
+    soldBy: ['barracks'], requires: ['barracks'],
+    appliesTo: ['swordsman', 'spearman', 'captain', 'marshal'],
+    damagePct: 25,
+  },
+  {
+    id: 'heavy-armour', name: 'Heavy Armour', hotkey: 'V',
+    cost: [{ resource: 'res', amount: 900 }], buildTimeTicks: 360,
+    soldBy: ['barracks'], requires: ['stable'],
+    appliesTo: ['swordsman', 'spearman', 'rider', 'captain', 'marshal'],
+    // Armour is a reduction, and it stacks multiplicatively with everything
+    // else, so no pile of upgrades can reach immunity.
+    armorPct: 25,
+  },
+  {
+    id: 'fire-arrows', name: 'Fire Arrows', hotkey: 'F',
+    cost: [{ resource: 'res', amount: 850 }], buildTimeTicks: 340,
+    soldBy: ['archery-range'], requires: ['archery-range'],
+    appliesTo: ['archer', 'ranger'],
+    damagePct: 30,
+  },
+  {
+    id: 'longbows', name: 'Longbows', hotkey: 'G',
+    cost: [{ resource: 'res', amount: 700 }], buildTimeTicks: 300,
+    soldBy: ['archery-range'], requires: ['archery-range'],
+    appliesTo: ['archer', 'ranger'],
+    // Reach, not damage: this is the upgrade that changes where a battle line
+    // can stand rather than how hard it hits.
+    rangePct: 20,
+  },
+  {
+    id: 'shod-hooves', name: 'Shod Hooves', hotkey: 'H',
+    cost: [{ resource: 'res', amount: 600 }], buildTimeTicks: 260,
+    soldBy: ['stable'], requires: ['stable'],
+    appliesTo: ['rider', 'marshal'],
+    speedPct: 12,
+  },
+  {
+    id: 'banded-frames', name: 'Banded Frames', hotkey: 'B',
+    cost: [{ resource: 'res', amount: 750 }], buildTimeTicks: 300,
+    soldBy: ['siege-works'], requires: ['siege-works'],
+    appliesTo: ['catapult'],
+    armorPct: 30, rangePct: 10,
+  },
+]
+
 export const FACTION: Faction = {
   id: 'badgers',
   name: 'Badgers',
   keep: 'fortress',
   entities: ENTITIES,
   abilities: ABILITIES,
+  upgrades: UPGRADES,
 }

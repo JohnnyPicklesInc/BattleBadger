@@ -1,6 +1,8 @@
-import { generateMap, type RtsMapDoc } from '@battlebadger/sim'
+import { generateMap, mapSlotCount, type RtsMapDoc } from '@battlebadger/sim'
 import { WsTransport } from '../net/transport.ts'
 import { listLibrary, loadLibraryMap, saveToLibrary } from '../mapLibrary.ts'
+import { inviteLink, roomFromUrl } from './invite.ts'
+import { drawMapPreview, SLOT_COLORS } from './mapPreview.ts'
 
 export interface MatchStart {
   slot: number
@@ -16,7 +18,6 @@ export interface MatchStart {
 }
 
 const BUILTIN = '__skirmish'
-const SLOT_COLORS = ['#4aa3ff', '#ff5a4a', '#59d98c', '#c678dd', '#ffc46b', '#6be1e8', '#f567b8', '#bfd35c']
 const TEAM_NAMES = ['Team 1', 'Team 2', 'Team 3', 'Team 4', 'Team 5', 'Team 6', 'Team 7', 'Team 8']
 
 interface MapMeta {
@@ -59,7 +60,15 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
           <button id="lb-editor">Map editor</button>
         </div>
         <div class="lobby-right">
-          <div id="lb-codeshow" class="code" style="display:none"></div>
+          <div class="mapshot">
+            <canvas id="lb-preview" width="286" height="286"></canvas>
+            <div class="mapshot-empty" id="lb-preview-empty"></div>
+          </div>
+          <div class="mapcaption" id="lb-caption"></div>
+          <div id="lb-roombox" style="display:none">
+            <div id="lb-codeshow" class="code"></div>
+            <button id="lb-copy">Copy invite link</button>
+          </div>
           <label>Players</label>
           <ul id="lb-players"></ul>
           <button id="lb-start" class="primary" style="display:none" disabled>Start match</button>
@@ -77,15 +86,22 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
   const mapSel = $<HTMLSelectElement>('lb-map')
   const mapInfo = $('lb-mapinfo')
   const playersEl = $('lb-players')
+  const preview = $<HTMLCanvasElement>('lb-preview')
+  const previewEmpty = $('lb-preview-empty')
+  const caption = $('lb-caption')
   nameInput.value = localStorage.getItem('bb-name') ?? `Badger${Math.floor(Math.random() * 900 + 100)}`
 
   let transport: WsTransport | null = null
   let inRoom = false
+  let roomCode = ''
   let mySlot = 0
   let hostDoc: RtsMapDoc | null = null // host's selected map, resolved before start
   let builtinDoc: RtsMapDoc | null = null // generated skirmish, stable for this lobby
   let hostJson = ''
-  let mapSentTo = -1 // guest count the map was last sent for
+  // Which guest slots the map was last sent for, not how many: with links,
+  // one guest leaving as another joins is routine, and a count would leave the
+  // newcomer mapless behind a stale ack from the player who left.
+  let mapSentFor = ''
   const ackSlots = new Set<number>()
   let receivedDoc: RtsMapDoc | null = null // guest side
   let lastPlayers: (string | null)[] = []
@@ -106,11 +122,20 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     return n
   }
 
-  // ---- players panel (always visible, empty slots included) ----
+  // Names arrive from other clients through the relay — never interpolate one
+  // into markup raw.
+  const esc = (s: string): string =>
+    s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? c)
+
+  // The map the local player will actually load: guests show the doc they were
+  // sent, the host shows their own pick.
+  const shownDoc = (): RtsMapDoc | null => (inRoom && mySlot !== 0 ? receivedDoc : hostDoc)
+
+  // ---- players panel + map shot (always visible, empty slots included) ----
   const renderPlayers = (): void => {
     const players = inRoom ? lastPlayers : [playerName()]
-    // guests describe the map they were sent; the host describes their pick
-    const meta = metaOf(inRoom && mySlot !== 0 ? receivedDoc : hostDoc)
+    const doc = shownDoc()
+    const meta = metaOf(doc)
     const slots = Math.max(meta.slots, players.filter(Boolean).length)
     let html = ''
     for (let i = 0; i < slots; i++) {
@@ -119,11 +144,28 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
       const team = meta.slotTeams ? TEAM_NAMES[meta.slotTeams[i] ?? i] : `Team ${i + 1}`
       html += `<li class="${name ? 'filled' : 'open'}">
         <i style="background:${SLOT_COLORS[i]}"></i>
-        <span class="pname">${name ?? 'Open slot'}</span>
+        <span class="pname">${name ? esc(name) : 'Open slot'}</span>
         <span class="pteam">${team}${you ? ' · you' : i === 0 && name ? ' · host' : ''}</span>
       </li>`
     }
     playersEl.innerHTML = html
+
+    // The map shot: start locations light up as their slots fill, so the lobby
+    // answers "who is sitting across from me" at a glance.
+    if (doc) {
+      previewEmpty.style.display = 'none'
+      preview.style.display = 'block'
+      drawMapPreview(preview, doc, {
+        players: inRoom ? lastPlayers : [playerName()],
+        mySlot: inRoom ? mySlot : 0,
+      })
+      caption.textContent = meta.label
+    } else {
+      preview.style.display = 'none'
+      previewEmpty.style.display = 'flex'
+      previewEmpty.textContent = 'waiting for the host’s map…'
+      caption.textContent = ''
+    }
   }
 
   // ---- map picker ----
@@ -173,7 +215,7 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     void resolveSelectedMap().then(() => {
       // host may switch maps while the room is open — resend to guests
       if (inRoom && mySlot === 0) {
-        mapSentTo = -1
+        mapSentFor = ''
         updateLobby(lastPlayers)
       }
     })
@@ -181,7 +223,11 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
   nameInput.addEventListener('input', renderPlayers)
   void refreshMaps()
 
-  const guestsCount = (): number => Math.max(0, lastPlayers.filter(Boolean).length - 1)
+  // Every occupied slot other than the host's — the exact set that needs the map.
+  const guestSlots = (): number[] =>
+    lastPlayers.flatMap((p, i) => (p && i !== 0 ? [i] : []))
+  const guestsCount = (): number => guestSlots().length
+  const ackedCount = (): number => guestSlots().filter((s) => ackSlots.has(s)).length
 
   const updateLobby = (players: (string | null)[]): void => {
     lastPlayers = players
@@ -196,27 +242,29 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     }
     startBtn.style.display = 'block'
     if (hostDoc && guestsCount() > 0) {
-      if (mapSentTo !== guestsCount()) {
-        mapSentTo = guestsCount()
+      const roster = guestSlots().join(',')
+      if (mapSentFor !== roster) {
+        mapSentFor = roster
         ackSlots.clear()
         status.textContent = `sending map "${hostDoc.name}"…`
         transport?.sendMapDoc(hostJson)
         startBtn.disabled = true
         return
       }
-      const ready = ackSlots.size >= guestsCount()
+      const ready = ackedCount() >= guestsCount()
       startBtn.disabled = !ready
       status.textContent = ready
         ? `map delivered — ready with ${n} player${n > 1 ? 's' : ''}`
-        : `waiting for map delivery (${ackSlots.size}/${guestsCount()})…`
+        : `waiting for map delivery (${ackedCount()}/${guestsCount()})…`
       return
     }
     startBtn.disabled = false
     status.textContent =
-      n <= 1 ? 'share the room code — or start solo to explore the map' : `ready with ${n} players`
+      n <= 1 ? 'share the invite link — or start solo to explore the map' : `ready with ${n} players`
   }
 
   const connect = (code: string, created: boolean): void => {
+    roomCode = code
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url = `${proto}//${location.host}/api/rooms/${code}/ws?name=${encodeURIComponent(playerName())}`
     status.textContent = 'connecting…'
@@ -235,8 +283,11 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
           $('lb-import').setAttribute('disabled', '')
           $('lb-starters').setAttribute('disabled', '')
         }
-        $('lb-codeshow').style.display = 'block'
+        $('lb-roombox').style.display = 'block'
         $('lb-codeshow').textContent = code
+        // Put the code in the address bar too, so copying the URL — or just
+        // reloading after a stumble — lands back in the same room.
+        history.replaceState(null, '', inviteLink(location.href, code))
         if (!created) status.textContent = `joined room ${code}`
         updateLobby(players)
       },
@@ -265,12 +316,17 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
         updateLobby(lastPlayers)
       },
       onError: (m) => {
-        status.textContent = `error: ${m}`
+        // The relay refuses the upgrade for a full or already-started room, so
+        // a dead invite link surfaces here as a plain socket error. Say what it
+        // actually means instead of "connection error".
+        status.textContent = inRoom
+          ? `error: ${m}`
+          : `could not join room ${code} — it may be full, already started, or the relay is down`
         transport = null
       },
       onClose: () => {
         if (document.body.contains(overlay)) {
-          status.textContent = 'disconnected'
+          if (inRoom) status.textContent = 'disconnected'
           startBtn.disabled = true
         }
       },
@@ -281,9 +337,14 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     void resolveSelectedMap().then((ok) => {
       if (!ok || !hostDoc) return
       overlay.remove()
-      // Practice: slot 0 is you, slot 1 is a level-2 computer opponent.
-      const aiLevels = [0, 2]
-      onStart({ slot: 0, transport: null, players: [playerName(), 'Practice AI'], doc: hostDoc, aiLevels })
+      // Practice: slot 0 is you, every other slot the map seats is a computer.
+      // The map's own aiLevels win where it sets them — a map built around
+      // scripted armies is not playable without the opponents it asks for.
+      const slots = mapSlotCount(hostDoc)
+      const aiLevels = Array.from({ length: slots }, (_, i) => hostDoc!.aiLevels?.[i] ?? (i === 0 ? 0 : 2))
+      aiLevels[0] = 0
+      const names = aiLevels.map((lv, i) => (i === 0 ? playerName() : lv > 0 ? `Computer ${i}` : `Player ${i + 1}`))
+      onStart({ slot: 0, transport: null, players: names, doc: hostDoc, aiLevels })
     })
   })
 
@@ -376,10 +437,34 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     else status.textContent = 'enter the 4-letter room code'
   })
 
+  $('lb-copy').addEventListener('click', () => {
+    const link = inviteLink(location.href, roomCode)
+    void navigator.clipboard
+      ?.writeText(link)
+      .then(() => (status.textContent = 'invite link copied — send it to your friends'))
+      .catch(() => (status.textContent = `invite link: ${link}`))
+  })
+
+  // Enter on the code field joins, so a pasted code needs no second click.
+  $<HTMLInputElement>('lb-code').addEventListener('keydown', (e) => {
+    if ((e as KeyboardEvent).key === 'Enter') $('lb-join').click()
+  })
+
+  // ---- arriving on an invite link ----
+  // ?room=ABCD (or #room=ABCD) joins straight away under the remembered
+  // commander name. The room the link names is the whole point of the visit —
+  // making the visitor find the code field and retype it is the old flow.
+  const linkCode = roomFromUrl(location.href)
+  if (linkCode) {
+    $<HTMLInputElement>('lb-code').value = linkCode
+    status.textContent = `joining room ${linkCode}…`
+    connect(linkCode, false)
+  }
+
   startBtn.addEventListener('click', () => {
     // guard the join/deliver race: never start while a guest is still missing
     // the custom map (they would boot the wrong map and desync at tick 0)
-    if (hostDoc && guestsCount() > 0 && ackSlots.size < guestsCount()) {
+    if (hostDoc && guestsCount() > 0 && ackedCount() < guestsCount()) {
       updateLobby(lastPlayers)
       return
     }

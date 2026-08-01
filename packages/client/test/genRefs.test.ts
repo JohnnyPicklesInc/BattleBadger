@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { SKIRMISH_DEF, generateMap, type GameDef } from '@battlebadger/sim'
-import { GEN_BLUEPRINTS } from '../src/gen/registry.ts'
+import { GEN_BLUEPRINTS, findBlueprint, setMapBlueprints } from '../src/gen/registry.ts'
 
 // An unregistered 'gen:<id>' does not throw — resolveModel quietly falls back
 // to a placeholder box. That is the right runtime behaviour (a bad model can
@@ -35,7 +35,13 @@ describe('gen model references resolve', () => {
       const doc = JSON.parse(readFileSync(`packages/client/public/maps/${name}.json`, 'utf8'))
       const ids = genIds(doc.gameDef)
       expect(ids.length, `${name}.json has no gen: models — stale bake?`).toBeGreaterThan(0)
-      for (const id of ids) expect(GEN_BLUEPRINTS[id], `unregistered gen:${id}`).toBeDefined()
+      // A map may carry its own blueprints, so resolve the way the client does.
+      setMapBlueprints(doc.blueprints)
+      try {
+        for (const id of ids) expect(findBlueprint(id), `unregistered gen:${id}`).toBeDefined()
+      } finally {
+        setMapBlueprints(undefined)
+      }
     })
   }
 })

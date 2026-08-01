@@ -1,3 +1,4 @@
+import { attackDamage, takenPct } from './upgrades.ts'
 import { Kind, Order, allied, despawn, type SimState } from '../state.ts'
 import type { SpatialHash } from '../spatial.ts'
 import type { WalkGrid } from '../path/walkgrid.ts'
@@ -125,6 +126,8 @@ function smite(
   let dmg = Math.floor((outgoing * pct) / 100)
   dmg = applyDamageTable(s, ty, s.type[victim], dmg)
   dmg = Math.floor((dmg * incomingPct(s, victim)) / 100)
+  // Researched armour, on the victim's side of the blow.
+  dmg = Math.floor((dmg * takenPct(s, victim)) / 100)
   if (dmg < 1 && !tableImmune(s, ty, s.type[victim])) dmg = 1
   const wasAlive = s.hp[victim] > 0
   s.hp[victim] -= dmg
@@ -181,7 +184,7 @@ export function combat(s: SimState, grid: WalkGrid): void {
     } else if (st.damage[ty] > 0 && canHit(s, ty, s.type[tgt])) {
       // Attacker-side scaling happens here for both weapon kinds; the armor
       // matrix and defender scaling are applied on impact for a shell.
-      const outgoing = Math.floor((st.damage[ty] * outgoingPct(s, i)) / 100)
+      const outgoing = Math.floor((attackDamage(s, i) * outgoingPct(s, i)) / 100)
       if (st.projSpeed[ty] > 0) {
         // A flying shot is aimed at the ground the target occupies RIGHT NOW.
         // It is not steered afterwards, so the target can walk out of it.

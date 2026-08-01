@@ -489,6 +489,167 @@ const gunship: GenBlueprint = {
   ],
 }
 
+
+// ---- eagles, beasts and heroes -------------------------------------------
+// Flyers hang at y ~2.5 so they read as airborne from a top-down camera; the
+// wings are armL/armR so the renderer's stride beat becomes a wingbeat.
+
+const EAGLE = { feather: '#b9a06a', feathDark: '#7d6437', beak: '#e0c15a', talon: '#3b3730' }
+
+const eagle: GenBlueprint = {
+  id: 'eagle',
+  seed: 0x51a1,
+  palette: EAGLE,
+  parts: [
+    { shape: 'sphere', color: 'feather', radius: 0.55, at: [0, 2.5, 0], scale: [0.9, 0.65, 1.7], jitter: 0.05 },
+    { shape: 'sphere', color: 'feather', radius: 0.3, at: [0, 2.75, 1.15], jitter: 0.04 },
+    { shape: 'cone', color: 'beak', radius: 0.13, height: 0.42, at: [0, 2.72, 1.5], rot: [1.57, 0, 0] },
+    // tail
+    { shape: 'box', color: 'feathDark', size: [0.7, 0.07, 0.8], at: [0, 2.4, -1.3], jitter: 0.04 },
+    // wings, hinged at the shoulders
+    { shape: 'box', color: 'feather', size: [2.2, 0.09, 1.0], at: [-1.3, 2.6, 0], group: 'armL', pivot: [-0.35, 2.55, 0], jitter: 0.05 },
+    { shape: 'box', color: 'feather', size: [2.2, 0.09, 1.0], at: [1.3, 2.6, 0], group: 'armR', pivot: [0.35, 2.55, 0], jitter: 0.05 },
+    { shape: 'box', color: 'player', size: [1.9, 0.05, 0.3], at: [-1.3, 2.66, -0.4], group: 'armL' },
+    { shape: 'box', color: 'player', size: [1.9, 0.05, 0.3], at: [1.3, 2.66, -0.4], group: 'armR' },
+    { shape: 'cylinder', color: 'talon', radius: 0.07, height: 0.5, at: [-0.25, 2.15, 0.4], count: 2, spread: [0.5, 0, 0] },
+  ],
+}
+
+const FELL = { hide: '#4a4550', hideDark: '#2e2b34', membrane: '#5d4450', horn: '#c9c2ae' }
+
+const fellBeast: GenBlueprint = {
+  id: 'fell-beast',
+  seed: 0x51a2,
+  palette: FELL,
+  parts: [
+    { shape: 'sphere', color: 'hide', radius: 0.5, at: [0, 2.5, 0], scale: [0.85, 0.6, 1.8], jitter: 0.06 },
+    // long neck and narrow head, the opposite silhouette to the eagle
+    { shape: 'cylinder', color: 'hide', radius: 0.17, radiusTop: 0.12, height: 1.1, at: [0, 2.7, 1.1], rot: [1.2, 0, 0], jitter: 0.04 },
+    { shape: 'cone', color: 'hideDark', radius: 0.19, height: 0.6, at: [0, 2.9, 1.75], rot: [1.45, 0, 0], jitter: 0.04 },
+    { shape: 'cone', color: 'horn', radius: 0.06, height: 0.3, at: [0, 3.05, 1.55], rot: [-0.5, 0, 0], count: 2, spread: [0.12, 0, 0] },
+    // barbed tail
+    { shape: 'cylinder', color: 'hideDark', radius: 0.13, radiusTop: 0.04, height: 1.9, at: [0, 2.42, -1.5], rot: [1.5, 0, 0], jitter: 0.04 },
+    // ribbed membrane wings
+    { shape: 'box', color: 'membrane', size: [2.5, 0.06, 1.15], at: [-1.45, 2.6, -0.1], group: 'armL', pivot: [-0.3, 2.55, 0], tilt: 0.05, jitter: 0.06 },
+    { shape: 'box', color: 'membrane', size: [2.5, 0.06, 1.15], at: [1.45, 2.6, -0.1], group: 'armR', pivot: [0.3, 2.55, 0], tilt: 0.05, jitter: 0.06 },
+    { shape: 'cylinder', color: 'hideDark', radius: 0.05, height: 2.4, at: [-1.45, 2.66, 0.2], rot: [0, 0, 1.57], group: 'armL' },
+    { shape: 'cylinder', color: 'hideDark', radius: 0.05, height: 2.4, at: [1.45, 2.66, 0.2], rot: [0, 0, 1.57], group: 'armR' },
+    { shape: 'box', color: 'player', size: [0.34, 0.5, 0.34], at: [0, 2.95, -0.35] },
+  ],
+}
+
+// The mounted hero: the rider's steed carrying a crested, caped figure. Built
+// on the same anatomy as the rank and file so he reads as one of them, only
+// grander — a hero is a very good unit, not a different species.
+const marshal: GenBlueprint = {
+  id: 'badger-marshal',
+  seed: 0x51a3,
+  palette: { ...FUR, hide: '#7a6252', hideDark: '#54443a', tusk: '#ded6c4', cape: '#3a2f4a', gold: '#d8b45a' },
+  parts: [
+    // the steed, a hand larger than a rider's
+    { shape: 'sphere', color: 'hide', radius: 0.48, at: [0, 0.66, 0], scale: [1, 0.88, 1.55], jitter: 0.03 },
+    { shape: 'sphere', color: 'hide', radius: 0.28, at: [0, 0.72, 0.78], scale: [1, 0.9, 1.1] },
+    { shape: 'cone', color: 'hideDark', radius: 0.16, height: 0.32, at: [0, 0.66, 1.02], rot: [1.4, 0, 0] },
+    { shape: 'cone', color: 'tusk', radius: 0.045, height: 0.18, at: [-0.12, 0.63, 1.08], rot: [-0.5, 0, 0] },
+    { shape: 'cone', color: 'tusk', radius: 0.045, height: 0.18, at: [0.12, 0.63, 1.08], rot: [-0.5, 0, 0] },
+    { shape: 'capsule', color: 'hideDark', radius: 0.11, height: 0.32, at: [-0.3, 0.32, 0.46], count: 2, spread: [0.6, 0, 0] },
+    { shape: 'capsule', color: 'hideDark', radius: 0.11, height: 0.32, at: [-0.3, 0.32, -0.46], count: 2, spread: [0.6, 0, 0] },
+    { shape: 'box', color: 'player', size: [0.94, 0.46, 0.76], at: [0, 0.64, -0.06] },
+    { shape: 'box', color: 'gold', size: [0.96, 0.06, 0.2], at: [0, 0.86, -0.06] },
+    // the Marshal himself
+    { shape: 'capsule', color: 'fur', radius: 0.21, height: 0.24, at: [0, 1.18, -0.08] },
+    { shape: 'cylinder', color: 'player', radius: 0.24, radiusTop: 0.19, height: 0.24, at: [0, 1.14, -0.08] },
+    { shape: 'sphere', color: 'player', radius: 0.12, at: [-0.26, 1.3, -0.06], scale: [1.1, 0.8, 1.1] },
+    { shape: 'sphere', color: 'player', radius: 0.12, at: [0.26, 1.3, -0.06], scale: [1.1, 0.8, 1.1] },
+    { shape: 'sphere', color: 'fur', radius: 0.18, at: [0, 1.52, -0.04] },
+    { shape: 'cone', color: 'fur', radius: 0.1, height: 0.18, at: [0, 1.49, 0.14], rot: [1.35, 0, 0] },
+    { shape: 'sphere', color: 'snout', radius: 0.04, at: [0, 1.47, 0.23] },
+    { shape: 'cone', color: 'metal', radius: 0.19, height: 0.24, at: [0, 1.66, -0.04], segments: 8 },
+    { shape: 'box', color: 'gold', size: [0.05, 0.18, 0.3], at: [0, 1.8, -0.06], rot: [-0.15, 0, 0] },
+    { shape: 'box', color: 'cape', size: [0.44, 0.8, 0.05], at: [0, 1.0, -0.36], rot: [0.14, 0, 0] },
+    // raised sword rather than a couched lance: he leads, then fights
+    { shape: 'cylinder', color: 'wood', radius: 0.03, height: 0.22, at: [0.34, 1.2, 0.1] },
+    { shape: 'box', color: 'metal', size: [0.07, 0.86, 0.14], at: [0.34, 1.68, 0.06], rot: [0.2, 0, 0] },
+    { shape: 'box', color: 'gold', size: [0.24, 0.06, 0.08], at: [0.34, 1.3, 0.08] },
+  ],
+}
+
+// The archer hero: taller and hooded, with a longbow that visibly outreaches
+// the line archer's.
+const ranger: GenBlueprint = {
+  id: 'badger-ranger',
+  seed: 0x51a4,
+  palette: { ...FUR, cloak: '#3d4a38', gold: '#d8b45a' },
+  parts: [
+    ...badgerCore(),
+    { shape: 'box', color: 'cloak', size: [0.46, 0.8, 0.06], at: [0, 0.62, -0.28], rot: [0.12, 0, 0] },
+    { shape: 'cone', color: 'cloak', radius: 0.22, height: 0.3, at: [0, 1.16, -0.02], segments: 8 },
+    { shape: 'sphere', color: 'player', radius: 0.12, at: [-0.3, 0.82, 0], scale: [1.1, 0.8, 1.1] },
+    { shape: 'sphere', color: 'player', radius: 0.12, at: [0.3, 0.82, 0], scale: [1.1, 0.8, 1.1] },
+    arm('armL'),
+    // longbow, held out and drawn
+    { shape: 'lathe', color: 'wood', profile: [[0.02, 0], [0.3, 0.55], [0.02, 1.1]], at: [-0.42, 0.36, 0.16], rot: [0, 1.57, 0], segments: 6, group: 'armL', pivot: [-0.26, 0.82, 0] },
+    { shape: 'box', color: 'gold', size: [0.05, 0.05, 0.16], at: [-0.42, 0.9, 0.16], group: 'armL', pivot: [-0.26, 0.82, 0] },
+    arm('armR'),
+    { shape: 'cylinder', color: 'wood', radius: 0.016, height: 0.62, at: [0.3, 0.68, 0.3], rot: [-1.5, 0, 0], group: 'armR', pivot: [0.26, 0.82, 0] },
+    // quiver
+    { shape: 'cylinder', color: 'leather', radius: 0.09, height: 0.42, at: [-0.2, 0.66, -0.22], rot: [0.3, 0, 0.35] },
+  ],
+}
+
+// The Horde's mounted hero: a warg, lower and longer than a badger steed, with
+// a chieftain crouched over its shoulders.
+const wargChief: GenBlueprint = {
+  id: 'warg-chief',
+  seed: 0x51a5,
+  palette: { ...ORC, pelt: '#4a443c', peltDark: '#332f29', fang: '#e2dac6' },
+  parts: [
+    { shape: 'sphere', color: 'pelt', radius: 0.44, at: [0, 0.58, 0], scale: [0.95, 0.82, 1.7], jitter: 0.05 },
+    { shape: 'sphere', color: 'pelt', radius: 0.24, at: [0, 0.6, 0.8], scale: [1, 0.9, 1.1], jitter: 0.04 },
+    { shape: 'cone', color: 'peltDark', radius: 0.15, height: 0.34, at: [0, 0.54, 1.06], rot: [1.45, 0, 0] },
+    { shape: 'cone', color: 'fang', radius: 0.03, height: 0.12, at: [-0.07, 0.5, 1.14], rot: [3.0, 0, 0], count: 2, spread: [0.14, 0, 0] },
+    { shape: 'cone', color: 'peltDark', radius: 0.06, height: 0.18, at: [-0.15, 0.76, 0.72], rot: [0, 0, 0.5] },
+    { shape: 'cone', color: 'peltDark', radius: 0.06, height: 0.18, at: [0.15, 0.76, 0.72], rot: [0, 0, -0.5] },
+    { shape: 'capsule', color: 'peltDark', radius: 0.1, height: 0.26, at: [-0.28, 0.26, 0.48], count: 2, spread: [0.56, 0, 0] },
+    { shape: 'capsule', color: 'peltDark', radius: 0.1, height: 0.26, at: [-0.28, 0.26, -0.48], count: 2, spread: [0.56, 0, 0] },
+    { shape: 'cylinder', color: 'peltDark', radius: 0.07, radiusTop: 0.02, height: 0.7, at: [0, 0.62, -0.95], rot: [1.35, 0, 0] },
+    { shape: 'box', color: 'player', size: [0.78, 0.36, 0.62], at: [0, 0.58, -0.1] },
+    // the chieftain, hunched forward over the withers
+    { shape: 'capsule', color: 'hide', radius: 0.2, height: 0.24, at: [0, 1.02, -0.1], rot: [0.3, 0, 0] },
+    { shape: 'cylinder', color: 'player', radius: 0.22, radiusTop: 0.18, height: 0.22, at: [0, 0.98, -0.1] },
+    { shape: 'sphere', color: 'hide', radius: 0.17, at: [0, 1.32, 0.02] },
+    { shape: 'cone', color: 'hide', radius: 0.1, height: 0.2, at: [0, 1.28, 0.19], rot: [1.4, 0, 0] },
+    { shape: 'cone', color: 'tusk', radius: 0.025, height: 0.08, at: [-0.05, 1.27, 0.24], rot: [3.1, 0, 0], count: 2, spread: [0.1, 0, 0] },
+    { shape: 'cone', color: 'iron', radius: 0.2, height: 0.22, at: [0, 1.46, 0.0], segments: 6 },
+    { shape: 'cone', color: 'ironDark', radius: 0.04, height: 0.26, at: [-0.16, 1.56, 0], rot: [0, 0, 0.6] },
+    { shape: 'cone', color: 'ironDark', radius: 0.04, height: 0.26, at: [0.16, 1.56, 0], rot: [0, 0, -0.6] },
+    // jagged cleaver held out to the side
+    { shape: 'box', color: 'iron', size: [0.1, 0.66, 0.2], at: [0.34, 1.12, 0.1], rot: [0.4, 0, -0.4], jitter: 0.03 },
+  ],
+}
+
+// The Horde's archer hero: a heavy crossbow rather than a longbow — one shot,
+// aimed at one thing.
+const marksman: GenBlueprint = {
+  id: 'orc-marksman',
+  seed: 0x51a6,
+  palette: { ...ORC, hood: '#3a3a34' },
+  parts: [
+    ...orcCore(),
+    { shape: 'box', color: 'hood', size: [0.42, 0.66, 0.06], at: [0, 0.5, -0.24], rot: [0.15, 0, 0] },
+    { shape: 'cone', color: 'hood', radius: 0.2, height: 0.26, at: [0, 0.88, 0.06], segments: 7 },
+    { shape: 'sphere', color: 'player', radius: 0.11, at: [-0.26, 0.5, 0.02], scale: [1.1, 0.8, 1.1] },
+    { shape: 'sphere', color: 'player', radius: 0.11, at: [0.26, 0.5, 0.02], scale: [1.1, 0.8, 1.1] },
+    orcArm('armL'),
+    orcArm('armR'),
+    // crossbow: a heavy stock across the body with a wide steel prod
+    { shape: 'box', color: 'wood', size: [0.07, 0.07, 0.72], at: [0.1, 0.52, 0.3], group: 'armR', pivot: [0.26, 0.48, 0] },
+    { shape: 'box', color: 'iron', size: [0.66, 0.05, 0.06], at: [0.1, 0.53, 0.56], group: 'armR', pivot: [0.26, 0.48, 0], jitter: 0.02 },
+    { shape: 'cylinder', color: 'ironDark', radius: 0.03, height: 0.2, at: [0.1, 0.45, 0.18], rot: [0.5, 0, 0], group: 'armR', pivot: [0.26, 0.48, 0] },
+    { shape: 'cylinder', color: 'rag', radius: 0.09, height: 0.4, at: [-0.2, 0.42, -0.2], rot: [0.3, 0, 0.35] },
+  ],
+}
+
 export const UNIT_BLUEPRINTS: Record<string, GenBlueprint> = {
   'badger-sword': swordsman,
   'badger-spear': spearman,
@@ -507,4 +668,10 @@ export const UNIT_BLUEPRINTS: Record<string, GenBlueprint> = {
   gunship,
   catapult,
   gnasher,
+  eagle,
+  'fell-beast': fellBeast,
+  'badger-marshal': marshal,
+  'badger-ranger': ranger,
+  'warg-chief': wargChief,
+  'orc-marksman': marksman,
 }

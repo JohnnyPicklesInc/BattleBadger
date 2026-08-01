@@ -1,4 +1,5 @@
-import type { AbilityDef, EntityDef, FormationDef, GameDef } from '../../defs/schema.ts'
+import type { EntityDef, FormationDef } from '../../defs/schema.ts'
+import type { RulesetBase, RulesetModule } from '../../ruleset.ts'
 
 // The rules every faction plays by: one resource, one damage matrix, one
 // veterancy ladder, one set of stances, and the handful of structures that
@@ -12,14 +13,45 @@ export const CRUSH_FOOT = 1
 export const CRUSH_MOUNTED = 2
 export const CRUSH_ENGINE = 3
 
-// The six expansion slots ringing a keep.
+// The build plots ringing a keep.
+//
+// Held well off the keep rather than hugging it. Plots pressed against the
+// citadel made a base one solid blob: no lanes between the buildings, nowhere
+// for a defender to stand, and a single catapult shot landing on four things
+// at once. At this radius a base is somewhere you fight rather than a wall of
+// masonry, and there is room to walk between the halls.
+const R = 15
+const D = 11 // the diagonals, held to roughly the same distance
 export const KEEP_SLOTS = [
-  { dx: 9, dz: 0 },
-  { dx: -9, dz: 0 },
-  { dx: 0, dz: 9 },
-  { dx: 0, dz: -9 },
-  { dx: 7, dz: 7 },
-  { dx: -7, dz: -7 },
+  { dx: R, dz: 0 },
+  { dx: -R, dz: 0 },
+  { dx: 0, dz: R },
+  { dx: 0, dz: -R },
+  { dx: D, dz: D },
+  { dx: -D, dz: D },
+  { dx: D, dz: -D },
+  { dx: -D, dz: -D },
+  // a second, wider arc — a keep is worth building a real base around
+  { dx: 22, dz: 8 },
+  { dx: 22, dz: -8 },
+  { dx: -22, dz: 8 },
+  { dx: -22, dz: -8 },
+]
+
+// Small pads further out, on the approaches. They take a tower and nothing
+// else, so the outer ring is defence rather than more economy — the reason to
+// push your perimeter out is to see and shoot, not to earn.
+const T = 30
+const TD = 22
+export const KEEP_TOWER_SLOTS = [
+  { dx: T, dz: 0 },
+  { dx: -T, dz: 0 },
+  { dx: 0, dz: T },
+  { dx: 0, dz: -T },
+  { dx: TD, dz: TD },
+  { dx: -TD, dz: TD },
+  { dx: TD, dz: -TD },
+  { dx: -TD, dz: -TD },
 ]
 
 export const STANCES: FormationDef[] = [
@@ -104,6 +136,20 @@ export const NEUTRAL_ENTITIES: EntityDef[] = [
       combat: { damage: 30, range: 14, acquire: 15, periodTicks: 18, damageType: 'arrow', hits: 'both' },
     },
     {
+      // A small pad on the approaches. Takes a tower and nothing else.
+      id: 'tower-plot', name: 'Tower Pad', kind: 'building', radius: 1.5, hp: 100,
+      visual: { model: 'gen:tower-plot', tint: 'owner' },
+      plot: { accepts: ['watchtower'] },
+    },
+    {
+      // An expansion players fight over. Neutral, so either side may claim it,
+      // and it takes a real base rather than a farm — which is what makes
+      // holding ground away from your keep worth the army it costs.
+      id: 'expansion-plot', name: 'Expansion', kind: 'building', radius: 2.6, hp: 100,
+      visual: { model: 'gen:expansion-plot', tint: 'none' },
+      plot: { accepts: ['farm', 'watchtower'], neutral: true },
+    },
+    {
       id: 'settlement', name: 'Settlement', kind: 'building', radius: 2.6, hp: 100,
       // 'none': a neutral pad belongs to nobody. Its owner field is only a
       // placement slot, and tinting it would paint it as player 0's property.
@@ -113,18 +159,26 @@ export const NEUTRAL_ENTITIES: EntityDef[] = [
 ]
 
 /** A faction: the keep you start with, its plot, and everything it fields. */
-export interface Faction {
-  id: string
-  name: string
-  keep: string
-  entities: EntityDef[]
-  // Abilities its units reference. They travel WITH the faction: leaving them
-  // on one map meant every other map composing that faction produced a def
-  // whose captain referenced abilities that were not there.
-  abilities?: AbilityDef[]
+// The farm/watchtower/settlement that belong to nobody in particular. A
+// module like any other, so the neutral content and a faction go through one
+// code path — and so a faction pack can ship the plot targets its fortress
+// accepts, without which it would not be a complete game.
+export const NEUTRAL_MODULE: RulesetModule = {
+  id: 'neutral',
+  name: 'Neutral structures',
+  entities: NEUTRAL_ENTITIES,
 }
 
-export const BASE_RULES: Omit<GameDef, 'id' | 'name' | 'entities' | 'victory'> = {
+/**
+ * A faction is just a module that names a keep — there is deliberately no
+ * separate type for it. Anything that can be saved and imported as a ruleset
+ * module can be seated on a map as a faction, and vice versa.
+ */
+export type Faction = RulesetModule & { keep: string }
+
+// The physics every BFME-lineage map here shares: what damage means, what
+// armor means, what you spend. Modules are checked against it on import.
+export const BASE_RULES: RulesetBase = {
   schema: 1,
   resources: [{ id: 'res', name: 'Resources', startAmount: 4000, uiColor: '#ffd75e' }],
   supplyName: 'Command Points',

@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 import { rngFloat, rngFromSeed } from '@battlebadger/sim'
 import type { GenBlueprint, GenGroupRole, GenPart, Vec3 } from './blueprint.ts'
-import { GEN_BLUEPRINTS } from './registry.ts'
+import { findBlueprint } from './registry.ts'
 
 // One animation group of a built blueprint: merged geometry plus the hinge the
 // renderer rotates it around (world units, already visual.scale-adjusted).
@@ -135,16 +135,30 @@ export function buildGenGeometry(bp: GenBlueprint, playerColor: THREE.Color | nu
 // Resolve a 'gen:<id>' model id to fresh geometry, or null when unregistered
 // (callers fall back to a placeholder, same contract as broken glTF assets).
 export function genGeometry(id: string): THREE.BufferGeometry | null {
-  const bp = GEN_BLUEPRINTS[id]
-  return bp ? buildGenGeometry(bp) : null
+  const bp = findBlueprint(id)
+  if (!bp) return null
+  // Map-authored blueprints are untrusted input: a malformed part must degrade
+  // to a placeholder, never take the renderer down mid-match.
+  try {
+    return buildGenGeometry(bp)
+  } catch (err) {
+    console.warn(`blueprint "${id}" failed to build — using placeholder`, err)
+    return null
+  }
 }
 
 // Resolve a 'gen:<id>' model to animation groups with an owner color baked
 // into 'player' palette slots. Geometry AND pivots are scaled by `scale`.
 export function genGroups(id: string, playerColor: THREE.Color | null, scale: number): GenGroup[] | null {
-  const bp = GEN_BLUEPRINTS[id]
+  const bp = findBlueprint(id)
   if (!bp) return null
-  const groups = buildGenGroups(bp, playerColor)
+  let groups: GenGroup[]
+  try {
+    groups = buildGenGroups(bp, playerColor)
+  } catch (err) {
+    console.warn(`blueprint "${id}" failed to build — using placeholder`, err)
+    return null
+  }
   if (scale !== 1) {
     for (const g of groups) {
       g.geometry.scale(scale, scale, scale)

@@ -458,22 +458,15 @@ describe('pikes hold the line on cost', () => {
 // weapon does the work, so a stationary brute still sends men flying.
 describe('weapon knockback', () => {
   it('an ogre swing shoves its victim away and raises the FX event', async () => {
-    const { generateDunhollow } = await import('../src/mapgen/dunhollow.ts')
+    // The Pit, because the ogre is a Horde unit and that is the map that seats
+    // the Horde. Its killing floor is open ground, so no site search is needed.
+    const { generateTrollPit } = await import('../src/mapgen/trollPit.ts')
     const sim = await import('@battlebadger/sim')
-    const doc = generateDunhollow(5)
+    const doc = generateTrollPit()
     const grid = sim.walkGridFromDoc(doc)
     const s = sim.setupMatch(doc, grid, 1)
-    let ax = 0
-    let az = 0
-    outer: for (let z = 100; z < 150; z += 2) {
-      for (let x = 20; x < 70; x += 2) {
-        if (grid.isWalkableWorld(x, z) && grid.lineWalkable(x, z, x + 10, z)) {
-          ax = x
-          az = z
-          break outer
-        }
-      }
-    }
+    const ax = 40
+    const az = 48
     const ogre = sim.spawnUnit(s, s.def.entIndex.get('ogre')!, 0, ax, az)
     const foe = sim.spawnUnit(s, s.def.entIndex.get('swordsman')!, 1, ax + 2.2, az)
     const startX = s.posX[foe]
@@ -546,22 +539,15 @@ describe('a sweeping club', () => {
 // Knockdown: a shove that also takes the victim out of the fight for a moment.
 describe('knockdown', () => {
   it('a shoved victim cannot move, attack or cast until it is up', async () => {
-    const { generateDunhollow } = await import('../src/mapgen/dunhollow.ts')
+    // The Pit, because the ogre is a Horde unit and that is the map that seats
+    // the Horde. Its killing floor is open ground, so no site search is needed.
+    const { generateTrollPit } = await import('../src/mapgen/trollPit.ts')
     const sim = await import('@battlebadger/sim')
-    const doc = generateDunhollow(5)
+    const doc = generateTrollPit()
     const grid = sim.walkGridFromDoc(doc)
     const s = sim.setupMatch(doc, grid, 1)
-    let ax = 0
-    let az = 0
-    outer: for (let z = 100; z < 150; z += 2) {
-      for (let x = 20; x < 70; x += 2) {
-        if (grid.isWalkableWorld(x, z) && grid.lineWalkable(x, z, x + 10, z)) {
-          ax = x
-          az = z
-          break outer
-        }
-      }
-    }
+    const ax = 40
+    const az = 48
     sim.spawnUnit(s, s.def.entIndex.get('ogre')!, 0, ax, az)
     const foe = sim.spawnUnit(s, s.def.entIndex.get('swordsman')!, 1, ax + 2.2, az)
     let sawStun = false

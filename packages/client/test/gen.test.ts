@@ -61,9 +61,27 @@ describe('unit animation groups', () => {
     expect(arm.pivot[1]).toBeGreaterThan(0.5) // hinged up on the A-frame
   })
 
-  it('structures are all body — the construction rise scales the whole mesh', () => {
-    for (const bp of Object.values(STRUCTURE_BLUEPRINTS)) {
-      expect(buildGenGroups(bp).map((g) => g.role)).toEqual(['body'])
+  // Only things with moving parts get hinged groups. Everything else must be
+  // one body, or the construction rise and the walk cycle would drive parts of
+  // a building that have no business moving.
+  const HINGED_STRUCTURES = new Set(['gate', 'sally-port', 'wall-catapult'])
+
+  it('structures are one body unless they have a moving part', () => {
+    for (const [id, bp] of Object.entries(STRUCTURE_BLUEPRINTS)) {
+      if (HINGED_STRUCTURES.has(id)) continue
+      expect(buildGenGroups(bp).map((g) => g.role), id).toEqual(['body'])
+    }
+  })
+
+  it('gates hinge their doors, so the renderer has something to swing', () => {
+    for (const id of ['gate', 'sally-port']) {
+      const roles = buildGenGroups(STRUCTURE_BLUEPRINTS[id]).map((g) => g.role)
+      expect(roles, id).toContain('body')
+      expect(roles.some((r) => r === 'armL' || r === 'armR'), id).toBe(true)
+      // A door hinges on its jamb, not on the middle of the archway.
+      for (const g of buildGenGroups(STRUCTURE_BLUEPRINTS[id])) {
+        if (g.role === 'armL' || g.role === 'armR') expect(Math.abs(g.pivot[0])).toBeGreaterThan(0.4)
+      }
     }
   })
 

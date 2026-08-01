@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { hasUpgrade, upgradeInProgress, upgradeRequiresMet } from '@battlebadger/sim'
 import type { Command, FormationDef, SimState } from '@battlebadger/sim'
 import type { GameRenderer } from '../render/renderer.ts'
 import type { MouseCursor } from './cursor.ts'
@@ -508,6 +509,58 @@ export class InputController {
       else if (common.length !== forms.length || common.some((f, k) => f.id !== forms[k].id)) return []
     }
     return common ?? []
+  }
+
+  /** Research the selected building sells and this player can still start. */
+  researchOptions(): number[] {
+    const b = this.selectedBuilding()
+    if (b < 0 || this.sim.buildTicks[b] > 0) return []
+    return this.sim.def.upgradeSoldBy[this.sim.type[b]].filter(
+      (u) => !hasUpgrade(this.sim, this.mySlot, u) && !upgradeInProgress(this.sim, this.mySlot, u),
+    )
+  }
+
+  /** Requirements met? Used to grey the button rather than hide it, so a
+   * player can see what a building will offer once its prerequisite is up. */
+  researchReady(up: number): boolean {
+    return upgradeRequiresMet(this.sim, this.mySlot, up)
+  }
+
+  research(up: number): void {
+    const b = this.selectedBuilding()
+    if (b < 0) return
+    this.sendCmd({ kind: 'research', units: this.handles([b]), x: 0, z: 0, def: up })
+  }
+
+  /**
+   * Selected gates this player may work. Allied rather than owned: four players
+   * share a fortress and its walls belong to one of them, so a gate only its
+   * owner could open would strand the other three outside their own keep.
+   */
+  selectedGates(): number[] {
+    const myTeam = this.sim.playerTeam[this.mySlot]
+    const out: number[] = []
+    for (const i of this.selection) {
+      if (!this.sim.alive[i]) continue
+      if (this.sim.def.stats.gateRadius[this.sim.type[i]] <= 0) continue
+      if (this.sim.playerTeam[this.sim.owner[i]] !== myTeam) continue
+      out.push(i)
+    }
+    return out
+  }
+
+  /** The mode the selected gates share, or -1 when they disagree. */
+  gateMode(): number {
+    const gates = this.selectedGates()
+    if (gates.length === 0) return -1
+    const first = this.sim.gateMode[gates[0]]
+    return gates.every((i) => this.sim.gateMode[i] === first) ? first : -1
+  }
+
+  setGateMode(mode: number): void {
+    const gates = this.selectedGates()
+    if (gates.length === 0) return
+    this.sendCmd({ kind: 'gate', units: this.handles(gates), x: 0, z: 0, def: mode })
   }
 
   setFormation(index: number): void {
