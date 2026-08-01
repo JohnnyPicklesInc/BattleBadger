@@ -7,6 +7,14 @@ export interface TickBundle {
   cmds: PlayerCommand[]
 }
 
+// What a player asked for in the lobby: their race and their team. Requests,
+// not facts — the host owns the seating and answers with 'seats'.
+export interface SeatPick {
+  /** Faction module id, or null for whatever the map seats this slot as. */
+  faction?: string | null
+  team?: number
+}
+
 export type ClientMsg =
   | { t: 'startReq' }
   | { t: 'cmd'; c: Command }
@@ -15,6 +23,9 @@ export type ClientMsg =
   | { t: 'mapBegin'; chunks: number; bytes: number }
   | { t: 'mapChunk'; i: number; data: string }
   | { t: 'mapAck'; ok: boolean }
+  // lobby seating: a player asks (guest → host), the host publishes ('seats')
+  | { t: 'pick'; pick: SeatPick }
+  | { t: 'seats'; seats: SeatPick[] }
 
 export type ServerMsg =
   | { t: 'joined'; slot: number; players: (string | null)[] }
@@ -28,6 +39,8 @@ export type ServerMsg =
   | { t: 'mapBegin'; chunks: number; bytes: number }
   | { t: 'mapChunk'; i: number; data: string }
   | { t: 'mapAck'; ok: boolean; slot?: number }
+  | { t: 'pick'; pick: SeatPick; slot: number } // guest's request, stamped by the relay
+  | { t: 'seats'; seats: SeatPick[] } // the host's answer: the seating everyone plays
 
 export const HASH_EVERY_TICKS = 20
 export const MAP_CHUNK_CHARS = 131072

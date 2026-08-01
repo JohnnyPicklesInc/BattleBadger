@@ -354,6 +354,10 @@ export const FACTION: Faction = {
   id: 'badgers',
   name: 'Badgers',
   keep: 'fortress',
+  // What a badger player musters with when the lobby seats them. Mirrors what
+  // the shipped maps place by hand: a line of swords, spears and bows with a
+  // wing of cavalry and a captain to lead them.
+  startArmy: ['h-swordsmen', 'h-spearmen', 'h-archers', 'h-riders', 'h-captain'],
   entities: ENTITIES,
   abilities: ABILITIES,
   upgrades: UPGRADES,

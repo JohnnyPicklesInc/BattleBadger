@@ -90,30 +90,44 @@ describe('lockstep determinism', () => {
     expect(deadCount).toBeGreaterThan(25)
   })
 
+  // The map seats a fortress per side, so entity 0 is a building. Orders are
+  // about things that walk.
+  const firstMobile = (sim: SimState, owner = 0): number => {
+    for (let i = 0; i < sim.count; i++) {
+      if (sim.alive[i] && sim.owner[i] === owner && sim.kind[i] === 0) return i
+    }
+    throw new Error(`no mobile unit for slot ${owner}`)
+  }
+
   it('units actually move when ordered', () => {
     const doc = generateMap(3)
     const grid = walkGridFromDoc(doc)
     const sim = setupMatch(doc, grid)
+    const unit = firstMobile(sim)
     // Pick a destination on a known-walkable cell ~10 units away.
-    const near = grid.nearestWalkable(grid.cellX(sim.posX[0] + 10), grid.cellZ(sim.posZ[0]))!
+    const near = grid.nearestWalkable(grid.cellX(sim.posX[unit] + 10), grid.cellZ(sim.posZ[unit]))!
     const dx = grid.centerX(near[0])
     const dz = grid.centerZ(near[1])
-    step(sim, grid, [{ kind: 'move', player: 0, units: [0], x: dx, z: dz }])
+    step(sim, grid, [{ kind: 'move', player: 0, units: [unit], x: dx, z: dz }])
     for (let t = 0; t < 100; t++) step(sim, grid, [])
-    const err = Math.sqrt((sim.posX[0] - dx) ** 2 + (sim.posZ[0] - dz) ** 2)
-    expect(err).toBeLessThan(1.0)
+    // Ordering one soldier moves his whole battalion, and he arrives at his
+    // slot in its formation rather than standing on the click — so "arrived"
+    // means inside a formation's spread of the destination, not on top of it.
+    const err = Math.sqrt((sim.posX[unit] - dx) ** 2 + (sim.posZ[unit] - dz) ** 2)
+    expect(err).toBeLessThan(4.0)
   })
 
   it('malicious command (wrong owner / bogus ids) is ignored', () => {
     const doc = generateMap(3)
     const grid = walkGridFromDoc(doc)
     const sim = setupMatch(doc, grid)
-    // player 1 tries to command player 0's unit 0, plus out-of-range ids
+    const unit = firstMobile(sim)
+    // player 1 tries to command one of player 0's units, plus out-of-range ids
     const h0 = stateHash(sim)
-    step(sim, grid, [{ kind: 'move', player: 1, units: [0, -5, 9999], x: 50, z: 50 }])
-    // run a few ticks; unit 0 must not have an order
+    step(sim, grid, [{ kind: 'move', player: 1, units: [unit, -5, 9999], x: 50, z: 50 }])
+    // run a few ticks; that unit must not have an order
     for (let t = 0; t < 10; t++) step(sim, grid, [])
-    expect(sim.order[0]).toBe(0)
+    expect(sim.order[unit]).toBe(0)
     // and nothing else changed materially (units idle at spawn)
     const doc2 = generateMap(3)
     const grid2 = walkGridFromDoc(doc2)

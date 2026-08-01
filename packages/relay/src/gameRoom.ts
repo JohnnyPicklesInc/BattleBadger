@@ -155,6 +155,31 @@ export class GameRoom extends DurableObject {
         this.forwardTo(0, { t: 'mapAck', ok: msg.ok === true, slot: a.slot })
         break
       }
+      case 'pick': {
+        // A guest asking for a race/team. The relay does not interpret it — the
+        // host decides what is seatable and answers with 'seats'.
+        if (this.started || a.slot === 0) return
+        const p = msg.pick
+        if (typeof p !== 'object' || p === null) return
+        const faction = typeof p.faction === 'string' ? p.faction.slice(0, 64) : null
+        const team = Number.isFinite(p.team) ? Math.max(0, Math.min(7, Number(p.team) | 0)) : undefined
+        this.forwardTo(0, { t: 'pick', pick: { faction, ...(team === undefined ? {} : { team }) }, slot: a.slot })
+        break
+      }
+      case 'seats': {
+        // The host publishing the agreed seating to everyone else.
+        if (this.started || a.slot !== 0) return
+        if (!Array.isArray(msg.seats) || msg.seats.length > MAX_PLAYERS) return
+        for (const ws2 of this.sockets()) {
+          if (this.att(ws2).slot === 0) continue
+          try {
+            ws2.send(JSON.stringify({ t: 'seats', seats: msg.seats } satisfies ServerMsg))
+          } catch {
+            // closing
+          }
+        }
+        break
+      }
       case 'hash': {
         if (!this.started || this.ended) return
         const t = msg.tick | 0

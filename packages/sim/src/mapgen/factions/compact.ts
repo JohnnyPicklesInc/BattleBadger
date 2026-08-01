@@ -122,5 +122,8 @@ export const FACTION: Faction = {
   id: 'compact',
   name: 'The Compact',
   keep: 'command-post',
+  // Fewer bodies, and one of them flies — the Compact opens with air the other
+  // two factions have to build towards.
+  startArmy: ['h-troopers', 'h-lancers', 'h-skiffs', 'h-troopers'],
   entities: ENTITIES,
 }

@@ -4,6 +4,7 @@ import {
   type ClientMsg,
   type Command,
   type PlayerCommand,
+  type SeatPick,
   type ServerMsg,
   type TickBundle,
 } from '@battlebadger/sim'
@@ -53,13 +54,34 @@ export interface WsCallbacks {
   onMapDoc?: (json: string) => void // guest: fully reassembled custom map
   onMapAck?: (ok: boolean, slot: number) => void // host: a guest confirmed receipt
   onPlayerLeft?: (slot: number, name: string) => void
+  onPick?: (slot: number, pick: SeatPick) => void // host: a guest asked for a race/team
+  onSeats?: (seats: SeatPick[]) => void // guest: the seating the host settled on
 }
 
 export class WsTransport implements Transport {
-  onBundle: ((b: TickBundle) => void) | null = null
   // Public so the game screen can rebind desync/forfeit handlers after start.
   cb: WsCallbacks
   private ws: WebSocket
+  // The relay's metronome starts the instant it broadcasts `start`, but the
+  // game screen only binds onBundle once the map and asset geometries have
+  // loaded — a window a backgrounded tab stretches from a few ms into seconds.
+  // Bundles are the sim's only clock (one bundle = one tick, never resynced),
+  // so a single one dropped here shifts that client's tick stream permanently
+  // and it desyncs at the next hash. Hold them until someone is listening.
+  private queued: TickBundle[] = []
+  private bundleCb: ((b: TickBundle) => void) | null = null
+
+  get onBundle(): ((b: TickBundle) => void) | null {
+    return this.bundleCb
+  }
+
+  set onBundle(cb: ((b: TickBundle) => void) | null) {
+    this.bundleCb = cb
+    if (!cb || this.queued.length === 0) return
+    const backlog = this.queued
+    this.queued = []
+    for (const b of backlog) cb(b)
+  }
 
   constructor(url: string, cb: WsCallbacks) {
     this.cb = cb
@@ -76,9 +98,12 @@ export class WsTransport implements Transport {
         case 'start':
           this.cb.onStart?.(msg.seed, msg.players)
           break
-        case 'bundle':
-          this.onBundle?.({ tick: msg.tick, cmds: msg.cmds })
+        case 'bundle': {
+          const b: TickBundle = { tick: msg.tick, cmds: msg.cmds }
+          if (this.bundleCb) this.bundleCb(b)
+          else this.queued.push(b)
           break
+        }
         case 'desync':
           this.cb.onDesync?.(msg.tick)
           break
@@ -110,6 +135,12 @@ export class WsTransport implements Transport {
         case 'playerLeft':
           this.cb.onPlayerLeft?.(msg.slot, msg.name)
           break
+        case 'pick':
+          this.cb.onPick?.(msg.slot, msg.pick)
+          break
+        case 'seats':
+          this.cb.onSeats?.(msg.seats)
+          break
       }
     }
     this.ws.onclose = () => this.cb.onClose?.()
@@ -130,6 +161,16 @@ export class WsTransport implements Transport {
 
   requestStart(): void {
     this.send({ t: 'startReq' })
+  }
+
+  /** Guest: ask the host for a race and a team. */
+  sendPick(pick: SeatPick): void {
+    this.send({ t: 'pick', pick })
+  }
+
+  /** Host: publish the seating everyone is playing. */
+  sendSeats(seats: SeatPick[]): void {
+    this.send({ t: 'seats', seats })
   }
 
   private mapChunks: string[] | null = null

@@ -1,6 +1,15 @@
-import { generateMap, mapSlotCount, type RtsMapDoc } from '@battlebadger/sim'
+import {
+  defaultFactionName,
+  generateMap,
+  mapSlotCount,
+  seatPlayers,
+  type RtsMapDoc,
+  type SeatPick,
+  type SlotSeat,
+} from '@battlebadger/sim'
 import { WsTransport } from '../net/transport.ts'
 import { listLibrary, loadLibraryMap, saveToLibrary } from '../mapLibrary.ts'
+import { factionsFor, listFactions, type FactionChoice } from './factions.ts'
 import { inviteLink, roomFromUrl } from './invite.ts'
 import { drawMapPreview, SLOT_COLORS } from './mapPreview.ts'
 
@@ -98,14 +107,39 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
   let hostDoc: RtsMapDoc | null = null // host's selected map, resolved before start
   let builtinDoc: RtsMapDoc | null = null // generated skirmish, stable for this lobby
   let hostJson = ''
-  // Which guest slots the map was last sent for, not how many: with links,
-  // one guest leaving as another joins is routine, and a count would leave the
-  // newcomer mapless behind a stale ack from the player who left.
-  let mapSentFor = ''
+  // What was last delivered, and to whom. Slots rather than a count: with
+  // links, one guest leaving as another joins is routine, and a count would
+  // leave the newcomer mapless behind a stale ack from the player who left.
+  // The bytes themselves are the other half of the key — re-seating the lobby
+  // makes the map guests hold stale, and pressing start must not re-send a map
+  // that has not changed.
+  let sentJson = ''
+  let sentTo = ''
+  // The doc behind those bytes. The host boots THIS rather than re-baking at
+  // start: a re-bake could pick up a seat change that landed after delivery,
+  // and the host would open a match on a map no guest has.
+  let deliveredDoc: RtsMapDoc | null = null
   const ackSlots = new Set<number>()
   let receivedDoc: RtsMapDoc | null = null // guest side
   let lastPlayers: (string | null)[] = []
   let mapMeta: MapMeta = { slots: 2, label: 'Skirmish Valley · 2 players · free-for-all' }
+
+  // ---- seating: who plays which race, on whose team --------------------
+  // The host owns this. A guest asks ('pick'); the host decides what it can
+  // actually seat and publishes the answer ('seats'), so every client shows the
+  // same seating and the doc that gets shipped matches what everyone saw.
+  let seats: SeatPick[] = []
+  let allFactions: FactionChoice[] = []
+  // The seated map, built at start and shipped in place of the raw pick. Kept
+  // so the host boots the same bytes the guests were sent.
+  let bakedDoc: RtsMapDoc | null = null
+  let bakedJson = ''
+  let pendingStart = false // start was pressed; go as soon as delivery lands
+
+  const isHost = (): boolean => !inRoom || mySlot === 0
+  const seatOf = (slot: number): SeatPick => seats[slot] ?? {}
+  const factionById = (id: string | null | undefined): FactionChoice | undefined =>
+    id ? allFactions.find((f) => f.id === id) : undefined
 
   const metaOf = (doc: RtsMapDoc | null): MapMeta => {
     if (!doc) return { slots: 2, label: 'Skirmish Valley · generated · 2 players · 1v1' }
@@ -137,15 +171,34 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     const doc = shownDoc()
     const meta = metaOf(doc)
     const slots = Math.max(meta.slots, players.filter(Boolean).length)
+    const races = factionsFor(doc, allFactions)
     let html = ''
     for (let i = 0; i < slots; i++) {
       const name = players[i]
       const you = inRoom ? i === mySlot : i === 0
-      const team = meta.slotTeams ? TEAM_NAMES[meta.slotTeams[i] ?? i] : `Team ${i + 1}`
+      const seat = seatOf(i)
+      const team = seat.team ?? meta.slotTeams?.[i] ?? i
+      // You always own your own row; the host owns everybody's. Offline, every
+      // row is yours — that is how you set up the computer opponents you want.
+      const mine = !inRoom || you || (mySlot === 0 && Boolean(name))
+      const mapRace = doc ? defaultFactionName(doc, i, allFactions.map((f) => f.module)) : null
+      const raceOpts = [
+        `<option value="">${mapRace ? `Map default (${esc(mapRace)})` : 'Map default'}</option>`,
+        ...races.map(
+          (f) => `<option value="${esc(f.id)}"${seat.faction === f.id ? ' selected' : ''}>${esc(f.name)}</option>`,
+        ),
+      ].join('')
+      const teamOpts = TEAM_NAMES.slice(0, Math.max(2, meta.slots))
+        .map((t, k) => `<option value="${k}"${k === team ? ' selected' : ''}>${t}</option>`)
+        .join('')
+      const dis = mine && (name || !inRoom) ? '' : ' disabled'
       html += `<li class="${name ? 'filled' : 'open'}">
         <i style="background:${SLOT_COLORS[i]}"></i>
         <span class="pname">${name ? esc(name) : 'Open slot'}</span>
-        <span class="pteam">${team}${you ? ' · you' : i === 0 && name ? ' · host' : ''}</span>
+        <span class="ptag">${you ? 'you' : i === 0 && name ? 'host' : ''}</span>
+        <select class="prace" data-slot="${i}"${dis}${races.length === 0 ? ' data-fixed="1"' : ''}
+          title="${races.length === 0 ? 'this map’s rules seat no other factions' : 'Race'}">${raceOpts}</select>
+        <select class="pteam" data-slot="${i}"${dis} title="Team">${teamOpts}</select>
       </li>`
     }
     playersEl.innerHTML = html
@@ -166,6 +219,73 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
       previewEmpty.textContent = 'waiting for the host’s map…'
       caption.textContent = ''
     }
+  }
+
+  // ---- seating changes -------------------------------------------------
+  const publishSeats = (): void => {
+    if (inRoom && mySlot === 0) transport?.sendSeats(seats)
+  }
+
+  // Host-side: settle what a slot actually gets. A race this map cannot seat is
+  // refused here rather than at start, so nobody sits in the lobby believing
+  // they picked something the match will not give them.
+  const applySeat = (slot: number, want: SeatPick): void => {
+    const f = factionById(want.faction)
+    const seatable = f && factionsFor(hostDoc, [f]).length > 0
+    const seat: SeatPick = { faction: seatable ? f.id : null }
+    if (want.team !== undefined) seat.team = Math.max(0, Math.min(7, want.team | 0))
+    seats[slot] = seat
+    if (f && !seatable) status.textContent = `${f.name} cannot be seated on this map`
+    // The seating is baked into the map at start, so the bytes guests hold are
+    // now stale — they will be re-sent before the match begins.
+    bakedDoc = null
+    bakedJson = ''
+    // A pick that lands while start is already in flight has to be baked in
+    // now: delivery is mid-flight, and letting it complete against the old
+    // seating would start the host on bytes no guest holds.
+    if (pendingStart) bake()
+    publishSeats()
+    if (inRoom && mySlot === 0) updateLobby(lastPlayers)
+    else renderPlayers()
+  }
+
+  playersEl.addEventListener('change', (ev) => {
+    const el = ev.target as HTMLElement
+    if (!(el instanceof HTMLSelectElement)) return
+    const slot = Number(el.dataset.slot)
+    if (!Number.isInteger(slot)) return
+    const want: SeatPick = { ...seatOf(slot) }
+    if (el.classList.contains('prace')) want.faction = el.value || null
+    else want.team = Number(el.value)
+    if (isHost()) {
+      applySeat(slot, want)
+      return
+    }
+    // Guest: show the pick immediately, but the host's answer is what counts.
+    seats[slot] = want
+    renderPlayers()
+    transport?.sendPick(want)
+  })
+
+  // A map change can strip a race of the rules it needs. Re-check every seat
+  // against the new map rather than carrying a pick that would be dropped.
+  const revalidateSeats = (): void => {
+    if (!isHost()) return
+    let changed = false
+    seats = seats.map((s) => {
+      const f = factionById(s?.faction)
+      if (f && factionsFor(hostDoc, [f]).length === 0) {
+        changed = true
+        return { ...s, faction: null }
+      }
+      return s ?? {}
+    })
+    if (changed) {
+      status.textContent = 'the new map does not seat every race that was picked — those slots went back to default'
+      publishSeats()
+    }
+    bakedDoc = null
+    bakedJson = ''
   }
 
   // ---- map picker ----
@@ -205,6 +325,7 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     }
     mapMeta = metaOf(hostDoc)
     mapInfo.textContent = mapMeta.label
+    revalidateSeats()
     renderPlayers()
     return true
   }
@@ -213,11 +334,9 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     localStorage.setItem('bb-map', mapSel.value)
     builtinDoc = null // explicit pick rerolls the generated skirmish
     void resolveSelectedMap().then(() => {
-      // host may switch maps while the room is open — resend to guests
-      if (inRoom && mySlot === 0) {
-        mapSentFor = ''
-        updateLobby(lastPlayers)
-      }
+      // host may switch maps while the room is open — the new bytes differ, so
+      // updateLobby resends on its own
+      if (inRoom && mySlot === 0) updateLobby(lastPlayers)
     })
   })
   nameInput.addEventListener('input', renderPlayers)
@@ -229,8 +348,32 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
   const guestsCount = (): number => guestSlots().length
   const ackedCount = (): number => guestSlots().filter((s) => ackSlots.has(s)).length
 
+  // The bytes guests should be holding: the seated map once it has been baked,
+  // the raw pick until then. Guests preview the map as authored and receive the
+  // seated version before the match begins.
+  const deliverDoc = (): RtsMapDoc | null => bakedDoc ?? hostDoc
+  const deliverJson = (): string => (bakedDoc ? bakedJson : hostJson)
+
   const updateLobby = (players: (string | null)[]): void => {
     lastPlayers = players
+    // A slot that emptied takes its seating with it — the next player to join
+    // must not inherit the last one's race.
+    if (inRoom && mySlot === 0) {
+      let vacated = false
+      for (let i = 1; i < 8; i++) {
+        const s = seats[i]
+        if (!players[i] && s && (s.faction || s.team !== undefined)) {
+          seats[i] = {}
+          vacated = true
+        }
+      }
+      if (vacated) {
+        bakedDoc = null
+        bakedJson = ''
+        if (pendingStart) bake()
+        publishSeats()
+      }
+    }
     renderPlayers()
     const n = players.filter(Boolean).length
     if (mySlot !== 0) {
@@ -241,18 +384,28 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
       return
     }
     startBtn.style.display = 'block'
-    if (hostDoc && guestsCount() > 0) {
+    const doc = deliverDoc()
+    if (doc && guestsCount() > 0) {
       const roster = guestSlots().join(',')
-      if (mapSentFor !== roster) {
-        mapSentFor = roster
+      const json = deliverJson()
+      if (sentTo !== roster || sentJson !== json) {
+        sentTo = roster
+        sentJson = json
+        deliveredDoc = doc
         ackSlots.clear()
-        status.textContent = `sending map "${hostDoc.name}"…`
-        transport?.sendMapDoc(hostJson)
+        status.textContent = `sending map "${doc.name}"…`
+        transport?.sendMapDoc(json)
         startBtn.disabled = true
         return
       }
       const ready = ackedCount() >= guestsCount()
       startBtn.disabled = !ready
+      if (ready && pendingStart) {
+        // Start was pressed and the seated map has landed everywhere.
+        pendingStart = false
+        transport?.requestStart()
+        return
+      }
       status.textContent = ready
         ? `map delivered — ready with ${n} player${n > 1 ? 's' : ''}`
         : `waiting for map delivery (${ackedCount()}/${guestsCount()})…`
@@ -261,6 +414,27 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     startBtn.disabled = false
     status.textContent =
       n <= 1 ? 'share the invite link — or start solo to explore the map' : `ready with ${n} players`
+  }
+
+  // Bake the lobby's seating into the map. Host-only, and the result is what
+  // gets shipped: every client plays the host's bytes, so two players whose
+  // local copy of a faction differs cannot desync over it.
+  const bake = (): RtsMapDoc | null => {
+    if (!hostDoc) return null
+    const chosen: SlotSeat[] = Array.from({ length: 8 }, (_, i) => ({
+      faction: factionById(seats[i]?.faction)?.module ?? null,
+      team: seats[i]?.team,
+    }))
+    const { doc, notes } = seatPlayers(hostDoc, chosen)
+    bakedDoc = doc
+    // An unseated map re-uses the bytes already sent, so pressing start after
+    // nobody changed anything costs no second transfer.
+    bakedJson = doc === hostDoc ? hostJson : JSON.stringify(doc)
+    if (notes.length > 0) {
+      status.textContent = notes.join(' · ')
+      console.info('[lobby] seating:', notes.join(' · '))
+    }
+    return doc
   }
 
   const connect = (code: string, created: boolean): void => {
@@ -294,8 +468,11 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
       onLobby: (players) => updateLobby(players),
       onStart: (_seed, players) => {
         // The doc is authoritative and always transferred; a guest without one
-        // must not fall back to generating its own, which would desync.
-        const doc = mySlot === 0 ? hostDoc : receivedDoc
+        // must not fall back to generating its own, which would desync. With
+        // guests present the host boots exactly what it delivered; alone in a
+        // room there is nothing to deliver, so it bakes its own seating.
+        const doc =
+          mySlot !== 0 ? receivedDoc : guestsCount() > 0 ? deliveredDoc : (bakedDoc ?? bake())
         if (!doc) {
           status.textContent = 'the host’s map never arrived — rejoin the room'
           return
@@ -314,6 +491,13 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
       onMapAck: (ok, slot) => {
         if (ok) ackSlots.add(slot)
         updateLobby(lastPlayers)
+      },
+      // A guest asking for a race/team. The host decides and republishes, so
+      // what everyone sees is what the baked map will actually contain.
+      onPick: (slot, pick) => applySeat(slot, pick),
+      onSeats: (published) => {
+        seats = published
+        renderPlayers()
       },
       onError: (m) => {
         // The relay refuses the upgrade for a full or already-started room, so
@@ -336,15 +520,18 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
   $('lb-practice').addEventListener('click', () => {
     void resolveSelectedMap().then((ok) => {
       if (!ok || !hostDoc) return
+      // Offline the seating is yours to set for every seat, so the computers
+      // play the races you lined up against.
+      const doc = bake() ?? hostDoc
       overlay.remove()
       // Practice: slot 0 is you, every other slot the map seats is a computer.
       // The map's own aiLevels win where it sets them — a map built around
       // scripted armies is not playable without the opponents it asks for.
-      const slots = mapSlotCount(hostDoc)
-      const aiLevels = Array.from({ length: slots }, (_, i) => hostDoc!.aiLevels?.[i] ?? (i === 0 ? 0 : 2))
+      const slots = mapSlotCount(doc)
+      const aiLevels = Array.from({ length: slots }, (_, i) => doc.aiLevels?.[i] ?? (i === 0 ? 0 : 2))
       aiLevels[0] = 0
       const names = aiLevels.map((lv, i) => (i === 0 ? playerName() : lv > 0 ? `Computer ${i}` : `Player ${i + 1}`))
-      onStart({ slot: 0, transport: null, players: names, doc: hostDoc, aiLevels })
+      onStart({ slot: 0, transport: null, players: names, doc, aiLevels })
     })
   })
 
@@ -462,12 +649,24 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
   }
 
   startBtn.addEventListener('click', () => {
-    // guard the join/deliver race: never start while a guest is still missing
-    // the custom map (they would boot the wrong map and desync at tick 0)
-    if (hostDoc && guestsCount() > 0 && ackedCount() < guestsCount()) {
-      updateLobby(lastPlayers)
+    // Bake the seating in now, then deliver it. Everything downstream — the
+    // ack gate, the guests' docs, the host's own boot — reads the baked map.
+    bake()
+    if (guestsCount() === 0) {
+      transport?.requestStart()
       return
     }
-    transport?.requestStart()
+    // Never start while a guest is still missing the map they will play: they
+    // would boot different bytes and desync at tick 0. updateLobby sends the
+    // seated map and fires the start itself once every ack is in.
+    pendingStart = true
+    updateLobby(lastPlayers)
+  })
+
+  // The race list is the local ruleset shelf, so an imported faction is
+  // pickable without the lobby knowing anything about it in advance.
+  void listFactions().then((f) => {
+    allFactions = f
+    renderPlayers()
   })
 }

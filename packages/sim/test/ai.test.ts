@@ -83,8 +83,9 @@ describe('AI opponent', () => {
     expect(soldiers, 'AI fielded no army').toBeGreaterThan(0)
   })
 
-  // Skirmish Valley has no economy whatsoever — only the army job applies.
-  it('Skirmish Valley: with no economy, it still marches its starting army', () => {
+  // The lobby's generated map now seats a fortress per side, so it exercises
+  // the same jobs a hand-authored map does: raise an economy, march an army.
+  it('Skirmish Valley: the AI builds its base and marches its opening army', () => {
     const doc = generateMap(11)
     const grid = walkGridFromDoc(doc)
     const s = setupMatch(doc, grid, 2)
@@ -96,6 +97,9 @@ describe('AI opponent', () => {
       if (s.alive[i] && s.owner[i] === 1 && Math.abs(s.posX[i] - homeX[i]) > 2) moved++
     }
     expect(moved, 'AI army never left its start position').toBeGreaterThan(0)
+    for (let t = 200; t < 900; t++) step(s, grid, [])
+    const income = countOwned(s, 1, (i) => !!s.def.entities[s.type[i]].income)
+    expect(income, 'AI raised no economy on the generated map').toBeGreaterThan(0)
   })
 
   it('is deterministic: identical runs produce identical hash sequences', () => {

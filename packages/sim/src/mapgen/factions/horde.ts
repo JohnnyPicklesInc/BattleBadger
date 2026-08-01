@@ -263,6 +263,9 @@ export const FACTION: Faction = {
   id: 'horde',
   name: 'The Horde',
   keep: 'dark-fortress',
+  // Cheaper and far more numerous than the badger line it stands opposite —
+  // the same muster the shipped maps place for an orc slot.
+  startArmy: ['h-orcs', 'h-orc-pikemen', 'h-orc-archers', 'h-orcs', 'h-ogre'],
   entities: ENTITIES,
   abilities: ABILITIES,
   upgrades: UPGRADES,

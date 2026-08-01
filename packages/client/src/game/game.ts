@@ -175,6 +175,15 @@ export class Game {
 
   private stepOnce(now: number): void {
     const bundle = this.bundles.shift()!
+    // The bundle stream IS the clock: the sim steps once per bundle and never
+    // resyncs against the relay, so a dropped or duplicated one shifts this
+    // client's tick stream forever. Catch it here rather than letting it
+    // surface as a mystery hash mismatch up to HASH_EVERY_TICKS later.
+    if (bundle.tick !== this.sim.tick) {
+      console.error(`bundle gap: expected tick ${this.sim.tick}, got ${bundle.tick}`)
+      this.end({ won: false, reason: 'desync' })
+      return
+    }
     this.prevX.set(this.sim.posX)
     this.prevZ.set(this.sim.posZ)
     this.cmdLog.push(bundle)

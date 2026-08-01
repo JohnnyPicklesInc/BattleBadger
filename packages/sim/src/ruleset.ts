@@ -45,6 +45,13 @@ export interface RulesetModule {
   version?: number
   /** A faction names the fortress it seats. Content packs leave it out. */
   keep?: string
+  /**
+   * What this faction musters with, in order. Read when a player picks it in
+   * the lobby: the map's authored start positions are kept and the defs sitting
+   * on them are swapped for these, so seating a faction never needs the map to
+   * have anticipated it. Absent = its battalions in declaration order.
+   */
+  startArmy?: string[]
   entities: EntityDef[]
   /**
    * Abilities its units reference. They travel WITH the module — leaving them
@@ -370,11 +377,17 @@ export function installModule(def: GameDef, m: RulesetModule): GameDef {
     throw new Error(`"${m.name}" redefines entities this map already has: ${clash.join(', ')}`)
   }
   const haveAbility = new Set(def.abilities.map((a) => a.id))
+  // Upgrades merge by id alongside abilities: a faction whose research was
+  // left behind is a barracks offering nothing, which is the same failure the
+  // abilities merge exists to prevent.
+  const haveUpgrade = new Set((def.upgrades ?? []).map((u) => u.id))
+  const upgrades = [...(def.upgrades ?? []), ...(m.upgrades ?? []).filter((u) => !haveUpgrade.has(u.id))]
   return {
     ...def,
     entities: [...def.entities, ...add],
     // Abilities merge by id for the same reason.
     abilities: [...def.abilities, ...(m.abilities ?? []).filter((a) => !haveAbility.has(a.id))],
+    ...(upgrades.length > 0 ? { upgrades } : {}),
   }
 }
 
@@ -400,6 +413,13 @@ function checkModule(m: unknown, where: string): RulesetModule {
   if (mod.abilities !== undefined && !Array.isArray(mod.abilities)) throw new Error(`${at}: "abilities" must be an array`)
   if (mod.keep !== undefined && !ids.has(mod.keep as string)) {
     throw new Error(`${at}: keep "${String(mod.keep)}" is not one of its entities`)
+  }
+  if (mod.startArmy !== undefined) {
+    if (!Array.isArray(mod.startArmy)) throw new Error(`${at}: "startArmy" must be an array`)
+    for (const u of mod.startArmy as string[]) {
+      // A typo here is a faction that seats a short army with no error anywhere.
+      if (!ids.has(u)) throw new Error(`${at}: startArmy "${u}" is not one of its entities`)
+    }
   }
   validateBlueprints(mod.blueprints)
   return mod as unknown as RulesetModule

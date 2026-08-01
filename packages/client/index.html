@@ -187,8 +187,8 @@
       .fm-slot select { width: auto; padding: 4px 8px; font-size: 12px; }
 
       /* lobby */
-      .lobby-panel { width: 660px; }
-      .lobby-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+      .lobby-panel { width: 780px; }
+      .lobby-grid { display: grid; grid-template-columns: 260px 1fr; gap: 22px; }
       .lobby-left, .lobby-right { display: flex; flex-direction: column; min-width: 0; }
       .lobby-right { border-left: 1px solid #232c39; padding-left: 22px; }
       .lobby-hr { border: 0; border-top: 1px solid #232c39; margin: 16px 0 4px; width: 100%; }
@@ -206,7 +206,13 @@
       #lb-players .pname { color: #dfe6ee; font-weight: 600; overflow: hidden;
         text-overflow: ellipsis; white-space: nowrap; }
       #lb-players li.open .pname { color: #74839a; font-weight: 400; font-style: italic; }
-      #lb-players .pteam { margin-left: auto; color: #74839a; font-size: 11px; flex: none; }
+      /* a slot row: swatch, name, "you/host", then the race and team pickers */
+      #lb-players .ptag { color: #74839a; font-size: 11px; flex: none; min-width: 26px; }
+      #lb-players .pname { flex: 1; }
+      #lb-players select { width: auto; flex: none; padding: 4px 6px; font-size: 12px; }
+      #lb-players select.prace { width: 116px; }
+      #lb-players select.pteam { width: 82px; }
+      #lb-players select[data-fixed="1"] { opacity: 0.55; }
       .lobby-right .code { margin: 0 0 6px; }
       .mapshot { position: relative; width: 100%; aspect-ratio: 1 / 1; background: #0b0f16;
         border: 1px solid #232c39; border-radius: 8px; overflow: hidden; }
