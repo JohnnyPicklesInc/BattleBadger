@@ -4,6 +4,7 @@ import {
   defaultFactionName,
   factionStartArmy,
   mapContentHash,
+  resolveStartOrder,
   seatPlayers,
   seatingProblems,
   setupMatch,
@@ -186,5 +187,174 @@ describe('seatPlayers', () => {
     const { doc: after, notes } = seatPlayers(before, [{ faction: alien }])
     expect(after).toBe(before)
     expect(notes.join(' ')).toMatch(/damage type "plasma"/)
+  })
+})
+
+describe('start positions', () => {
+  it('settles picks into a permutation, whatever the lobby sends', () => {
+    // plain swap
+    expect(resolveStartOrder([{ start: 1 }, { start: 0 }], 2)).toEqual([1, 0])
+    // one player moves; the slot they displaced takes the base they left
+    expect(resolveStartOrder([{}, { start: 0 }, {}, {}], 4)).toEqual([1, 0, 2, 3])
+    // a repeat, an out-of-range pick and junk are all dropped rather than
+    // trusted — this arrives over the wire from another client
+    // slot 1's repeat and slot 2's nonsense are dropped: 1 keeps its own base,
+    // 2 cannot (slot 0 took it) and falls to the lowest free one
+    expect(resolveStartOrder([{ start: 2 }, { start: 2 }, { start: 9 }, { start: -1 }], 4)).toEqual([2, 1, 0, 3])
+    expect(resolveStartOrder([{ start: 1.5 }], 2)).toEqual([0, 1])
+    // nobody asked: the map's own order
+    expect(resolveStartOrder([{}, {}, {}, {}], 4)).toEqual([0, 1, 2, 3])
+  })
+
+  it('moves a player’s whole base to the position they picked', () => {
+    const before = doc()
+    const { doc: after } = seatPlayers(before, [{ start: 1 }, { start: 0 }])
+
+    const kit = (d: typeof before, slot: number): string[] =>
+      (d.placed ?? []).filter((p) => p.owner === slot).map((p) => `${p.def}@${p.x},${p.z}`)
+    // slot 0 now fields what stood on start 1, and vice versa
+    expect(kit(after, 0)).toEqual(kit(before, 1))
+    expect(kit(after, 1)).toEqual(kit(before, 0))
+    // slot N's start location IS start N again — the rest of the engine (fog,
+    // camera, minimap) reads it that way and must not have to learn otherwise
+    expect(after.startLocations[0]).toEqual(before.startLocations[1])
+    expect(after.startLocations[1]).toEqual(before.startLocations[0])
+    for (const slot of [2, 3]) expect(kit(after, slot)).toEqual(kit(before, slot))
+    expect(kit(before, 0)).toContain(`${BADGERS.keep}@34,34`)
+  })
+
+  it('carries the position’s team and AI level with it', () => {
+    const before = { ...doc(), slotTeams: [0, 1, 0, 1], aiLevels: [0, 2, 3, 0] }
+    const { doc: after } = seatPlayers(before, [{ start: 3 }])
+    // slot 0 took start 3, so start 3's owner (slot 3) took start 0
+    expect(after.slotTeams).toEqual([1, 1, 0, 0])
+    expect(after.aiLevels).toEqual([0, 2, 3, 0])
+  })
+
+  it('relabels the slot numbers scripted triggers name', () => {
+    const before = {
+      ...doc(),
+      triggers: [
+        {
+          id: 't',
+          name: 'ambush',
+          events: [{ type: 'unitDies' as const, owner: 1 }],
+          conditions: [{ type: 'resourceCmp' as const, owner: 1, resource: 'gold', op: '>=' as const, amount: 5 }],
+          actions: [
+            { type: 'spawnUnits' as const, def: 'h-orcs', owner: 1, count: 2, at: { x: 1, z: 1 } },
+            { type: 'message' as const, text: 'hi', to: 1 },
+            { type: 'victory' as const, player: 1 },
+          ],
+        },
+      ],
+    }
+    const { doc: after } = seatPlayers(before, [{ start: 1 }])
+    const t = after.triggers![0]
+    // slot 1 was pushed onto start 0, so everything the map said about "the
+    // player on start 1" now names slot 0
+    expect(t.events[0]).toMatchObject({ owner: 0 })
+    expect(t.conditions[0]).toMatchObject({ owner: 0 })
+    expect(t.actions[0]).toMatchObject({ owner: 0 })
+    expect(t.actions[1]).toMatchObject({ to: 0 })
+    expect(t.actions[2]).toMatchObject({ player: 0 })
+    // and the trigger the map ships is untouched
+    expect(before.triggers[0].actions[2].player).toBe(1)
+  })
+
+  it('combines with a race pick: the mover’s new base is their own race', () => {
+    const before = doc()
+    const { doc: after } = seatPlayers(before, [{ start: 1, faction: COMPACT }, { start: 0 }])
+    expect(slotKeep(after, 0)).toBe(COMPACT.keep)
+    // the Compact keep stands on the ground slot 0 moved to
+    const keep = (after.placed ?? []).find((p) => p.def === COMPACT.keep)!
+    expect({ x: keep.x, z: keep.z }).toEqual(before.startLocations[1])
+    expect(keep.owner).toBe(0)
+    expect(validateGameDef(after.gameDef!)).toEqual([])
+  })
+
+  it('starts a match where every slot owns the base it chose', () => {
+    const before = doc()
+    const host = seatPlayers(before, [{ start: 2 }, { start: 3 }, { start: 0 }, { start: 1 }]).doc
+    const guest = JSON.parse(JSON.stringify(host)) as typeof host
+    expect(mapContentHash(guest)).toBe(mapContentHash(host))
+    const s = setupMatch(host, walkGridFromDoc(host), 4)
+    expect(stateHash(setupMatch(guest, walkGridFromDoc(guest), 4))).toBe(stateHash(s))
+    for (const slot of [0, 1, 2, 3]) {
+      const start = host.startLocations[slot]
+      let near = 0
+      for (let i = 0; i < s.count; i++) {
+        if (!s.alive[i] || s.owner[i] !== slot) continue
+        if (Math.abs(s.posX[i] - start.x) < 40 && Math.abs(s.posZ[i] - start.z) < 40) near++
+      }
+      expect(near, `slot ${slot} musters at its own start`).toBeGreaterThan(0)
+    }
+  })
+
+  it('leaves the map alone when nobody moves', () => {
+    const before = doc()
+    expect(seatPlayers(before, [{ start: 0 }, { start: 1 }]).doc).toBe(before)
+  })
+})
+
+describe('computers and empty seats', () => {
+  it('writes the lobby’s AI levels onto the doc, so every client agrees', () => {
+    const before = doc()
+    const { doc: after, notes } = seatPlayers(before, [{}, { ai: 2 }, { ai: 3 }, { ai: 0 }])
+    // aiLevel is hashed sim state — it has to travel as map bytes rather than
+    // as something each client works out for itself
+    expect(after.aiLevels).toEqual([0, 2, 3, 0])
+    expect(before.aiLevels).toBeUndefined()
+    expect(notes.join(' ')).toMatch(/slot 2 is a computer/)
+    const s = setupMatch(after, walkGridFromDoc(after), 4)
+    expect(mapContentHash(JSON.parse(JSON.stringify(after)))).toBe(mapContentHash(after))
+    expect(s.count).toBeGreaterThan(0)
+  })
+
+  it('clamps a nonsense level and keeps the map’s own where the lobby is silent', () => {
+    const before = { ...doc(), aiLevels: [0, 0, 3, 0] }
+    const { doc: after } = seatPlayers(before, [{ ai: 9 }, { ai: -4 }, {}, {}])
+    expect(after.aiLevels).toEqual([3, 0, 3, 0])
+  })
+
+  it('leaves empty ground where nobody is playing', () => {
+    const before = doc()
+    const owners = (d: typeof before): number[] => [...new Set((d.placed ?? []).map((p) => p.owner))].sort()
+    expect(owners(before)).toContain(2)
+
+    // two humans on a four-slot map: slots 2 and 3 are nobody's
+    const { doc: after } = seatPlayers(before, [
+      { active: true },
+      { active: true },
+      { active: false },
+      { active: false },
+    ])
+    expect(owners(after)).toEqual([0, 1])
+    // and a base with nobody home never stood there to be farmed for kills
+    const s = setupMatch(after, walkGridFromDoc(after), 4)
+    for (let i = 0; i < s.count; i++) if (s.alive[i]) expect(s.owner[i]).toBeLessThan(2)
+  })
+
+  it('keeps `always` content on an empty slot — that is how a map seats creeps', () => {
+    const before = doc()
+    const placed = [...(before.placed ?? []), { def: 'h-orcs', owner: 3, x: 90, z: 90, always: true }]
+    const { doc: after } = seatPlayers({ ...before, placed }, [{}, {}, { active: false }, { active: false }])
+    expect((after.placed ?? []).some((p) => p.owner === 3 && p.always === true)).toBe(true)
+    expect((after.placed ?? []).some((p) => p.owner === 3 && !p.always)).toBe(false)
+  })
+
+  it('a computer plays the race and base the lobby gave it', () => {
+    const before = doc()
+    const { doc: after } = seatPlayers(before, [
+      { active: true },
+      { ai: 2, faction: COMPACT, start: 2, active: true },
+      { active: false },
+      { active: false },
+    ])
+    expect(after.aiLevels?.[1]).toBe(2)
+    expect(slotKeep(after, 1)).toBe(COMPACT.keep)
+    expect(after.startLocations[1]).toEqual(before.startLocations[2])
+    expect(validateGameDef(after.gameDef!)).toEqual([])
+    const s = setupMatch(after, walkGridFromDoc(after), 2)
+    expect(stateHash(s)).toBe(stateHash(setupMatch(JSON.parse(JSON.stringify(after)), walkGridFromDoc(after), 2)))
   })
 })

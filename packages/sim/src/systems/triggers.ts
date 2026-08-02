@@ -58,12 +58,19 @@ function regionMaskOf(rt: TriggerRuntime, x: number, z: number): number {
   return m
 }
 
-function unitsInRegion(s: SimState, rt: TriggerRuntime, region: number, owner: number | undefined): number[] {
+function unitsInRegion(
+  s: SimState,
+  rt: TriggerRuntime,
+  region: number,
+  owner: number | undefined,
+  defIdx?: number,
+): number[] {
   const rg = rt.regions[region]
   const out: number[] = []
   for (let i = 0; i < s.count; i++) {
     if (!s.alive[i] || s.hidden[i]) continue
     if (owner !== undefined && s.owner[i] !== owner) continue
+    if (defIdx !== undefined && s.type[i] !== defIdx) continue
     if (s.posX[i] >= rg.x0 && s.posX[i] <= rg.x1 && s.posZ[i] >= rg.z0 && s.posZ[i] <= rg.z1) out.push(i)
   }
   return out
@@ -160,7 +167,10 @@ export function triggers(s: SimState, grid: WalkGrid): void {
           pass = false
           break
         }
-        const n = unitsInRegion(s, rt, r, c.owner).length
+        // An unknown def counts nothing rather than everything: a typo must not
+        // quietly turn "no fortress left" into "no entity left".
+        const dIdx = c.def === undefined ? undefined : (s.def.entIndex.get(c.def) ?? -1)
+        const n = unitsInRegion(s, rt, r, c.owner, dIdx).length
         if (c.op === '>=' ? n < c.count : n > c.count) pass = false
       } else if (c.type === 'elapsed') {
         if (s.tick * TICK_MS < c.seconds * 1000) pass = false

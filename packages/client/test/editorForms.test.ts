@@ -38,6 +38,27 @@ describe('entity <-> form conversion', () => {
     expect((formToEntity(form).trainer as Obj).trains).toEqual(['swordsman', 'archer'])
   })
 
+  it('round-trips the build-kind tags a site and its camp are made of', () => {
+    const site: Obj = {
+      id: 'camp-site', name: 'Camp Site', kind: 'building', hp: 100, radius: 3,
+      visual: { model: 'gen:x' },
+      plot: { accepts: [], acceptsTags: ['camp', 'outpost'], neutral: true },
+    }
+    const form = entityToForm(site)
+    expect((form.plot as Obj).acceptsTags).toBe('camp, outpost')
+    expect(formToEntity(form)).toEqual(site)
+  })
+
+  it('leaves an unused tag list off the entity rather than writing an empty one', () => {
+    // `buildTags: []` on every entity an author opened would make two copies of
+    // the same def compare unequal, and a module import would then claim it
+    // redefines entities it never touched.
+    const out = formToEntity({ id: 'x', buildTags: '', plot: { accepts: 'farm', acceptsTags: '' } })
+    expect('buildTags' in out).toBe(false)
+    expect('acceptsTags' in (out.plot as Obj)).toBe(false)
+    expect((out.plot as Obj).accepts).toEqual(['farm'])
+  })
+
   it('turns an emptied list into an empty array, not undefined', () => {
     const form: Obj = { id: 'x', trainer: { trains: '', queueSize: 1 } }
     expect((formToEntity(form).trainer as Obj).trains).toEqual([])

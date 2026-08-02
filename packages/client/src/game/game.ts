@@ -17,6 +17,7 @@ import { PLAYER_COLORS } from '../render/unitMeshes.ts'
 import { InputController } from '../input/input.ts'
 import { MouseCursor } from '../input/cursor.ts'
 import { Hud } from '../ui/hud.ts'
+import { VERSION } from '../version.ts'
 
 export interface GameEndInfo {
   won: boolean
@@ -167,7 +168,9 @@ export class Game {
     this.hud.destroy()
     if (info.reason === 'desync') {
       // The command log + seed IS a replay — dump it for offline debugging.
-      console.error('DESYNC — replay dump:', JSON.stringify({ seed: this.seed, log: this.cmdLog }))
+      // The build goes in it too: "the two clients were on different code" is
+      // the first thing to rule out, and the log alone cannot say.
+      console.error('DESYNC — replay dump:', JSON.stringify({ version: VERSION, seed: this.seed, log: this.cmdLog }))
     }
     this.transport.close()
     this.onEnd(info)

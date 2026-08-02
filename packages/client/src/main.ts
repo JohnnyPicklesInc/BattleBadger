@@ -73,13 +73,12 @@ if (location.hash === '#editor') {
     new Game(app, doc, 0, new LocalLoopback(), showEnd, assets, slots, ai)
   })
 } else {
-  showLobby(({ slot, transport, players, doc: lobbyDoc, aiLevels }) => {
+  showLobby(({ slot, transport, playerCount, doc: lobbyDoc, aiLevels }) => {
     // Dev hook: ?demo=econ boots the economy demo map in practice mode. It
     // loads the served file — the same bytes "Starter maps…" hands out — so
     // that map exists in exactly one place.
     const demo = !transport && new URLSearchParams(location.search).get('demo')
     const pick = demo === 'econ' ? fetchMap('/maps/econ-demo.json', lobbyDoc) : Promise.resolve(lobbyDoc)
-    const playerCount = Math.max(2, players.length)
     void pick.then((doc) => loadAssetGeometries(doc).then((assets) => {
       const game = new Game(app, doc, slot, transport ?? new LocalLoopback(), showEnd, assets, playerCount, aiLevels)
 

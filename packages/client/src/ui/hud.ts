@@ -11,6 +11,7 @@ import { PLAYER_COLORS, modelGeometry } from '../render/unitMeshes.ts'
 import { resolveModel } from '../render/assets.ts'
 import type { RtsCamera } from '../render/camera.ts'
 import { terrainImage } from './mapPreview.ts'
+import { VERSION } from '../version.ts'
 
 // WC3-style bottom HUD: menu + minimap on the left, unit portrait bottom
 // center, command card lower right. All buttons also work under pointer-lock
@@ -85,6 +86,7 @@ export class Hud {
   // a WebGL canvas keeps its last frame on its own.
   private portraitKey = ''
   private portraitUnit = -1 // entity id the portrait depicts, -1 none
+  private mmDragging = false // left button held on the minimap: scrub the view
   private nameEl: HTMLElement
   private hpEl: HTMLElement
   private countEl: HTMLElement
@@ -179,10 +181,11 @@ export class Hud {
           double-click selects all of a type on screen · selection slots: click
           picks that unit alone, Shift+click removes it, Ctrl+click keeps only
           its type · F fullscreen · F10 menu ·
-          click captures mouse, Esc frees it · minimap: click pans, right-click orders</div>
+          click captures mouse, Esc frees it · minimap: click or drag pans, right-click orders</div>
         <button id="menu-resume" class="primary">Resume</button>
         <button id="menu-fullscreen">Toggle fullscreen</button>
         <button id="menu-surrender">Surrender &amp; leave</button>
+        <div class="sub" style="margin-top:10px">v${VERSION}</div>
       </div>`
     document.body.appendChild(this.menuOverlay)
 
@@ -266,6 +269,18 @@ export class Hud {
       e.preventDefault()
       const r = this.mmCanvas.getBoundingClientRect()
       this.minimapPoint(e.clientX - r.left, e.clientY - r.top, e.button)
+      // Hold and drag to scrub the view across the map. This is the one way to
+      // move the camera that needs neither the keyboard nor a captured mouse,
+      // so it has to work on its own.
+      if (e.button === 0) this.mmDragging = true
+    })
+    window.addEventListener('mousemove', (e) => {
+      if (!this.mmDragging) return
+      const r = this.mmCanvas.getBoundingClientRect()
+      this.minimapPoint(e.clientX - r.left, e.clientY - r.top, 0)
+    })
+    window.addEventListener('mouseup', () => {
+      this.mmDragging = false
     })
     this.root.querySelector('#portrait-btn')!.addEventListener('click', () => {
       if (this.portraitUnit >= 0) this.actions.centerOn(this.portraitUnit)

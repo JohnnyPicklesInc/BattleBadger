@@ -1,7 +1,7 @@
 {
   "name": "battlebadger",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.0.3",
   "license": "MIT",
   "type": "module",
   "workspaces": [
@@ -12,6 +12,7 @@
     "dev:relay": "npm run dev --workspace=@battlebadger/relay",
     "build": "npm run build --workspace=@battlebadger/client",
     "deploy": "npm run build && npm run deploy --workspace=@battlebadger/relay",
+    "bump": "node scripts/bump.mjs",
     "test": "vitest run",
     "typecheck": "tsc -b --noEmit packages/sim packages/client packages/relay",
     "lint": "oxlint packages && node scripts/check-sim-purity.mjs",

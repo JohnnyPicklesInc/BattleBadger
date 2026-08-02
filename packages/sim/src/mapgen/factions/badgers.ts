@@ -1,5 +1,8 @@
 import type { AbilityDef, EntityDef, UpgradeDef } from '../../defs/schema.ts'
-import { CRUSH_ENGINE, CRUSH_FOOT, CRUSH_MOUNTED, KEEP_SLOTS, KEEP_TOWER_SLOTS, STANCES, type Faction } from './shared.ts'
+import {
+  CRUSH_ENGINE, CRUSH_FOOT, CRUSH_MOUNTED, KEEP_SLOTS, KEEP_TOWER_SLOTS, STANCES, TAG_CASTLE,
+  outerBases, type Faction,
+} from './shared.ts'
 
 // The Badgers — the BFME baseline. Expensive, durable, well-drilled: nine-man
 // battalions, cavalry that rides men down, pikes that stop it, and the only
@@ -217,11 +220,20 @@ const ENTITIES: EntityDef[] = [
       visual: { model: 'gen:fortress', tint: 'owner' },
       combat: { damage: 40, range: 12, acquire: 13, periodTicks: 16, damageType: 'arrow', hits: 'both' },
       trainer: { trains: ['h-captain'], queueSize: 2 },
+      // The castle tier is the keep itself, raised again on ground worth it.
+      // A price and a tag are the whole of it: a second fortress should be the
+      // fortress, not a copy of it that drifts the first time this one is
+      // balanced. Pre-placed keeps ignore both — the map spawns them directly.
+      placement: 'plot',
+      buildTags: [TAG_CASTLE],
+      buildTimeTicks: 520,
+      cost: [{ resource: 'res', amount: 2800 }],
       expansion: [
         { plot: 'fortress-plot', offsets: KEEP_SLOTS },
         { plot: 'tower-plot', offsets: KEEP_TOWER_SLOTS },
       ],
     },
+    ...outerBases({ id: 'badger', name: 'Badger', plot: 'fortress-plot' }),
     {
       id: 'barracks', name: 'Barracks', kind: 'building', radius: 2.2, hp: 1600,
       armorType: 'structure', xpValue: 25, placement: 'plot', buildTimeTicks: 150,

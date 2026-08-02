@@ -6,6 +6,9 @@ import type { PlayerCommand } from '@battlebadger/sim'
 interface Attachment {
   slot: number
   name: string
+  /** Client build, reported on connect. The relay never interprets it — it
+   * only hands it back so the lobby can spot a player on stale code. */
+  ver?: string
 }
 
 const MAX_PLAYERS = 8
@@ -63,6 +66,15 @@ export class GameRoom extends DurableObject {
     return out
   }
 
+  private lobbyVersions(): (string | null)[] {
+    const out: (string | null)[] = Array.from({ length: MAX_PLAYERS }, () => null)
+    for (const ws of this.sockets()) {
+      const a = this.att(ws)
+      out[a.slot] = a.ver ?? null
+    }
+    return out
+  }
+
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
     if (request.headers.get('Upgrade') !== 'websocket') {
@@ -72,18 +84,21 @@ export class GameRoom extends DurableObject {
       return new Response('room full or match already started', { status: 409 })
     }
     const name = (url.searchParams.get('name') ?? 'Badger').slice(0, 16)
+    const ver = url.searchParams.get('ver')?.slice(0, 24) ?? undefined
     const taken = new Set(this.sockets().map((w) => this.att(w).slot))
     let slot = 0
     while (taken.has(slot)) slot++
 
     const pair = new WebSocketPair()
     this.ctx.acceptWebSocket(pair[1])
-    pair[1].serializeAttachment({ slot, name } satisfies Attachment)
+    pair[1].serializeAttachment({ slot, name, ver } satisfies Attachment)
 
     const players = this.lobbyPlayers()
     players[slot] = name
-    pair[1].send(JSON.stringify({ t: 'joined', slot, players } satisfies ServerMsg))
-    this.broadcast({ t: 'lobby', players })
+    const versions = this.lobbyVersions()
+    versions[slot] = ver ?? null
+    pair[1].send(JSON.stringify({ t: 'joined', slot, players, versions } satisfies ServerMsg))
+    this.broadcast({ t: 'lobby', players, versions })
 
     return new Response(null, { status: 101, webSocket: pair[0] })
   }
@@ -101,8 +116,10 @@ export class GameRoom extends DurableObject {
         // only the host starts; solo (1-player) matches are allowed
         if (this.started || a.slot !== 0 || this.sockets().length < 1) return
         this.started = true
+        // Padded, not compacted: slot 2 playing while slot 1 sits empty is
+        // ordinary once the host seats computers, and every client has to agree
+        // about which slot each name holds.
         const players = this.lobbyPlayers()
-          .filter((p): p is string => p !== null)
         const seed = Math.floor(Math.random() * 0xffffffff)
         this.broadcast({ t: 'start', seed, players })
         this.timer = setInterval(() => this.emitBundle(), TICK_MS)
@@ -163,7 +180,14 @@ export class GameRoom extends DurableObject {
         if (typeof p !== 'object' || p === null) return
         const faction = typeof p.faction === 'string' ? p.faction.slice(0, 64) : null
         const team = Number.isFinite(p.team) ? Math.max(0, Math.min(7, Number(p.team) | 0)) : undefined
-        this.forwardTo(0, { t: 'pick', pick: { faction, ...(team === undefined ? {} : { team }) }, slot: a.slot })
+        const start = Number.isFinite(p.start) ? Math.max(0, Math.min(7, Number(p.start) | 0)) : undefined
+        // `ai` is deliberately not forwarded: seating a computer is the host's
+        // call, and a guest asking for one would only be ignored downstream.
+        this.forwardTo(0, {
+          t: 'pick',
+          pick: { faction, ...(team === undefined ? {} : { team }), ...(start === undefined ? {} : { start }) },
+          slot: a.slot,
+        })
         break
       }
       case 'seats': {
@@ -224,7 +248,7 @@ export class GameRoom extends DurableObject {
         }
       }
     } else if (!this.started) {
-      this.broadcast({ t: 'lobby', players: this.lobbyPlayers() })
+      this.broadcast({ t: 'lobby', players: this.lobbyPlayers(), versions: this.lobbyVersions() })
     }
   }
 

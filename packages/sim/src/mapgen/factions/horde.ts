@@ -1,5 +1,8 @@
 import type { AbilityDef, EntityDef, UpgradeDef } from '../../defs/schema.ts'
-import { CRUSH_ENGINE, CRUSH_FOOT, CRUSH_MOUNTED, KEEP_SLOTS, KEEP_TOWER_SLOTS, STANCES, type Faction } from './shared.ts'
+import {
+  CRUSH_ENGINE, CRUSH_FOOT, CRUSH_MOUNTED, KEEP_SLOTS, KEEP_TOWER_SLOTS, STANCES, TAG_CASTLE,
+  outerBases, type Faction,
+} from './shared.ts'
 
 // The Horde — quantity over quality. Battalions of 12-15 against the badgers'
 // 8-9, at roughly 40% the cost per body and built faster, but each body is
@@ -168,11 +171,18 @@ const ENTITIES: EntityDef[] = [
       visual: { model: 'gen:dark-fortress', tint: 'owner' },
       combat: { damage: 34, range: 12, acquire: 13, periodTicks: 16, damageType: 'arrow', hits: 'both' },
       trainer: { trains: ['h-orcs'], queueSize: 3 },
+      // Buildable again on castle ground — see the Badger fortress for why the
+      // castle tier is the keep itself rather than a second building.
+      placement: 'plot',
+      buildTags: [TAG_CASTLE],
+      buildTimeTicks: 480,
+      cost: [{ resource: 'res', amount: 2500 }],
       expansion: [
         { plot: 'horde-plot', offsets: KEEP_SLOTS },
         { plot: 'tower-plot', offsets: KEEP_TOWER_SLOTS },
       ],
     },
+    ...outerBases({ id: 'orc', name: 'Orc', plot: 'horde-plot' }),
     {
       // Cheap and fast: the Horde's whole economy is turning resources into
       // bodies quicker than the enemy can turn them into better bodies.

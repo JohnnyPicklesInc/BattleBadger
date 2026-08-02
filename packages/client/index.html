@@ -206,13 +206,20 @@
       #lb-players .pname { color: #dfe6ee; font-weight: 600; overflow: hidden;
         text-overflow: ellipsis; white-space: nowrap; }
       #lb-players li.open .pname { color: #74839a; font-weight: 400; font-style: italic; }
-      /* a slot row: swatch, name, "you/host", then the race and team pickers */
+      /* a slot row: swatch, name, "you/host", then race, team and start pickers */
       #lb-players .ptag { color: #74839a; font-size: 11px; flex: none; min-width: 26px; }
       #lb-players .pname { flex: 1; }
       #lb-players select { width: auto; flex: none; padding: 4px 6px; font-size: 12px; }
       #lb-players select.prace { width: 116px; }
       #lb-players select.pteam { width: 82px; }
+      #lb-players select.pstart { width: 92px; }
+      #lb-players select.pai { width: 88px; }
       #lb-players select[data-fixed="1"] { opacity: 0.55; }
+      /* the map shot doubles as the start-position picker */
+      .mapshot canvas { cursor: pointer; }
+      /* two clients on different builds cannot play a lockstep match */
+      .verwarn { font-size: 12px; color: #ffb454; background: #2a1f10; border: 1px solid #5a4420;
+        border-radius: 6px; padding: 7px 9px; margin: 8px 0 0; line-height: 1.45; }
       .lobby-right .code { margin: 0 0 6px; }
       .mapshot { position: relative; width: 100%; aspect-ratio: 1 / 1; background: #0b0f16;
         border: 1px solid #232c39; border-radius: 8px; overflow: hidden; }

@@ -44,9 +44,11 @@ export class LocalLoopback implements Transport {
 }
 
 export interface WsCallbacks {
-  onJoined?: (slot: number, players: (string | null)[]) => void
-  onLobby?: (players: (string | null)[]) => void
-  onStart?: (seed: number, players: string[]) => void
+  // `versions` is every player's client build, by slot — absent entries are
+  // clients too old to report one.
+  onJoined?: (slot: number, players: (string | null)[], versions: (string | null)[]) => void
+  onLobby?: (players: (string | null)[], versions: (string | null)[]) => void
+  onStart?: (seed: number, players: (string | null)[]) => void
   onDesync?: (tick: number) => void
   onForfeit?: (winner: number) => void
   onError?: (message: string) => void
@@ -90,10 +92,10 @@ export class WsTransport implements Transport {
       const msg = JSON.parse(String(ev.data)) as ServerMsg
       switch (msg.t) {
         case 'joined':
-          this.cb.onJoined?.(msg.slot, msg.players)
+          this.cb.onJoined?.(msg.slot, msg.players, msg.versions ?? [])
           break
         case 'lobby':
-          this.cb.onLobby?.(msg.players)
+          this.cb.onLobby?.(msg.players, msg.versions ?? [])
           break
         case 'start':
           this.cb.onStart?.(msg.seed, msg.players)

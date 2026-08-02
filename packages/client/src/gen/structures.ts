@@ -226,6 +226,91 @@ const expansionPlot: GenBlueprint = {
   ],
 }
 
+// ---- outer base sites and the bases that go on them ----
+//
+// Three pads that differ only in size and in how many old footings ring them,
+// because that is exactly what the player needs to read from the camera: how
+// much base this ground is worth. Drab like the settlement — nobody owns them
+// yet — and each is drawn a little more ruined than the last, so the biggest
+// site looks like somewhere a castle once stood.
+
+/** A pad: two stacked discs and `n` broken footings around the rim. */
+function site(r: number, n: number, seg: number): GenPart[] {
+  return [
+    { shape: 'cylinder', color: 'stoneDark', radius: r, height: 0.12, at: [0, 0.06, 0], segments: seg },
+    { shape: 'cylinder', color: 'stone', radius: r - 0.4, height: 0.14, at: [0, 0.08, 0], segments: seg },
+    ...Array.from({ length: n }, (_, i): GenPart => {
+      const t = (i / n) * Math.PI * 2
+      return {
+        shape: 'box', color: 'stone', size: [0.55, 0.5, 0.55],
+        at: [Math.cos(t) * (r - 0.5), 0.28, Math.sin(t) * (r - 0.5)], tilt: 0.22, jitter: 0.05,
+      }
+    }),
+  ]
+}
+
+const outpostSite: GenBlueprint = {
+  id: 'outpost-site',
+  seed: 0x9110,
+  palette: STONE,
+  parts: [...site(2.5, 3, 10), { shape: 'cylinder', color: 'woodDark', radius: 0.07, height: 1.0, at: [0, 0.5, 0] }],
+}
+
+const campSite: GenBlueprint = {
+  id: 'camp-site',
+  seed: 0x9111,
+  palette: STONE,
+  parts: [
+    ...site(2.9, 6, 12),
+    { shape: 'cylinder', color: 'woodDark', radius: 0.08, height: 1.4, at: [0, 0.7, 0] },
+    { shape: 'box', color: 'stoneDark', size: [1.3, 0.3, 1.3], at: [0, 0.22, 0] },
+  ],
+}
+
+const castleSite: GenBlueprint = {
+  id: 'castle-site',
+  seed: 0x9112,
+  palette: STONE,
+  parts: [
+    ...site(3.5, 8, 14),
+    // the stump of whatever stood here before, ringed by its own fallen wall
+    { shape: 'box', color: 'stoneDark', size: [2.0, 0.9, 2.0], at: [0, 0.5, 0] },
+    ...merlons(0, 1.05, 1.0, 6),
+  ],
+}
+
+// A palisade and a watch platform: three buildings' worth of ground, held.
+const outpost: GenBlueprint = {
+  id: 'outpost',
+  seed: 0x0117,
+  palette: STONE,
+  parts: [
+    { shape: 'box', color: 'woodDark', size: [4.6, 1.5, 0.3], at: [0, 0.75, -2.2] },
+    { shape: 'box', color: 'woodDark', size: [4.6, 1.5, 0.3], at: [0, 0.75, 2.2] },
+    { shape: 'box', color: 'woodDark', size: [0.3, 1.5, 4.6], at: [-2.2, 0.75, 0] },
+    { shape: 'box', color: 'woodDark', size: [0.3, 1.5, 4.6], at: [2.2, 0.75, 0] },
+    ...longhouse(1.8, 2.2, 1.1, [-0.7, 0, 0]),
+    ...tower(1.5, -1.2, 0.6, 2.4, true),
+  ],
+}
+
+// The same idea grown up: a stone footing, a hall, two towers and a gate.
+const camp: GenBlueprint = {
+  id: 'camp',
+  seed: 0x0a49,
+  palette: STONE,
+  parts: [
+    { shape: 'box', color: 'stoneDark', size: [5.6, 0.6, 5.6], at: [0, 0.3, 0] },
+    { shape: 'box', color: 'stone', size: [5.2, 1.5, 0.5], at: [0, 1.05, -2.5] },
+    { shape: 'box', color: 'stone', size: [0.5, 1.5, 5.2], at: [-2.5, 1.05, 0] },
+    { shape: 'box', color: 'stone', size: [0.5, 1.5, 5.2], at: [2.5, 1.05, 0] },
+    { shape: 'box', color: 'woodDark', size: [1.8, 1.4, 0.4], at: [0, 1.0, 2.5] },
+    ...longhouse(2.4, 3.0, 1.4, [-0.5, 0.6, 0]),
+    ...tower(2.1, -2.1, 0.7, 3.0, true),
+    ...tower(-2.1, -2.1, 0.7, 3.0),
+  ],
+}
+
 // ---- the organic MOBA set ----
 
 const FLESH = {
@@ -603,4 +688,9 @@ export const STRUCTURE_BLUEPRINTS: Record<string, GenBlueprint> = {
   'fell-roost': fellRoost,
   'tower-plot': towerPlot,
   'expansion-plot': expansionPlot,
+  'outpost-site': outpostSite,
+  'camp-site': campSite,
+  'castle-site': castleSite,
+  outpost,
+  camp,
 }

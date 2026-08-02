@@ -48,6 +48,24 @@ export const KEEP_SLOTS = ring(COMPASS, 15)
 // perimeter out is about seeing and shooting rather than earning.
 export const KEEP_TOWER_SLOTS = [...ring(CARDINALS, 30), ...ring(DIAGONALS, 22)]
 
+// The smaller bases you raise out on the map. Same idea as the keep's ring,
+// scaled down: three slots drawn in tight for an outpost, six at a comfortable
+// spacing for a camp. Radii shrink with the count so a camp is a place rather
+// than a spray of pads — six slots on the keep's radius would enclose more
+// empty grass than base.
+export const OUTPOST_SLOTS = ring([COMPASS[0], COMPASS[4], COMPASS[8]], 8)
+export const CAMP_SLOTS = ring([COMPASS[0], COMPASS[2], COMPASS[4], COMPASS[6], COMPASS[8], COMPASS[10]], 12)
+// A camp gets a picket too, or an expansion is simply free ground for whoever
+// walks over. Half the keep's, and only the outer ring.
+export const CAMP_TOWER_SLOTS = ring(CARDINALS, 18)
+
+// What a site asks for, and what a faction's own bases answer with. The three
+// tiers ARE the design: how much base a piece of ground is worth is the map's
+// decision, made once when the site is placed.
+export const TAG_OUTPOST = 'outpost'
+export const TAG_CAMP = 'camp'
+export const TAG_CASTLE = 'castle'
+
 export const STANCES: FormationDef[] = [
   { id: 'block', name: 'Block', kind: 'block', hotkey: 'B' },
   { id: 'line', name: 'Line', kind: 'line', hotkey: 'L', damagePct: 110, speedPct: 115 },
@@ -150,7 +168,92 @@ export const NEUTRAL_ENTITIES: EntityDef[] = [
       visual: { model: 'gen:plot', tint: 'none' },
       plot: { accepts: ['farm', 'watchtower'], neutral: true },
     },
+    // ---- the three sites you can raise a NEW BASE on --------------------
+    //
+    // A settlement is a slot for one building. These are slots for a base: put
+    // a camp on one and it brings its own ring of build plots, exactly the way
+    // the keep does. How much base the ground is worth is the map's call, made
+    // once when it places the site — three buildings here, six there, a whole
+    // second castle on the ground worth a battle.
+    //
+    // Each site takes a KIND of base rather than a named building, so any
+    // faction can claim any site with its own architecture. A bigger site takes
+    // anything smaller: raising a cheap outpost on castle ground is a real
+    // choice — you hold the place now and give up what it could have been.
+    {
+      id: 'outpost-site', name: 'Outpost Site', kind: 'building', radius: 2.6, hp: 100,
+      visual: { model: 'gen:outpost-site', tint: 'none' },
+      plot: { accepts: [], acceptsTags: [TAG_OUTPOST], neutral: true },
+    },
+    {
+      id: 'camp-site', name: 'Camp Site', kind: 'building', radius: 3.0, hp: 100,
+      visual: { model: 'gen:camp-site', tint: 'none' },
+      plot: { accepts: [], acceptsTags: [TAG_CAMP, TAG_OUTPOST], neutral: true },
+    },
+    {
+      id: 'castle-site', name: 'Castle Site', kind: 'building', radius: 3.6, hp: 100,
+      visual: { model: 'gen:castle-site', tint: 'none' },
+      plot: { accepts: [], acceptsTags: [TAG_CASTLE, TAG_CAMP, TAG_OUTPOST], neutral: true },
+    },
 ]
+
+/**
+ * The two lesser bases a faction can raise on an outer site: an outpost worth
+ * three buildings and a camp worth six.
+ *
+ * A factory rather than three hand-written copies, because what differs between
+ * the Badgers' camp and the Horde's is one string — the plot its ring is made
+ * of, which is what makes the ring accept ORC buildings rather than badger
+ * ones. Everything else is the same shape of thing, and three copies of it
+ * would drift the first time one was balanced.
+ *
+ * The third tier is deliberately not here: a castle IS the faction's keep, so
+ * a faction earns that tier by pricing its own fortress rather than by
+ * declaring a second, near-identical building that would then have to be kept
+ * in step with it.
+ */
+export function outerBases(opts: { id: string; name: string; plot: string }): EntityDef[] {
+  return [
+    {
+      id: `${opts.id}-outpost`,
+      name: `${opts.name} Outpost`,
+      kind: 'building',
+      radius: 2.8,
+      hp: 2600,
+      armorType: 'structure',
+      xpValue: 60,
+      placement: 'plot',
+      buildTags: [TAG_OUTPOST],
+      buildTimeTicks: 200,
+      cost: [{ resource: 'res', amount: 500 }],
+      vision: 20,
+      visual: { model: 'gen:outpost', tint: 'owner' },
+      expansion: [{ plot: opts.plot, offsets: OUTPOST_SLOTS }],
+    },
+    {
+      id: `${opts.id}-camp`,
+      name: `${opts.name} Camp`,
+      kind: 'building',
+      radius: 3.2,
+      hp: 4200,
+      armorType: 'structure',
+      xpValue: 110,
+      placement: 'plot',
+      buildTags: [TAG_CAMP],
+      buildTimeTicks: 320,
+      cost: [{ resource: 'res', amount: 1100 }],
+      // Command points of its own: an expansion has to be worth holding for
+      // something other than the farms, or nobody defends it.
+      supplyProvided: 15,
+      vision: 24,
+      visual: { model: 'gen:camp', tint: 'owner' },
+      expansion: [
+        { plot: opts.plot, offsets: CAMP_SLOTS },
+        { plot: 'tower-plot', offsets: CAMP_TOWER_SLOTS },
+      ],
+    },
+  ]
+}
 
 /** A faction: the keep you start with, its plot, and everything it fields. */
 // The farm/watchtower/settlement that belong to nobody in particular. A

@@ -128,6 +128,12 @@ export function entityFields(ctx: FormContext): Field[] {
       kind: 'group',
       fields: [
         { key: 'accepts', label: 'Accepts (comma-separated ids)', kind: 'text' },
+        {
+          key: 'acceptsTags',
+          label: 'Accepts kinds (comma-separated tags)',
+          kind: 'text',
+          hint: 'outpost, camp, castle — lets any faction claim this pad with its own base',
+        },
         { key: 'neutral', label: 'Any player may claim it', kind: 'checkbox' },
       ],
     },
@@ -139,14 +145,25 @@ export function entityFields(ctx: FormContext): Field[] {
       allowEmpty: true,
       hint: 'plot = must be built on a matching build plot',
     },
+    {
+      key: 'buildTags',
+      label: 'Counts as kinds (comma-separated tags)',
+      kind: 'text',
+      hint: 'what pads asking for this KIND of base will accept — see Accepts kinds',
+    },
   ]
 }
 
-// The two list-of-ids fields are edited as comma-separated text, because a
-// full picker for each would dominate the form. These convert at the edges.
-const LIST_FIELDS: [string, string][] = [
-  ['trainer', 'trains'],
-  ['plot', 'accepts'],
+// List-of-ids fields are edited as comma-separated text, because a full picker
+// for each would dominate the form. These convert at the edges. `optional`
+// ones stay absent when left empty: writing `[]` onto every entity would make
+// two copies of the same def compare unequal, which is how a module import
+// starts claiming it redefines entities it does not touch.
+const LIST_FIELDS: { block?: string; key: string; optional?: boolean }[] = [
+  { block: 'trainer', key: 'trains' },
+  { block: 'plot', key: 'accepts' },
+  { block: 'plot', key: 'acceptsTags', optional: true },
+  { key: 'buildTags', optional: true },
 ]
 
 type Obj = Record<string, unknown>
@@ -154,8 +171,8 @@ type Obj = Record<string, unknown>
 /** Copy an entity into a form-shaped object (id lists flattened to text). */
 export function entityToForm(e: Obj): Obj {
   const out = JSON.parse(JSON.stringify(e)) as Obj
-  for (const [block, key] of LIST_FIELDS) {
-    const inner = out[block] as Obj | undefined
+  for (const { block, key } of LIST_FIELDS) {
+    const inner = block === undefined ? out : (out[block] as Obj | undefined)
     if (inner && Array.isArray(inner[key])) inner[key] = (inner[key] as string[]).join(', ')
   }
   return out
@@ -164,11 +181,16 @@ export function entityToForm(e: Obj): Obj {
 /** Convert a form-shaped object back into a real entity def. */
 export function formToEntity(form: Obj): Obj {
   const out = JSON.parse(JSON.stringify(form)) as Obj
-  for (const [block, key] of LIST_FIELDS) {
-    const inner = out[block] as Obj | undefined
+  for (const { block, key, optional } of LIST_FIELDS) {
+    const inner = block === undefined ? out : (out[block] as Obj | undefined)
     if (!inner) continue
     const raw = inner[key]
-    inner[key] = typeof raw === 'string' ? raw.split(',').map((s) => s.trim()).filter(Boolean) : (raw ?? [])
+    const list = typeof raw === 'string' ? raw.split(',').map((s) => s.trim()).filter(Boolean) : ((raw as string[]) ?? [])
+    if (optional && list.length === 0) {
+      delete inner[key]
+      continue
+    }
+    inner[key] = list
   }
   return out
 }

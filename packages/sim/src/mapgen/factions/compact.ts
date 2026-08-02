@@ -1,5 +1,5 @@
 import type { EntityDef } from '../../defs/schema.ts'
-import { CRUSH_FOOT, CRUSH_MOUNTED, KEEP_SLOTS, STANCES, type Faction } from './shared.ts'
+import { CRUSH_FOOT, CRUSH_MOUNTED, KEEP_SLOTS, STANCES, TAG_CASTLE, outerBases, type Faction } from './shared.ts'
 
 // The Compact — the only faction that flies, and the only one that can shoot
 // at something that does. Expensive per body; it cannot out-mass the Horde or
@@ -99,8 +99,13 @@ const ENTITIES: EntityDef[] = [
       // Its own guns reach both layers, like everything else it fields.
       combat: { damage: 32, range: 13, acquire: 14, periodTicks: 15, damageType: 'kinetic', hits: 'both' },
       trainer: { trains: ['h-troopers'], queueSize: 3 },
+      placement: 'plot',
+      buildTags: [TAG_CASTLE],
+      buildTimeTicks: 460,
+      cost: [{ resource: 'res', amount: 2400 }],
       expansion: { plot: 'compact-plot', offsets: KEEP_SLOTS },
     },
+    ...outerBases({ id: 'compact', name: 'Compact', plot: 'compact-plot' }),
     {
       id: 'barrack-block', name: 'Barrack Block', kind: 'building', radius: 2.2, hp: 1500,
       armorType: 'structure', xpValue: 26, placement: 'plot', buildTimeTicks: 150,

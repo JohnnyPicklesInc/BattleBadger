@@ -28,14 +28,20 @@ WC3-style world editor, three.js rendering, Cloudflare Workers hosting.
   farm-crowding penalty (no harvesters at all), a **damage type × armor type matrix**
   (spears gut cavalry, catapults level walls and whiff on everything else), **build plots**
   (structures only go on pads; a fortress spawns its own ring of expansion slots and razing
-  it takes the ring with it; neutral settlements anyone can claim), **hordes** — the
+  it takes the ring with it; neutral settlements anyone can claim), **outer bases** — sites
+  out on the map you raise a whole new base on, sized by the map: an outpost worth three
+  buildings, a camp worth six plus its own tower pads, or a castle site that takes a second
+  fortress with the full ring. A site accepts a *kind* of base rather than a named building,
+  so any faction claims any site with its own architecture — **hordes** — the
   battalion is the unit of play: one purchase, one command-point charge, one selection, one
   XP track, with block/line/wedge/porcupine **formations** that trade speed for damage or
   toughness — and **veterancy** shared by hordes and heroes (a hero is a horde of one).
   Proven by `packages/sim/test/bfme.test.ts`.
-- **Siege of Dunhollow (starter map)**: the BFME loop end to end — two fortresses with six
-  plots each, farms that pay less when crowded, barracks/range/stable/siege-works selling
-  battalions, a contested ridge with two ramps, five neutral settlements, and a captain hero.
+- **Siege of Dunhollow (starter map)**: the BFME loop end to end — two fortresses with a ring
+  of plots each, farms that pay less when crowded, barracks/range/stable/siege-works selling
+  battalions, a contested ridge with two ramps, ten neutral settlements, an outpost, camp and
+  castle site per side to expand onto, and a captain hero. Mirrored across the diagonal, so
+  both players get the same ground.
 - **Cerebrate War (starter map)**: a full 3-lane MOBA built purely as map data — Cerebrates in
   opposite corners, three Bastion towers per lane, a Spire per lane whose fall swaps the
   enemy's creeps in that lane for elites (replace, not stack), tree-choked dead-end jungle
@@ -76,6 +82,13 @@ npm run dev         # vite on :5173, proxies /api → :8788
 - Play: `http://localhost:5173` → pick a map, then Create room (start solo or with
   up to 8 players), Join room, or Practice. **Starter maps…** downloads maps from the
   server into your local library; **Import map…** adds a `.json` you were sent.
+  In the room, every player picks their race, team and **start position** — click a base
+  on the map shot (or the Start dropdown) and you trade places with whoever holds it.
+  The host fills any empty seat with a **computer** (easy/normal/hard) and picks its race,
+  team and base too; seats left Open are dropped from the map, so a 4-player map plays as a
+  clean 1v1 instead of leaving two unmanned keeps standing. All of it — races, teams,
+  positions, AI levels — is baked into the map bytes the host ships, so every client plays
+  the same doc.
 - Editor: `http://localhost:5173/#editor`.
 - Economy demo map: `http://localhost:5173/?demo=econ` → Practice.
 
@@ -87,7 +100,7 @@ Ctrl+click keeps only its type · touching one soldier selects his whole battali
 formation stances sit on the command card with their own hotkeys (Dunhollow: B block,
 L line, O porcupine) · a selected build plot buys its structure straight off the card ·
 F fullscreen · F10 menu ·
-click captures mouse (Esc frees) · minimap: click pans, right-click orders.
+click captures mouse (Esc frees) · minimap: click or drag pans, right-click orders.
 
 ## Verify
 
@@ -102,8 +115,15 @@ node scripts/e2e-relay.mjs   # scripted WS clients vs a running relay (incl. map
 ## Deploy
 
 ```sh
+npm run bump        # 0.0.7 → 0.0.8: root package.json + packages/client/src/version.ts
 npm run deploy      # vite build + wrangler deploy (client served by the worker)
 ```
+
+Bump before every deploy. A lockstep match requires identical code on every client, and the
+usual way that breaks is one player holding a cached build. Clients report their version when
+they join a room; the lobby shows yours under the title and warns — in the room, before the
+match — when somebody else is on a different one. The version also rides along in the desync
+replay dump, so "were they even on the same build?" is answerable after the fact.
 
 ## Roadmap
 

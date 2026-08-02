@@ -59,7 +59,9 @@ export type TriggerEvent =
 
 export type TriggerCondition =
   | { type: 'resourceCmp'; owner: number; resource: string; op: '>=' | '<='; amount: number }
-  | { type: 'unitCountInRegion'; region: string; owner?: number; op: '>=' | '<='; count: number }
+  // `def` narrows the count to one kind of thing, which is what makes "his
+  // LAST fortress has fallen" expressible now that a fortress can be rebuilt.
+  | { type: 'unitCountInRegion'; region: string; owner?: number; def?: string; op: '>=' | '<='; count: number }
   | { type: 'elapsed'; seconds: number } // game time >= seconds
 
 export type TriggerAction =

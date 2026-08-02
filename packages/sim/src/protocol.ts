@@ -13,6 +13,11 @@ export interface SeatPick {
   /** Faction module id, or null for whatever the map seats this slot as. */
   faction?: string | null
   team?: number
+  /** Which of the map's start positions this slot wants. Absent = its own. */
+  start?: number
+  /** Computer opponent difficulty for an unoccupied slot: 0/absent = open,
+   * 1..3 = easy/normal/hard. The host decides these; a guest cannot seat one. */
+  ai?: number
 }
 
 export type ClientMsg =
@@ -28,9 +33,14 @@ export type ClientMsg =
   | { t: 'seats'; seats: SeatPick[] }
 
 export type ServerMsg =
-  | { t: 'joined'; slot: number; players: (string | null)[] }
-  | { t: 'lobby'; players: (string | null)[] }
-  | { t: 'start'; seed: number; players: string[] }
+  // `versions` is the client build each player is on, by slot. Lockstep only
+  // works if everyone runs the same code, so the lobby says so out loud rather
+  // than letting a stale cache surface as a desync ten seconds into the match.
+  | { t: 'joined'; slot: number; players: (string | null)[]; versions?: (string | null)[] }
+  | { t: 'lobby'; players: (string | null)[]; versions?: (string | null)[] }
+  // Padded by slot, nulls for empty seats: which slot a name sits in decides
+  // which base it owns, and a compacted list loses exactly that.
+  | { t: 'start'; seed: number; players: (string | null)[] }
   | { t: 'bundle'; tick: number; cmds: PlayerCommand[] }
   | { t: 'desync'; tick: number }
   | { t: 'forfeit'; winner: number } // slot of the last remaining player

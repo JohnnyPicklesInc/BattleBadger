@@ -8,8 +8,10 @@ import { FACTION as BADGERS } from './factions/badgers.ts'
 //
 //   * No harvesters. Farms pay a passive trickle, and farms crowded together
 //     pay less each — expansion is spatial, not a worker-count problem.
-//   * No free base building. Structures only go on plots: six around each
-//     fortress, plus neutral settlements out on the map worth fighting over.
+//   * No free base building. Structures only go on plots: a ring around each
+//     fortress, plus neutral settlements out on the map worth fighting over —
+//     and sites where a whole new base goes up, three buildings, six, or a
+//     second fortress with the full ring, depending on the ground.
 //   * Battalions, not soldiers. A barracks trains a *horde*: nine men, one
 //     command-point charge, one selection, one XP track, one formation.
 //   * Rock-paper-scissors lives in the damage/armor matrix: spears gut cavalry,
@@ -72,6 +74,13 @@ const inside = (c: Circle, x: number, z: number): boolean => {
   return dx * dx + dz * dz <= c.r * c.r
 }
 
+// The two corners are mirror images across the x = z diagonal, so anything
+// placed for one side is placed for the other by swapping its coordinates.
+// Authoring both halves by hand is how a map that claims to be symmetric ends
+// up not being one — which the old settlement list quietly was.
+const mirrored = (pts: { x: number; z: number }[]): { x: number; z: number }[] =>
+  pts.flatMap((p) => [p, { x: p.z, z: p.x }])
+
 // Points along a polyline, used to paint roads and to keep them clear.
 function alongPath(pts: { x: number; z: number }[], step: number): { x: number; z: number }[] {
   const out: { x: number; z: number }[] = []
@@ -121,11 +130,24 @@ export function generateDunhollow(seed = 20260727): RtsMapDoc {
     }
   }
 
-  // Settlements: four per side plus one on each pass, all worth fighting for.
+  // Settlements: one-building pads, two per side plus one at each end of each
+  // pass, all worth fighting for.
   const settlements = [
-    { x: 30, z: 92 }, { x: 62, z: 126 }, { x: 18, z: 74 }, { x: 76, z: 142 },
-    { x: 130, z: 68 }, { x: 98, z: 34 }, { x: 142, z: 86 }, { x: 84, z: 18 },
-    { x: GATES[0].x - 14, z: GATES[0].z + 14 }, { x: GATES[1].x + 14, z: GATES[1].z - 14 },
+    ...mirrored([{ x: 22, z: 104 }, { x: 58, z: 108 }, { x: 26, z: 78 }]),
+    { x: GATES[0].x - 14, z: GATES[0].z + 14 }, { x: GATES[0].x + 14, z: GATES[0].z - 14 },
+    { x: GATES[1].x - 14, z: GATES[1].z + 14 }, { x: GATES[1].x + 14, z: GATES[1].z - 14 },
+  ]
+
+  // Ground you can raise a NEW BASE on, in three sizes. This is the BFME
+  // expansion game: an outpost is three buildings, a camp six and its own
+  // picket of tower pads, and a castle site takes a second fortress with the
+  // full ring. Each is placed with the room its ring needs — `clear` below
+  // keeps the woods off it, and the map-sanity test proves the ring lands on
+  // open ground rather than half of it in the rock.
+  const sites = [
+    ...mirrored([{ x: 46, z: 84 }]).map((p) => ({ ...p, def: 'castle-site', r: 20 })),
+    ...mirrored([{ x: 84, z: 142 }]).map((p) => ({ ...p, def: 'camp-site', r: 16 })),
+    ...mirrored([{ x: 76, z: 116 }]).map((p) => ({ ...p, def: 'outpost-site', r: 11 })),
   ]
 
   // A standing army at each fortress, mustered as BATTALIONS rather than
@@ -154,6 +176,7 @@ export function generateDunhollow(seed = 20260727): RtsMapDoc {
     // Neutral settlements: outer plots worth pushing for. Owner 0 is only a
     // placement slot — `neutral` is what decides who may build.
     ...settlements.map((s) => ({ def: 'settlement', owner: 0, x: s.x, z: s.z })),
+    ...sites.map((s) => ({ def: s.def, owner: 0, x: s.x, z: s.z })),
   ]
 
   // ---- roads: base → each pass → enemy base, painted dirt and kept clear ----
@@ -178,6 +201,8 @@ export function generateDunhollow(seed = 20260727): RtsMapDoc {
     { x: BASE_A.x, z: BASE_A.z, r: 20 },
     { x: BASE_B.x, z: BASE_B.z, r: 20 },
     ...settlements.map((s) => ({ x: s.x, z: s.z, r: 9 })),
+    // A site needs room for the base it will one day carry, not for the pad.
+    ...sites.map((s) => ({ x: s.x, z: s.z, r: s.r })),
     ...GATES.map((g) => ({ x: g.x, z: g.z, r: GATE_R + 3 })),
     ...roads.map((p) => ({ x: p.x, z: p.z, r: 4 })),
   ]
@@ -231,6 +256,9 @@ export function generateDunhollow(seed = 20260727): RtsMapDoc {
   }
   // sandy clearings around every settlement so they read as places
   for (const s of settlements) paintUnder(s.x, s.z, 7, TEX_SAND)
+  // and a bigger one under a site, so the ground a base can stand on is
+  // legible from the camera before anything is built there
+  for (const s of sites) paintUnder(s.x, s.z, s.r - 3, TEX_SAND)
 
   // Micro-relief: render-only, but it stops the ground reading as a flat sheet.
   for (let z = 0; z < SIZE; z++) {
@@ -256,7 +284,7 @@ export function generateDunhollow(seed = 20260727): RtsMapDoc {
         {
           type: 'message',
           to: 'all',
-          text: 'Build on your fortress plots. Farms pay less when crowded. Take the settlements.',
+          text: 'Build on your fortress plots. Farms pay less when crowded. Take the settlements — and the outpost, camp and castle sites, where you can raise a base of your own.',
         },
         { type: 'panCamera', player: 0, x: BASE_A.x, z: BASE_A.z },
         { type: 'panCamera', player: 1, x: BASE_B.x, z: BASE_B.z },
@@ -269,9 +297,14 @@ export function generateDunhollow(seed = 20260727): RtsMapDoc {
       name: `Fortress ${side + 1} destroyed`,
       once: true,
       events: [{ type: 'unitDies', owner: side, def: 'fortress' }],
-      conditions: [],
+      // His LAST fortress. A castle site lets a player raise a second one, so
+      // losing the first is a setback rather than the end — without this
+      // condition, razing the expansion would win the game outright.
+      conditions: [
+        { type: 'unitCountInRegion', region: 'ridge', owner: side, def: 'fortress', op: '<=', count: 0 },
+      ],
       actions: [
-        { type: 'message', text: `The fortress of Player ${side + 1} has fallen!`, to: 'all' },
+        { type: 'message', text: `The last fortress of Player ${side + 1} has fallen!`, to: 'all' },
         { type: 'victory', player: side === 0 ? 1 : 0 },
       ],
     })

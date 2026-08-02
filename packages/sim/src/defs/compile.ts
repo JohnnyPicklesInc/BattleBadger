@@ -186,7 +186,19 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
     damageTakenPct: l.damageTakenPct,
   }))
 
-  const plotAcceptsIdx = def.entities.map((e) => (e.plot?.accepts ?? []).map((a) => entIndex.get(a)!))
+  // What each pad hosts, with `acceptsTags` already resolved to entity indices.
+  // Resolved ONCE, here, so nothing downstream has to know tags exist: the
+  // placement check, the command card and the AI all read this one list.
+  const plotAcceptsIdx = def.entities.map((e) => {
+    if (!e.plot) return []
+    const out = e.plot.accepts.map((a) => entIndex.get(a)!)
+    for (const tag of e.plot.acceptsTags ?? []) {
+      def.entities.forEach((cand, i) => {
+        if ((cand.buildTags ?? []).includes(tag) && !out.includes(i)) out.push(i)
+      })
+    }
+    return out
+  })
   const expansionRings = def.entities.map((e) =>
     ringsOf(e).map((r) => {
       const offsets: number[] = []

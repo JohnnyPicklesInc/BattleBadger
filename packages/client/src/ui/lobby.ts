@@ -2,6 +2,7 @@ import {
   defaultFactionName,
   generateMap,
   mapSlotCount,
+  resolveStartOrder,
   seatPlayers,
   type RtsMapDoc,
   type SeatPick,
@@ -11,12 +12,18 @@ import { WsTransport } from '../net/transport.ts'
 import { listLibrary, loadLibraryMap, saveToLibrary } from '../mapLibrary.ts'
 import { factionsFor, listFactions, type FactionChoice } from './factions.ts'
 import { inviteLink, roomFromUrl } from './invite.ts'
-import { drawMapPreview, SLOT_COLORS } from './mapPreview.ts'
+import { VERSION } from '../version.ts'
+import { drawMapPreview, startLocationAt, SLOT_COLORS } from './mapPreview.ts'
 
 export interface MatchStart {
   slot: number
   transport: WsTransport | null // null → practice (LocalLoopback)
-  players: string[]
+  /** Display name per SLOT — computers included, nulls for seats nobody plays. */
+  players: (string | null)[]
+  /** Slots the match runs: humans and computers, however they are interleaved.
+   * Not the number of humans — a room with one player and three computers is a
+   * four-slot match, and every client must count it the same way. */
+  playerCount: number
   // Always a concrete map: the host's library pick, the host-generated
   // skirmish, or the doc transferred to a guest. Never regenerated per client —
   // the doc carries its own seed.
@@ -28,6 +35,8 @@ export interface MatchStart {
 
 const BUILTIN = '__skirmish'
 const TEAM_NAMES = ['Team 1', 'Team 2', 'Team 3', 'Team 4', 'Team 5', 'Team 6', 'Team 7', 'Team 8']
+// Index IS the aiLevel the sim runs: 0 nobody, 1..3 easy/normal/hard.
+const AI_NAMES = ['Open', 'Easy AI', 'Normal AI', 'Hard AI']
 
 interface MapMeta {
   slots: number
@@ -44,7 +53,7 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
   overlay.innerHTML = `
     <div class="panel lobby-panel">
       <h1>Battle<span>Badger</span></h1>
-      <div class="sub">browser lockstep RTS — data-driven, up to 8 players</div>
+      <div class="sub">browser lockstep RTS — data-driven, up to 8 players · <span id="lb-version"></span></div>
       <div class="lobby-grid">
         <div class="lobby-left">
           <label>Commander name</label>
@@ -81,6 +90,7 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
           <label>Players</label>
           <ul id="lb-players"></ul>
           <button id="lb-start" class="primary" style="display:none" disabled>Start match</button>
+          <div class="verwarn" id="lb-verwarn" style="display:none"></div>
           <div class="status" id="lb-status"></div>
         </div>
       </div>
@@ -98,7 +108,22 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
   const preview = $<HTMLCanvasElement>('lb-preview')
   const previewEmpty = $('lb-preview-empty')
   const caption = $('lb-caption')
+  const verWarn = $('lb-verwarn')
+  $('lb-version').textContent = `v${VERSION}`
   nameInput.value = localStorage.getItem('bb-name') ?? `Badger${Math.floor(Math.random() * 900 + 100)}`
+
+  // Lockstep only works if every client runs the same code. A player left on a
+  // cached build desyncs minutes in with no clue why, so say it here — while
+  // reloading still costs nothing.
+  const buildWarning = (versions: (string | null)[]): void => {
+    const odd = [...new Set(versions.filter((v): v is string => Boolean(v) && v !== VERSION))]
+    verWarn.style.display = odd.length > 0 ? 'block' : 'none'
+    verWarn.textContent =
+      odd.length > 0
+        ? `⚠ different builds in this room — you are on v${VERSION}, somebody is on ` +
+          `${odd.map((v) => `v${v}`).join(', ')}. Everyone should reload before starting.`
+        : ''
+  }
 
   let transport: WsTransport | null = null
   let inRoom = false
@@ -138,8 +163,45 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
 
   const isHost = (): boolean => !inRoom || mySlot === 0
   const seatOf = (slot: number): SeatPick => seats[slot] ?? {}
+  // Who starts where. Always a permutation of the map's positions, so the list,
+  // the map shot and the baked doc cannot disagree about who owns which base.
+  const startOrder = (): number[] => resolveStartOrder(seats, metaOf(shownDoc()).slots)
   const factionById = (id: string | null | undefined): FactionChoice | undefined =>
     id ? allFactions.find((f) => f.id === id) : undefined
+
+  // Who is sitting in a slot right now — offline that is you in slot 0 and
+  // nobody else, since the other seats are computers rather than players.
+  const nameAt = (slot: number): string | null =>
+    inRoom ? (lastPlayers[slot] ?? null) : slot === 0 ? playerName() : null
+
+  // The computer level a slot would play at: the lobby's pick, else the level
+  // the MAP asks for, else none online / normal offline — practice has always
+  // meant "the rest of the map is computers".
+  const aiOf = (slot: number, doc: RtsMapDoc | null): number => {
+    const seat = seatOf(slot)
+    if (seat.ai !== undefined) return Math.max(0, Math.min(3, seat.ai | 0))
+    return doc?.aiLevels?.[slot] ?? (inRoom ? 0 : slot === 0 ? 0 : 2)
+  }
+
+  /**
+   * The match roster, derived from the doc and the padded player list alone —
+   * never from local lobby state. Both are identical on every client, so every
+   * client counts the same slots and hands the sim the same aiLevels; anything
+   * else desyncs at the first hash.
+   */
+  const roster = (
+    doc: RtsMapDoc,
+    players: (string | null)[],
+  ): { names: (string | null)[]; playerCount: number; aiLevels: number[] } => {
+    const slots = mapSlotCount(doc)
+    const aiLevels = Array.from({ length: slots }, (_, i) => doc.aiLevels?.[i] ?? 0)
+    const names = Array.from({ length: slots }, (_, i) =>
+      players[i] ? players[i] : aiLevels[i] > 0 ? `Computer ${i + 1}` : null,
+    )
+    let last = 0
+    for (let i = 0; i < slots; i++) if (names[i]) last = i + 1
+    return { names, playerCount: Math.max(2, last), aiLevels }
+  }
 
   const metaOf = (doc: RtsMapDoc | null): MapMeta => {
     if (!doc) return { slots: 2, label: 'Skirmish Valley · generated · 2 players · 1v1' }
@@ -172,16 +234,26 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     const meta = metaOf(doc)
     const slots = Math.max(meta.slots, players.filter(Boolean).length)
     const races = factionsFor(doc, allFactions)
+    const order = resolveStartOrder(seats, meta.slots)
     let html = ''
     for (let i = 0; i < slots; i++) {
       const name = players[i]
       const you = inRoom ? i === mySlot : i === 0
       const seat = seatOf(i)
-      const team = seat.team ?? meta.slotTeams?.[i] ?? i
-      // You always own your own row; the host owns everybody's. Offline, every
-      // row is yours — that is how you set up the computer opponents you want.
-      const mine = !inRoom || you || (mySlot === 0 && Boolean(name))
-      const mapRace = doc ? defaultFactionName(doc, i, allFactions.map((f) => f.module)) : null
+      const pos = order[i] ?? i
+      // A team map ties its sides to the ground, so a slot that moved to
+      // another base inherits that base's team.
+      const team = seat.team ?? (meta.slotTeams ? (meta.slotTeams[pos] ?? pos) : i)
+      // An empty seat can be handed to a computer. Only the host seats one —
+      // aiLevel is hashed sim state, so it has to come from one place — and
+      // only where a human is not already sitting.
+      const ai = aiOf(i, doc)
+      const computer = !name && ai > 0
+      // You always own your own row; the host owns everybody's, including the
+      // computers they seated. Offline, every row is yours — that is how you
+      // set up the opponents you want.
+      const mine = !inRoom || you || (mySlot === 0 && (Boolean(name) || computer))
+      const mapRace = doc ? defaultFactionName(doc, pos, allFactions.map((f) => f.module)) : null
       const raceOpts = [
         `<option value="">${mapRace ? `Map default (${esc(mapRace)})` : 'Map default'}</option>`,
         ...races.map(
@@ -191,14 +263,32 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
       const teamOpts = TEAM_NAMES.slice(0, Math.max(2, meta.slots))
         .map((t, k) => `<option value="${k}"${k === team ? ' selected' : ''}>${t}</option>`)
         .join('')
-      const dis = mine && (name || !inRoom) ? '' : ' disabled'
-      html += `<li class="${name ? 'filled' : 'open'}">
+      // Which authored base this player starts on. Picking one somebody else
+      // holds trades places with them, so the set always stays a permutation.
+      const startOpts = Array.from({ length: meta.slots }, (_, k) => {
+        const held = order.findIndex((p) => p === k)
+        const by = held >= 0 && held !== i && players[held] ? ` — ${esc(players[held])}` : ''
+        return `<option value="${k}"${k === pos ? ' selected' : ''}>Start ${k + 1}${by}</option>`
+      }).join('')
+      const aiOpts = name
+        ? '<option>Human</option>'
+        : AI_NAMES.map((t, k) => `<option value="${k}"${k === ai ? ' selected' : ''}>${t}</option>`).join('')
+      // Race/team/start belong to whoever plays the seat: its human, or the
+      // host arranging its computer.
+      const seated = Boolean(name) || computer
+      const dis = mine && (seated || !inRoom) ? '' : ' disabled'
+      const label = name ? esc(name) : computer ? `Computer ${i + 1}` : 'Open slot'
+      html += `<li class="${seated ? 'filled' : 'open'}">
         <i style="background:${SLOT_COLORS[i]}"></i>
-        <span class="pname">${name ? esc(name) : 'Open slot'}</span>
-        <span class="ptag">${you ? 'you' : i === 0 && name ? 'host' : ''}</span>
+        <span class="pname">${label}</span>
+        <span class="ptag">${you ? 'you' : computer ? 'AI' : i === 0 && name ? 'host' : ''}</span>
+        <select class="pai" data-slot="${i}"${isHost() && !name && i < meta.slots ? '' : ' disabled'}
+          title="Computer opponent">${aiOpts}</select>
         <select class="prace" data-slot="${i}"${dis}${races.length === 0 ? ' data-fixed="1"' : ''}
           title="${races.length === 0 ? 'this map’s rules seat no other factions' : 'Race'}">${raceOpts}</select>
         <select class="pteam" data-slot="${i}"${dis} title="Team">${teamOpts}</select>
+        <select class="pstart" data-slot="${i}"${dis || (i >= meta.slots ? ' disabled' : '')}
+          title="Start position — click the map to pick one">${startOpts}</select>
       </li>`
     }
     playersEl.innerHTML = html
@@ -211,6 +301,7 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
       drawMapPreview(preview, doc, {
         players: inRoom ? lastPlayers : [playerName()],
         mySlot: inRoom ? mySlot : 0,
+        starts: order,
       })
       caption.textContent = meta.label
     } else {
@@ -226,6 +317,21 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     if (inRoom && mySlot === 0) transport?.sendSeats(seats)
   }
 
+  // Host-side: hand a slot the start position it asked for. Whoever was on it
+  // takes the asker's old base, so a pick is a trade and never leaves two
+  // players on one keep — the seating stays a permutation by construction.
+  const takeStart = (slot: number, want: number): void => {
+    const slots = metaOf(hostDoc).slots
+    if (slot >= slots) return
+    const pos = Math.max(0, Math.min(slots - 1, want | 0))
+    const order = resolveStartOrder(seats, slots)
+    const displaced = order.findIndex((p, i) => i !== slot && p === pos)
+    const was = order[slot]
+    order[slot] = pos
+    if (displaced >= 0) order[displaced] = was
+    for (let i = 0; i < slots; i++) seats[i] = { ...seats[i], start: order[i] }
+  }
+
   // Host-side: settle what a slot actually gets. A race this map cannot seat is
   // refused here rather than at start, so nobody sits in the lobby believing
   // they picked something the match will not give them.
@@ -234,7 +340,14 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     const seatable = f && factionsFor(hostDoc, [f]).length > 0
     const seat: SeatPick = { faction: seatable ? f.id : null }
     if (want.team !== undefined) seat.team = Math.max(0, Math.min(7, want.team | 0))
+    const keepStart = want.start ?? seatOf(slot).start
+    if (keepStart !== undefined) seat.start = keepStart
+    // A computer only ever fills a seat nobody is sitting in — a pick that
+    // races a player joining that slot loses to the player.
+    const keepAi = want.ai ?? seatOf(slot).ai
+    if (keepAi !== undefined && !nameAt(slot)) seat.ai = Math.max(0, Math.min(3, keepAi | 0))
     seats[slot] = seat
+    if (want.start !== undefined) takeStart(slot, want.start)
     if (f && !seatable) status.textContent = `${f.name} cannot be seated on this map`
     // The seating is baked into the map at start, so the bytes guests hold are
     // now stale — they will be re-sent before the match begins.
@@ -249,14 +362,7 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     else renderPlayers()
   }
 
-  playersEl.addEventListener('change', (ev) => {
-    const el = ev.target as HTMLElement
-    if (!(el instanceof HTMLSelectElement)) return
-    const slot = Number(el.dataset.slot)
-    if (!Number.isInteger(slot)) return
-    const want: SeatPick = { ...seatOf(slot) }
-    if (el.classList.contains('prace')) want.faction = el.value || null
-    else want.team = Number(el.value)
+  const pick = (slot: number, want: SeatPick): void => {
     if (isHost()) {
       applySeat(slot, want)
       return
@@ -265,6 +371,33 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     seats[slot] = want
     renderPlayers()
     transport?.sendPick(want)
+  }
+
+  playersEl.addEventListener('change', (ev) => {
+    const el = ev.target as HTMLElement
+    if (!(el instanceof HTMLSelectElement)) return
+    const slot = Number(el.dataset.slot)
+    if (!Number.isInteger(slot)) return
+    const want: SeatPick = { ...seatOf(slot) }
+    if (el.classList.contains('prace')) want.faction = el.value || null
+    else if (el.classList.contains('pstart')) want.start = Number(el.value)
+    else if (el.classList.contains('pai')) want.ai = Number(el.value)
+    else want.team = Number(el.value)
+    pick(slot, want)
+  })
+
+  // Click a base on the map shot to start there — the dropdown spelled out.
+  // It always moves YOU: the host arranging the room still speaks for their own
+  // seat here, which is what clicking a spot on the map means everywhere else.
+  preview.addEventListener('click', (ev) => {
+    const doc = shownDoc()
+    if (!doc) return
+    const slot = inRoom ? mySlot : 0
+    if (inRoom && !lastPlayers[slot]) return
+    const r = preview.getBoundingClientRect()
+    const pos = startLocationAt(preview, doc, ev.clientX - r.left, ev.clientY - r.top)
+    if (pos < 0 || pos === startOrder()[slot]) return
+    pick(slot, { ...seatOf(slot), start: pos })
   })
 
   // A map change can strip a race of the rules it needs. Re-check every seat
@@ -355,14 +488,16 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
   const deliverJson = (): string => (bakedDoc ? bakedJson : hostJson)
 
   const updateLobby = (players: (string | null)[]): void => {
+    const before = lastPlayers
     lastPlayers = players
     // A slot that emptied takes its seating with it — the next player to join
-    // must not inherit the last one's race.
+    // must not inherit the last one's race. Only a slot somebody actually LEFT
+    // is cleared: a seat the host handed to a computer was never occupied, and
+    // wiping it on every lobby update would undo the room they are building.
     if (inRoom && mySlot === 0) {
       let vacated = false
       for (let i = 1; i < 8; i++) {
-        const s = seats[i]
-        if (!players[i] && s && (s.faction || s.team !== undefined)) {
+        if (before[i] && !players[i] && seats[i]) {
           seats[i] = {}
           vacated = true
         }
@@ -421,10 +556,20 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
   // local copy of a faction differs cannot desync over it.
   const bake = (): RtsMapDoc | null => {
     if (!hostDoc) return null
-    const chosen: SlotSeat[] = Array.from({ length: 8 }, (_, i) => ({
-      faction: factionById(seats[i]?.faction)?.module ?? null,
-      team: seats[i]?.team,
-    }))
+    const chosen: SlotSeat[] = Array.from({ length: 8 }, (_, i) => {
+      // A human's seat is never AI-driven, whatever was picked for it before
+      // they sat down; a seat with neither a human nor a computer is empty and
+      // its authored base comes off the map.
+      const human = Boolean(nameAt(i))
+      const ai = human ? 0 : aiOf(i, hostDoc)
+      return {
+        faction: factionById(seats[i]?.faction)?.module ?? null,
+        team: seats[i]?.team,
+        start: seats[i]?.start,
+        ai,
+        active: human || ai > 0,
+      }
+    })
     const { doc, notes } = seatPlayers(hostDoc, chosen)
     bakedDoc = doc
     // An unseated map re-uses the bytes already sent, so pressing start after
@@ -440,10 +585,13 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
   const connect = (code: string, created: boolean): void => {
     roomCode = code
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const url = `${proto}//${location.host}/api/rooms/${code}/ws?name=${encodeURIComponent(playerName())}`
+    const url =
+      `${proto}//${location.host}/api/rooms/${code}/ws` +
+      `?name=${encodeURIComponent(playerName())}&ver=${encodeURIComponent(VERSION)}`
     status.textContent = 'connecting…'
     transport = new WsTransport(url, {
-      onJoined: (slot, players) => {
+      onJoined: (slot, players, versions) => {
+        buildWarning(versions)
         mySlot = slot
         inRoom = true
         nameInput.disabled = true
@@ -465,7 +613,10 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
         if (!created) status.textContent = `joined room ${code}`
         updateLobby(players)
       },
-      onLobby: (players) => updateLobby(players),
+      onLobby: (players, versions) => {
+        buildWarning(versions)
+        updateLobby(players)
+      },
       onStart: (_seed, players) => {
         // The doc is authoritative and always transferred; a guest without one
         // must not fall back to generating its own, which would desync. With
@@ -478,7 +629,10 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
           return
         }
         overlay.remove()
-        onStart({ slot: mySlot, transport, players, doc })
+        // Computers, and how many slots the match runs, come off the doc every
+        // client holds — not off this client's lobby state.
+        const { names, playerCount, aiLevels } = roster(doc, players)
+        onStart({ slot: mySlot, transport, players: names, playerCount, doc, aiLevels })
       },
       onMapDoc: (json) => {
         try {
@@ -524,14 +678,11 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
       // play the races you lined up against.
       const doc = bake() ?? hostDoc
       overlay.remove()
-      // Practice: slot 0 is you, every other slot the map seats is a computer.
-      // The map's own aiLevels win where it sets them — a map built around
-      // scripted armies is not playable without the opponents it asks for.
-      const slots = mapSlotCount(doc)
-      const aiLevels = Array.from({ length: slots }, (_, i) => doc.aiLevels?.[i] ?? (i === 0 ? 0 : 2))
-      aiLevels[0] = 0
-      const names = aiLevels.map((lv, i) => (i === 0 ? playerName() : lv > 0 ? `Computer ${i}` : `Player ${i + 1}`))
-      onStart({ slot: 0, transport: null, players: names, doc, aiLevels })
+      // Practice: slot 0 is you and the seating panel says what the rest are —
+      // computers at the level you picked, or empty ground where you set a seat
+      // to Open. Baked into the doc, so this is the same path a room takes.
+      const { names, playerCount, aiLevels } = roster(doc, [playerName()])
+      onStart({ slot: 0, transport: null, players: names, playerCount, doc, aiLevels })
     })
   })
 

@@ -19,6 +19,7 @@ import {
   stateHash,
   step,
   unitSpeed,
+  validateGameDef,
   walkGridFromDoc,
   type GameDef,
   type IncomeDef,
@@ -334,6 +335,123 @@ describe('build plots and fortress expansion', () => {
       if (sim.def.stats.isPlot[sim.type[i]]) expect(sim.def.stats.untargetable[sim.type[i]]).toBe(1)
     }
   })
+
+  // ---- new bases out on the map -----------------------------------------
+  //
+  // A settlement is a slot for one building. A SITE is a slot for a base: put
+  // an outpost or a camp on it and it brings its own ring, exactly the way the
+  // keep does. Sites accept a KIND of base rather than a named one, so any
+  // faction can claim any site with its own architecture.
+
+  const ringAt = (r: number, n: number): { dx: number; dz: number }[] =>
+    Array.from({ length: n }, (_, i) => ({
+      dx: Math.round(Math.cos((i / n) * Math.PI * 2) * r),
+      dz: Math.round(Math.sin((i / n) * Math.PI * 2) * r),
+    }))
+
+  const sitesDef = (): GameDef =>
+    base('sites', {
+      entities: [
+        ...plotsDef().entities.filter((e) => e.id !== 'fortress'),
+        {
+          id: 'outpost-site', name: 'Outpost Site', kind: 'building', radius: 2.5, hp: 100,
+          visual: { model: 'placeholder:box' },
+          plot: { accepts: [], acceptsTags: ['outpost'], neutral: true },
+        },
+        {
+          id: 'camp-site', name: 'Camp Site', kind: 'building', radius: 3, hp: 100,
+          visual: { model: 'placeholder:box' },
+          // a bigger site takes anything smaller
+          plot: { accepts: [], acceptsTags: ['camp', 'outpost'], neutral: true },
+        },
+        {
+          id: 'outpost', name: 'Outpost', kind: 'building', radius: 2.8, hp: 900,
+          visual: { model: 'placeholder:box' },
+          placement: 'plot', buildTags: ['outpost'], buildTimeTicks: 5,
+          cost: [{ resource: 'res', amount: 200 }],
+          expansion: [{ plot: 'plot', offsets: ringAt(8, 3) }],
+        },
+        {
+          id: 'camp', name: 'Camp', kind: 'building', radius: 3.2, hp: 1600,
+          visual: { model: 'placeholder:box' },
+          placement: 'plot', buildTags: ['camp'], buildTimeTicks: 5,
+          cost: [{ resource: 'res', amount: 400 }],
+          expansion: [{ plot: 'plot', offsets: ringAt(12, 6) }],
+        },
+      ],
+    })
+
+  // A site out in the open with somebody of ours standing beside it, since a
+  // neutral pad is ground you have to be holding to build on.
+  const held = (site: string, x: number, z: number): PlacedEntity[] => [
+    { def: site, owner: 0, x, z },
+    { def: 'settler', owner: 0, x: x + 4, z },
+  ]
+
+  it('a camp site takes a camp and the camp brings its own ring of plots', () => {
+    const { sim, grid } = setup(sitesDef(), held('camp-site', 30, 30))
+    expect(countOf(sim, 'plot'), 'a bare site opens nothing').toBe(0)
+    step(sim, grid, [buildCmd(sim, 'camp', 30, 30)])
+    expect(countOf(sim, 'camp')).toBe(1)
+    expect(countOf(sim, 'plot')).toBe(6)
+  })
+
+  it('an outpost is worth three buildings and a camp six', () => {
+    // The whole point of the tiers: how much base a piece of ground is worth
+    // is the map's decision, made once when it places the site.
+    const a = setup(sitesDef(), held('camp-site', 30, 30))
+    step(a.sim, a.grid, [buildCmd(a.sim, 'outpost', 30, 30)])
+    expect(countOf(a.sim, 'plot')).toBe(3)
+
+    const b = setup(sitesDef(), held('camp-site', 30, 30))
+    step(b.sim, b.grid, [buildCmd(b.sim, 'camp', 30, 30)])
+    expect(countOf(b.sim, 'plot')).toBe(6)
+  })
+
+  it('a small site refuses a base too big for it', () => {
+    const { sim, grid } = setup(sitesDef(), held('outpost-site', 30, 30))
+    step(sim, grid, [buildCmd(sim, 'camp', 30, 30)])
+    expect(countOf(sim, 'camp'), 'a camp went up on outpost ground').toBe(0)
+    step(sim, grid, [buildCmd(sim, 'outpost', 30, 30)])
+    expect(countOf(sim, 'outpost')).toBe(1)
+  })
+
+  it('razing a camp takes its ring and everything on it, and frees the site', () => {
+    const { sim, grid } = setup(sitesDef(), held('camp-site', 30, 30))
+    step(sim, grid, [buildCmd(sim, 'camp', 30, 30)])
+    // not `count - 1`: the camp's own ring spawned after it
+    const campType = sim.def.entIndex.get('camp')!
+    const camp = Array.from({ length: sim.count }, (_, i) => i).find((i) => sim.type[i] === campType)!
+    step(sim, grid, [buildCmd(sim, 'farm', 42, 30)]) // the +x plot of the ring
+    expect(countOf(sim, 'farm')).toBe(1)
+
+    sim.hp[camp] = 0
+    step(sim, grid, [])
+    expect(countOf(sim, 'camp')).toBe(0)
+    expect(countOf(sim, 'plot'), 'the ring outlived its camp').toBe(0)
+    expect(countOf(sim, 'farm'), 'a farm outlived the camp that opened its plot').toBe(0)
+    // the site itself is ground, not a building: it survives to be taken again
+    expect(countOf(sim, 'camp-site')).toBe(1)
+    sim.resources[0] = 1000
+    step(sim, grid, [buildCmd(sim, 'camp', 30, 30)])
+    expect(countOf(sim, 'camp')).toBe(1)
+  })
+
+  it('a site nobody is holding cannot be built on', () => {
+    // Same rule as a settlement — an expansion is ground you take.
+    const { sim, grid } = setup(sitesDef(), [{ def: 'camp-site', owner: 0, x: 30, z: 30 }])
+    step(sim, grid, [buildCmd(sim, 'camp', 30, 30)])
+    expect(countOf(sim, 'camp')).toBe(0)
+  })
+
+  it('rejects a site asking for a kind of base nothing provides', () => {
+    // The failure this catches is a pad with an empty command card: a tag
+    // nothing answers looks deliberate and does nothing, which is worse than
+    // an error.
+    const def = sitesDef()
+    def.entities = def.entities.filter((e) => e.id !== 'camp')
+    expect(validateGameDef(def).join('; ')).toContain('camp-site')
+  })
 })
 
 describe('hordes, formations and veterancy', () => {
@@ -615,6 +733,70 @@ describe('Siege of Dunhollow (the whole BFME loop as data)', () => {
       const gap = Math.sqrt(dx * dx + dz * dz) - keepR - plotR
       expect(gap, `plot at ${dx},${dz} is touching the keep`).toBeGreaterThan(3)
     }
+  })
+
+  it('offers all three sizes of expansion, mirrored across the ridge', () => {
+    // The map's whole claim about expansion: some ground is worth three
+    // buildings, some six, some a second fortress — and both players get the
+    // same, or the "symmetric" map is not one.
+    const { sim } = play(1)
+    const at = (id: string): string[] => {
+      const ty = sim.def.entIndex.get(id)!
+      const out: string[] = []
+      for (let i = 0; i < sim.count; i++) if (sim.alive[i] && sim.type[i] === ty) out.push(`${sim.posX[i]},${sim.posZ[i]}`)
+      return out.sort()
+    }
+    for (const id of ['outpost-site', 'camp-site', 'castle-site']) {
+      const spots = at(id)
+      expect(spots.length, `${id} should come in a mirrored pair`).toBe(2)
+      const [a, b] = spots.map((p) => p.split(',').map(Number))
+      expect([a[0], a[1]], `${id} is not mirrored across x = z`).toEqual([b[1], b[0]])
+    }
+  })
+
+  it('each site opens the base it advertises, on open ground', () => {
+    // The ring skips slots that land in a cliff or the sea, which is right —
+    // but a site placed without room for its ring is a promise the map does
+    // not keep, and the player only finds out after paying for the camp.
+    const { sim, grid } = play(1)
+    const tiers: [string, string, number][] = [
+      ['outpost-site', 'badger-outpost', 3],
+      ['camp-site', 'badger-camp', 6],
+      ['castle-site', 'fortress', 12],
+    ]
+    const padsOf = (id: string): number[] => {
+      const ty = sim.def.entIndex.get(id)!
+      const out: number[] = []
+      for (let i = 0; i < sim.count; i++) if (sim.alive[i] && sim.type[i] === ty) out.push(i)
+      return out
+    }
+    for (const [site, tier, want] of tiers) for (const pad of padsOf(site)) {
+      const built = spawnBuilding(sim, grid, sim.def.entIndex.get(tier)!, 0, sim.posX[pad], sim.posZ[pad], false)
+      // Build plots only — the tower picket is allowed to lose a pad to the
+      // map edge, but a slot you can put a barracks on is what was paid for.
+      const buildPlot = sim.def.entIndex.get('fortress-plot')!
+      let plots = 0
+      for (let i = 0; i < sim.count; i++) {
+        if (sim.alive[i] && sim.plotParent[i] === built && sim.type[i] === buildPlot) plots++
+      }
+      expect(plots, `${tier} on ${site} opened ${plots} build plots, not ${want}`).toBe(want)
+    }
+  })
+
+  it('losing a fortress is not losing the game while another still stands', () => {
+    // Castle sites make the keep rebuildable, so "his fortress fell" stopped
+    // meaning "he is finished". Without the condition on that trigger, razing
+    // a player's expansion won the game outright.
+    const { sim, grid } = play(1)
+    const keep = findType(sim, 'fortress', 0)
+    const site = findType(sim, 'castle-site', 0)
+    const second = spawnBuilding(sim, grid, sim.def.entIndex.get('fortress')!, 0, sim.posX[site], sim.posZ[site], false)
+    sim.hp[keep] = 0
+    step(sim, grid, [])
+    expect(sim.winner, 'the game ended with a fortress still standing').toBeLessThan(0)
+    sim.hp[second] = 0
+    step(sim, grid, [])
+    expect(sim.winner).toBe(1)
   })
 
   it('a farm on a plot funds the war with no worker on the map', () => {

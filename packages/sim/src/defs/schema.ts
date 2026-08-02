@@ -35,6 +35,13 @@ export interface IncomeDef {
 // attacked, and don't count as buildings for victory.
 export interface PlotDef {
   accepts: string[] // entity ids that may be built here
+  // …plus anything carrying one of these `buildTags`. Naming ids works inside
+  // one faction, where the plot and the buildings ship together. It does NOT
+  // work for the pads out on the map: a camp site has to accept whichever
+  // faction's camp is seated, and the neutral module cannot name orc buildings
+  // without dragging the Horde into every map that uses a settlement. So the
+  // site asks for a KIND of structure and each faction answers with its own.
+  acceptsTags?: string[]
   neutral?: boolean // any player may claim it (outer-map settlements)
 }
 
@@ -117,6 +124,9 @@ export interface EntityDef {
   horde?: HordeDef // this def is a horde ticket, not a world entity
   placement?: 'free' | 'plot' // 'plot' = must be built on a matching build plot
   plot?: PlotDef // this entity IS a build plot
+  // What kinds of thing this entity counts as, for plots that accept by kind
+  // rather than by id — 'outpost', 'camp', 'castle'. See PlotDef.acceptsTags.
+  buildTags?: string[]
   expansion?: ExpansionDef | ExpansionDef[] // plots this building spawns around itself
   untargetable?: boolean // never auto-acquired, never attackable (plots, markers)
   // ---- crush hierarchy (SAGE's crusher/crushable levels) ----
@@ -368,6 +378,7 @@ export function validateGameDef(def: GameDef): string[] {
       push(`entity "${e.id}": needs a visual model`)
     }
   }
+  const buildTags = new Set(def.entities.flatMap((e) => e.buildTags ?? []))
   const dmgTypes = new Set(def.damageTypes ?? [])
   const armTypes = new Set(def.armorTypes ?? [])
   for (const m of def.damageTable ?? []) {
@@ -449,6 +460,13 @@ export function validateGameDef(def: GameDef): string[] {
     if (e.armorType && !armTypes.has(e.armorType)) push(`${where}: unknown armorType "${e.armorType}"`)
     for (const a of e.plot?.accepts ?? []) if (!entIds.has(a)) push(`${where}: plot accepts unknown "${a}"`)
     if (e.plot && e.kind !== 'building') push(`${where}: plots must be buildings`)
+    // A tag nothing answers is a pad with an empty command card — the same
+    // silent nothing as a typo'd entity id, and harder to spot because it looks
+    // deliberate. Caught here rather than at the pad: a map that seats a
+    // faction with no camp should fail at compose time, not on the click.
+    for (const t of e.plot?.acceptsTags ?? []) {
+      if (!buildTags.has(t)) push(`${where}: plot accepts tag "${t}" that no entity carries`)
+    }
     for (const ring of expansionRings(e)) {
       if (!entIds.has(ring.plot)) push(`${where}: unknown expansion plot "${ring.plot}"`)
       else if (!def.entities.find((x) => x.id === ring.plot)?.plot)

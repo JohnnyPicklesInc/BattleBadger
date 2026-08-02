@@ -318,8 +318,20 @@ function threatPoint(s: SimState, slot: number): { x: number; z: number } | null
 }
 
 /** How badly this slot wants `defIdx` on a plot, ignoring whether it can pay. */
-function plotPriority(s: SimState, slot: number, defIdx: number, incomeCount: number, threatened: boolean): number {
+function plotPriority(
+  s: SimState,
+  slot: number,
+  defIdx: number,
+  incomeCount: number,
+  threatened: boolean,
+  freeOwnPlots: number,
+): number {
   const e = s.def.entities[defIdx]
+  // A camp or a second castle is not one building so much as three, six or
+  // twelve: it pays for itself only through the ring it opens. So it is worth
+  // the price exactly when there is nowhere left to build — which is also the
+  // moment the AI would otherwise sit on a growing pile of money.
+  if (s.def.expansionRings[defIdx].length > 0) return freeOwnPlots === 0 ? 350 : 40
   // Something that shoots, on a plot the enemy is actually near, outranks the
   // economy — this is what puts an engine on a siege emplacement while the wall
   // is being hit rather than four hundred ticks later. Gated on already having
@@ -348,8 +360,15 @@ function plotPriority(s: SimState, slot: number, defIdx: number, incomeCount: nu
 function jobBuildPlot(s: SimState, slot: number, c: Caps, reserve: Reserve, out: PlayerCommand[]): void {
   if (!c.plotHosts) return
   let incomeCount = 0
+  // Free pads inside its own base — the ring a keep or a camp opened. Neutral
+  // sites out on the map are deliberately not counted: an unclaimed settlement
+  // is ground to take, not somewhere the AI can already build.
+  let freeOwnPlots = 0
   for (let i = 0; i < s.count; i++) {
-    if (s.alive[i] && s.owner[i] === slot && s.def.entities[s.type[i]].income) incomeCount++
+    if (!s.alive[i]) continue
+    if (s.owner[i] === slot && s.def.entities[s.type[i]].income) incomeCount++
+    const plot = s.def.entities[s.type[i]].plot
+    if (plot && !plot.neutral && s.owner[i] === slot && s.plotHost[i] < 0) freeOwnPlots++
   }
   const threat = threatPoint(s, slot)
 
@@ -366,14 +385,19 @@ function jobBuildPlot(s: SimState, slot: number, c: Caps, reserve: Reserve, out:
     // would earmark resources for a settlement it has no presence near and
     // save for it forever
     if (!plotClaimable(s, slot, p)) continue
-    for (const id of plot.accepts) {
-      const t = s.def.entIndex.get(id)
-      if (t === undefined || !requiresMet(s, slot, t)) continue
+    for (const t of s.def.plotAcceptsIdx[s.type[p]]) {
+      if (!requiresMet(s, slot, t)) continue
+      // A camp is bought out of surplus, never saved for. Everything else on a
+      // plot is finite — build it and the want is gone — but there is always
+      // one more site on the map, so an AI that earmarked a camp's price
+      // earmarked it forever: it stopped researching entirely, which is how
+      // this rule was found.
+      if (s.def.expansionRings[t].length > 0 && !affordableAfter(s, slot, t, reserve)) continue
       const nearThreat =
         threat !== null &&
         (threat.x - s.posX[p]) * (threat.x - s.posX[p]) + (threat.z - s.posZ[p]) * (threat.z - s.posZ[p]) <
           THREAT_R * THREAT_R
-      const pri = plotPriority(s, slot, t, incomeCount, nearThreat)
+      const pri = plotPriority(s, slot, t, incomeCount, nearThreat, freeOwnPlots)
       if (pri > bestPri) {
         bestPri = pri
         bestDef = t
