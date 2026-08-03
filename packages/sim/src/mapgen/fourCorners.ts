@@ -163,6 +163,8 @@ export function generateFourCorners(seed = 20260729): RtsMapDoc {
     fog: 'full',
     // No slotTeams: slot = team, so this is a free-for-all. Add
     // [0, 1, 0, 1] here to make it 2v2 across the diagonals.
+    // BFME is a two-race game: these are the armies a lobby may seat here.
+    races: ['badgers', 'horde'],
     startLocations: BASES.map((b) => ({ x: b.x, z: b.z })),
     placed,
     gameDef: FOUR_DEF,

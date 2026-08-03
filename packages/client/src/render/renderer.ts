@@ -27,6 +27,15 @@ interface UnitPart {
   hinge: HingeAxis
 }
 
+/**
+ * Starting instances per (owner, type). An InstancedMesh's capacity is fixed
+ * at construction, and every (owner, type) pair gets one whether or not that
+ * player can ever field that unit — so a generous fixed guess allocates most
+ * of its memory to combinations that stay empty all match (Gondor never owns
+ * an orc). Start small and grow the ones that fill up: see `growUnitParts`.
+ */
+const UNIT_CAP_START = 32
+
 const RING_OWN = new THREE.Color(0x7ee787)
 const RING_ALLY = new THREE.Color(0xffe27a)
 const RING_ENEMY = new THREE.Color(0xff6a5a)
@@ -206,7 +215,7 @@ export class GameRenderer {
   private m4c = new THREE.Matrix4()
   private m4d = new THREE.Matrix4()
   private animTime = 0 // seconds of wall clock, drives render-only unit motion
-  private doorOpen = new Float32Array(4096) // per entity, eased gate door angle
+  private doorOpen = new Float32Array(MAX_UNITS) // per entity, eased gate door angle
   private v3 = new THREE.Vector3()
 
   private def: GameDefCompiled
@@ -279,7 +288,7 @@ export class GameRenderer {
               const im = new THREE.InstancedMesh(
                 g.geometry,
                 new THREE.MeshLambertMaterial({ vertexColors: true }),
-                256,
+                UNIT_CAP_START,
               )
               parts.push({ im, role: g.role, pivot: g.pivot, hinge: g.hinge })
             }
@@ -290,7 +299,12 @@ export class GameRenderer {
           const mat = new THREE.MeshLambertMaterial({
             color: e.visual.tint === 'none' ? new THREE.Color(0x9aa4ae) : ownerColors[owner],
           })
-          parts.push({ im: new THREE.InstancedMesh(geo, mat, 256), role: 'body', pivot: [0, 0, 0], hinge: 'x' })
+          parts.push({
+            im: new THREE.InstancedMesh(geo, mat, UNIT_CAP_START),
+            role: 'body',
+            pivot: [0, 0, 0],
+            hinge: 'x',
+          })
         }
         for (const p of parts) {
           p.im.castShadow = true
@@ -686,6 +700,38 @@ export class GameRenderer {
     out.set(x, this.grid.heightAtWorld(x, z) + lift, z)
   }
 
+  /**
+   * Make room for `need` instances of one (owner, type). Called mid-frame the
+   * moment a slot would overflow, so the matrices already written this frame
+   * are copied across rather than dropped.
+   *
+   * The bug this exists for: `setMatrixAt` past capacity writes off the end of
+   * a typed array, which is a silent no-op — so on a big-army map the units
+   * over the limit simply stopped being drawn, with nothing in the console.
+   */
+  private growUnitParts(owner: number, ty: number, need: number): void {
+    const parts = this.units[owner][ty]
+    if (parts.length === 0) return
+    const cap = parts[0].im.instanceMatrix.count
+    if (need <= cap) return
+    const next = Math.min(MAX_UNITS, Math.max(need, cap * 2))
+    for (const part of parts) {
+      const old = part.im
+      const im = new THREE.InstancedMesh(old.geometry, old.material, next)
+      im.instanceMatrix.array.set(old.instanceMatrix.array)
+      im.castShadow = old.castShadow
+      im.frustumCulled = false
+      im.count = old.count
+      im.visible = old.visible
+      this.scene.remove(old)
+      this.scene.add(im)
+      // geometry and material are shared with the replacement — dispose only
+      // the per-instance buffers the old mesh owned.
+      old.dispose()
+      part.im = im
+    }
+  }
+
   render(
     s: SimState,
     prevX: Float64Array,
@@ -743,8 +789,9 @@ export class GameRenderer {
       if (this.def.stats.isPlot[s.type[i]] && s.plotHost[i] >= 0) continue
       const owner = s.owner[i]
       const ty = s.type[i]
-      const parts = this.units[owner][ty]
       const slot = counts[owner][ty]++
+      this.growUnitParts(owner, ty, slot + 1)
+      const parts = this.units[owner][ty]
       this.lerpPos(s, prevX, prevZ, i, alpha, pos)
       fwd.set(s.faceX[i], 0, s.faceZ[i]).normalize()
       if (fwd.lengthSq() < 0.5) fwd.set(0, 0, 1)

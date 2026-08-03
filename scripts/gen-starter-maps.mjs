@@ -9,12 +9,18 @@ import { generateTrollPit } from '../packages/sim/src/mapgen/trollPit.ts'
 import { generateFourCorners } from '../packages/sim/src/mapgen/fourCorners.ts'
 import { generateRidgeCrossing } from '../packages/sim/src/mapgen/skirmishRidge.ts'
 import { generateLastAlliance } from '../packages/sim/src/mapgen/lastAlliance.ts'
+import { generateMiddleEarth } from '../packages/sim/src/mapgen/middleEarth.ts'
 import { mapContentHash } from '../packages/sim/src/hash.ts'
 
 const OUT = new URL('../packages/client/public/maps/', import.meta.url).pathname
 mkdirSync(OUT, { recursive: true })
 
 const maps = [
+  {
+    file: 'middle-earth.json',
+    name: 'The War of the Ring (muster camps & ages, 2–8 players)',
+    doc: generateMiddleEarth(20260803),
+  },
   {
     file: 'cerebrate-war.json',
     name: 'Cerebrate War (3-lane MOBA, 2–8 players)',

@@ -13,21 +13,43 @@ const jfetch = async (path, opts) => {
   return res.json()
 }
 
-const connect = (code, name) =>
+const connect = (code, name, seat) =>
   new Promise((resolve, reject) => {
-    const ws = new WebSocket(`${BASE.replace('http', 'ws')}/api/rooms/${code}/ws?name=${name}`)
-    const client = { ws, name, slot: -1, bundles: [], msgs: [], started: null }
+    const q = seat ? `&slot=${seat.slot}&token=${seat.token}` : ''
+    const ws = new WebSocket(`${BASE.replace('http', 'ws')}/api/rooms/${code}/ws?name=${name}${q}`)
+    const client = { ws, name, slot: -1, token: null, bundles: [], msgs: [], started: null, catchup: null }
     ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data)
       client.msgs.push(m)
       if (m.t === 'joined') {
         client.slot = m.slot
+        client.token = m.token
+        client.resumed = m.resumed === true
         resolve(client)
       } else if (m.t === 'bundle') client.bundles.push(m)
       else if (m.t === 'start') client.started = m
+      else if (m.t === 'catchup') client.catchup = m
     }
     ws.onerror = () => reject(new Error('ws error'))
     setTimeout(() => reject(new Error('join timeout')), 5000)
+  })
+
+// True when the relay refuses the connection outright (bad token, closed seat).
+// A plain fetch cannot ask: undici rejects an Upgrade header before it is sent.
+const refused = (code, name, seat) =>
+  new Promise((resolve) => {
+    const q = seat ? `&slot=${seat.slot}&token=${seat.token}` : ''
+    const ws = new WebSocket(`${BASE.replace('http', 'ws')}/api/rooms/${code}/ws?name=${name}${q}`)
+    let joined = false
+    ws.onmessage = (ev) => {
+      if (JSON.parse(ev.data).t === 'joined') {
+        joined = true
+        ws.close()
+      }
+    }
+    ws.onerror = () => resolve(true)
+    ws.onclose = () => resolve(!joined)
+    setTimeout(() => resolve(!joined), 2500)
   })
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
@@ -86,8 +108,11 @@ check(
 a.ws.close()
 b.ws.close()
 
-// --- scenario 2: forfeit on disconnect ---
-console.log('scenario 2: forfeit on disconnect')
+// --- scenario 2: a disconnect holds the match; the survivor decides ---
+// Dropping out no longer hands the win over on the spot — it might be a tab
+// reloading. The room holds, and the forfeit only lands once the survivor
+// stops waiting (or the grace runs out, which is the same path).
+console.log('scenario 2: disconnect holds, kick forfeits')
 const { code: code2 } = await jfetch('/api/rooms', { method: 'POST' })
 const c = await connect(code2, 'Carol')
 const d = await connect(code2, 'Dave')
@@ -95,8 +120,15 @@ send(c, { t: 'startReq' })
 await sleep(300)
 d.ws.close()
 await sleep(400)
+check(
+  c.msgs.some((m) => m.t === 'paused' && m.slots.includes(d.slot)),
+  'survivor is told the match is holding, not over',
+)
+check(!c.msgs.some((m) => m.t === 'forfeit'), 'no forfeit while the seat is still open to them')
+send(c, { t: 'kick', slot: d.slot })
+await sleep(400)
 const forfeit = c.msgs.find((m) => m.t === 'forfeit')
-check(!!forfeit, 'forfeit received by survivor')
+check(!!forfeit, 'forfeit received by survivor once they stop waiting')
 check(forfeit?.winner === c.slot, 'survivor declared winner')
 c.ws.close()
 
@@ -173,17 +205,130 @@ send(g1, { t: 'hash', tick: 20, h: 7 })
 send(g2, { t: 'hash', tick: 20, h: 7 })
 await sleep(300)
 check(!h3.msgs.some((m) => m.t === 'desync'), 'no desync with 3 matching hashes')
-// one guest leaves → playerLeft but no forfeit (2 remain)
+// one guest leaves → the room holds; kicking them lets the other two play on
 g1.ws.close()
 await sleep(400)
-check(h3.msgs.some((m) => m.t === 'playerLeft' && m.slot === 1), 'playerLeft broadcast')
+check(h3.msgs.some((m) => m.t === 'paused' && m.slots.includes(1)), 'room holds for the guest who dropped')
+send(h3, { t: 'kick', slot: 1 })
+await sleep(400)
+check(h3.msgs.some((m) => m.t === 'playerLeft' && m.slot === 1), 'kicked guest reported as left')
 check(!h3.msgs.some((m) => m.t === 'forfeit'), 'no forfeit while 2 remain')
-// second guest leaves → forfeit for the survivor
+check((await jfetch(`/api/rooms/${code5}/state`)).ticking, 'match plays on with the remaining two')
+// second guest leaves and is kicked → forfeit for the last player standing
 g2.ws.close()
+await sleep(400)
+send(h3, { t: 'kick', slot: 2 })
 await sleep(400)
 const ff = h3.msgs.find((m) => m.t === 'forfeit')
 check(ff && ff.winner === 0, 'last player standing gets the forfeit win')
 h3.ws.close()
+
+// --- scenario 3.9: the room's clock survives, and something watches it ---
+// A relay that is evicted mid-match takes the tick counter, the metronome and
+// every client's game with it. The room persists the counter and arms an alarm
+// so it can pick the stream back up; this checks the two things that recovery
+// depends on being true while a match runs.
+console.log('scenario 3.9: room clock persisted + watchdog armed')
+const { code: code6 } = await jfetch('/api/rooms', { method: 'POST' })
+const idle = await jfetch(`/api/rooms/${code6}/state`)
+check(idle.started === false && idle.tick === 0 && idle.alarmInMs === null, 'idle room: no clock, no alarm')
+
+const h4 = await connect(code6, 'Host4')
+const g4 = await connect(code6, 'GuestC')
+send(h4, { t: 'startReq' })
+await sleep(600)
+// Count first, then read the room: bundles keep arriving, so a count taken
+// after the snapshot could legitimately exceed it and prove nothing.
+const delivered = h4.bundles.length
+const live = await jfetch(`/api/rooms/${code6}/state`)
+check(live.started && live.ticking && live.players === 2, 'running room reports itself ticking')
+check(live.tick > 0, `tick counter persisted and climbing (${live.tick})`)
+check(live.alarmInMs !== null && live.alarmInMs <= 10_000, 'watchdog alarm armed')
+// What the relay would resume from must never lag what clients already have:
+// resuming behind them replays ticks they consumed and desyncs the room.
+check(
+  live.tick >= delivered && live.tick - delivered <= 5,
+  `stored tick tracks bundles delivered (stored ${live.tick}, delivered ${delivered})`,
+)
+
+// Everyone leaving no longer ends a match on the spot: both tabs may be
+// reloading, and the room holds their seats for the grace window.
+h4.ws.close()
+g4.ws.close()
+await sleep(400)
+const over = await jfetch(`/api/rooms/${code6}/state`)
+check(!over.ticking && over.paused, 'an emptied room stops ticking and holds')
+check(over.alarmInMs !== null, 'grace deadline armed for the players to come back')
+
+// --- scenario 3.95: rejoin ---
+// A dropped player holds the match rather than ending it, comes back on their
+// own token, replays the orders they missed, and the room plays on. Then a
+// player who does not come back is kicked so the rest are not held hostage.
+console.log('scenario 3.95: drop → hold → rejoin → kick')
+const { code: code7 } = await jfetch('/api/rooms', { method: 'POST' })
+const p1 = await connect(code7, 'One')
+const p2 = await connect(code7, 'Two')
+const p3 = await connect(code7, 'Three')
+check(Boolean(p2.token) && p2.token !== p1.token, 'each seat gets its own token')
+send(p1, { t: 'startReq' })
+await sleep(300)
+// an order, so the replay log has something in it that must survive
+send(p2, { t: 'cmd', c: { kind: 'move', units: [1], x: 5, z: 6 } })
+await sleep(500)
+const beforeDrop = await jfetch(`/api/rooms/${code7}/state`)
+check(beforeDrop.logged > 0, `orders logged for replay (${beforeDrop.logged})`)
+
+// p2 drops: the match must hold, not end
+const tickAtDrop = beforeDrop.tick
+p2.ws.close()
+await sleep(500)
+const held = await jfetch(`/api/rooms/${code7}/state`)
+check(held.paused && held.missing.includes(p2.slot), 'room holds for the dropped player')
+check(!held.ticking && !held.ended, 'clock stopped, match not ended')
+check(p1.msgs.some((m) => m.t === 'paused' && m.slots.includes(p2.slot)), 'others told who is missing')
+const tickWhileHeld = held.tick
+await sleep(600)
+check((await jfetch(`/api/rooms/${code7}/state`)).tick === tickWhileHeld, 'no ticks pass while held')
+
+// p2 comes back on its token and replays from scratch, as a reloaded tab would
+const p2b = await connect(code7, 'Two', { slot: p2.slot, token: p2.token })
+check(p2b.slot === p2.slot && p2b.resumed, 'returning player gets its own seat back')
+send(p2b, { t: 'resume', tick: 0 })
+await sleep(400)
+check(p2b.catchup !== null, 'backlog delivered')
+check(p2b.catchup?.from === 0 && p2b.catchup?.to === tickWhileHeld, 'backlog covers the whole match so far')
+check(
+  p2b.catchup?.cmds.some(([, cmds]) => cmds.some((c) => c.kind === 'move' && c.player === p2.slot)),
+  'the order issued before the drop is in the replay',
+)
+check(!p2b.catchup?.cmds.some(([t]) => t >= tickWhileHeld), 'backlog stops at the paused tick')
+// still paused until the returning client says it is level
+check((await jfetch(`/api/rooms/${code7}/state`)).paused, 'room stays held until the rejoiner is ready')
+send(p2b, { t: 'ready' })
+await sleep(500)
+const resumed = await jfetch(`/api/rooms/${code7}/state`)
+check(!resumed.paused && resumed.ticking, 'room resumes once everyone is level')
+check(resumed.tick > tickWhileHeld, 'the clock moves again')
+check(p1.msgs.some((m) => m.t === 'resumed'), 'everyone told the match is live again')
+check(resumed.tick >= tickAtDrop, 'no ticks were lost across the hold')
+
+// a stranger with the room code but not the seat token is turned away
+check(await refused(code7, 'Thief', { slot: p2.slot, token: 'deadbeef' }), 'a wrong token cannot claim a seat')
+
+// p3 drops and never returns: p1 kicks, and the match plays on
+p3.ws.close()
+await sleep(400)
+check((await jfetch(`/api/rooms/${code7}/state`)).paused, 'held again for the second dropout')
+send(p1, { t: 'kick', slot: p3.slot })
+await sleep(500)
+const kicked = await jfetch(`/api/rooms/${code7}/state`)
+check(!kicked.paused && kicked.ticking, 'kick releases the match')
+check(p1.msgs.some((m) => m.t === 'playerLeft' && m.slot === p3.slot), 'kicked player reported as left')
+// and their seat is closed for good
+check(await refused(code7, 'Three', { slot: p3.slot, token: p3.token }), 'a kicked player cannot come back')
+p1.ws.close()
+p2b.ws.close()
+await sleep(300)
 
 // --- static assets ---
 console.log('scenario 4: static assets served')

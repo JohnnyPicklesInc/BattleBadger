@@ -127,6 +127,8 @@ export function generateRidgeCrossing(seed = 20260730): RtsMapDoc {
     texture,
     heightJitter,
     fog: 'full',
+    // The Compact's home map — the one place its army belongs.
+    races: ['badgers', 'compact'],
     startLocations: [BASE_W, BASE_E],
     placed,
     gameDef: RIDGE_DEF,

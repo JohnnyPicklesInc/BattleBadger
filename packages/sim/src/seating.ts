@@ -68,6 +68,10 @@ export function factionStartArmy(m: RulesetModule): string[] {
 export function seatingProblems(doc: RtsMapDoc, m: RulesetModule): string[] {
   if (!doc.gameDef) return ['this map uses the built-in skirmish rules, which seat no factions']
   if (!m.keep) return [`"${m.name}" is a content pack, not a faction — it seats no keep`]
+  // A map with a roster has decided which game it is. Rules-fit is not the
+  // question there: an army can slot into the damage matrix perfectly and
+  // still belong to a different war.
+  if (doc.races && !doc.races.includes(m.id)) return [`"${m.name}" is not one of this map's races`]
   return checkModuleFits(m, baseOf(doc.gameDef))
 }
 

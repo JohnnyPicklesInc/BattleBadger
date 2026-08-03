@@ -12,6 +12,8 @@ export const TERRAIN_PALETTE: [number, number, number][] = [
   [0.55, 0.48, 0.33], // 3 sand
   [0.75, 0.78, 0.82], // 4 snow
   [0.12, 0.26, 0.12], // 5 dark grass
+  [0.13, 0.24, 0.42], // 6 water
+  [0.17, 0.15, 0.14], // 7 ash
 ]
 
 export function buildTerrainMesh(doc: RtsMapDoc): THREE.Mesh {
@@ -28,8 +30,12 @@ export function buildTerrainMesh(doc: RtsMapDoc): THREE.Mesh {
       positions[i * 3 + 2] = doc.originZ + (y + 0.5) * cellSize
 
       let tex = doc.texture?.[i] ?? 0
-      // carved cliff-band cells render as rock even if painted grass
-      if (walkable[i] === 0 && cliff) tex = 2
+      // Carved cliff-band cells render as rock even if painted grass. Cells
+      // the author blocked *explicitly* keep their paint, though — that layer
+      // is how a map says "water" or "impassable bog", and forcing those to
+      // rock turned a river into a stone trench.
+      const authorBlocked = doc.walkable?.[i] === 0
+      if (walkable[i] === 0 && cliff && !authorBlocked) tex = 2
       else if (walkable[i] === 0 && !doc.texture) tex = 2
       const [r, g, b] = TERRAIN_PALETTE[tex] ?? TERRAIN_PALETTE[0]
       // subtle sun-bleach with height + per-cell variation

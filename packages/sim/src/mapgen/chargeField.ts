@@ -85,6 +85,8 @@ export function generateChargeField(seed = 20260729): RtsMapDoc {
     heightJitter,
     // A test bed you are meant to watch: no fog.
     fog: 'off',
+    // BFME is a two-race game: these are the armies a lobby may seat here.
+    races: ['badgers', 'horde'],
     startLocations: [
       { x: CAV_X, z: SIZE / 2 },
       { x: FOOT_X + 6, z: SIZE / 2 },

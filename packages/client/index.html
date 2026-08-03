@@ -107,6 +107,7 @@
         overflow-y: auto; pointer-events: auto; font-size: 13px; color: #9fb0c3; }
       .ed-group { margin-bottom: 14px; display: flex; flex-direction: column; gap: 4px; }
       .ed-group label { font-size: 11px; text-transform: uppercase; color: #74839a; }
+      .ed-hint { font-size: 11px; color: #74839a; margin-top: 3px; line-height: 1.35; }
       .ed-group select { background: #0e1218; color: #dfe6ee; border: 1px solid #2a3342;
         border-radius: 6px; padding: 5px; }
       #ed-tools button { display: block; width: 100%; text-align: left; margin-bottom: 4px;
@@ -233,6 +234,17 @@
       #swcursor { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none;
         display: none; will-change: transform; }
 
+      /* the match is held: waiting for a dropped player, or replaying to catch up */
+      #hold-overlay .hold-panel { max-width: 460px; text-align: center; }
+      #hold-overlay .hold-panel h1 { font-size: 22px; margin: 0 0 10px; }
+      #hold-overlay .hold-panel .sub { margin-bottom: 14px; }
+      .holdbar { height: 8px; background: #1a2230; border-radius: 5px; overflow: hidden; }
+      .holdbar i { display: block; height: 100%; background: #6fb7ff; transition: width 0.2s linear; }
+      /* freeze diagnostics (F9, or shown automatically when something is wrong) */
+      #diag { position: fixed; top: 44px; left: 10px; z-index: 13; pointer-events: none;
+        white-space: pre; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+        color: #cfe3ff; background: rgba(8, 12, 18, 0.82); border: 1px solid #2a3342;
+        border-radius: 6px; padding: 7px 10px; }
       #banner { position: fixed; top: 0; left: 0; right: 0; z-index: 12; display: none;
         background: #b03a2c; color: #fff; text-align: center; padding: 8px; font-size: 14px; }
       #endscreen { display: none; }

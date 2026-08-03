@@ -360,6 +360,8 @@ export function generateLastAlliance(seed = 20260731): RtsMapDoc {
     // West is team 0, east is team 1. Alternating would put allies at opposite
     // ends of the map, which is the one arrangement this map cannot support.
     slotTeams: [0, 0, 0, 0, 1, 1, 1, 1],
+    // BFME is a two-race game: these are the armies a lobby may seat here.
+    races: ['badgers', 'horde'],
     startLocations,
     placed,
     doodads,

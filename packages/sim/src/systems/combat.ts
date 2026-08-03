@@ -47,12 +47,16 @@ export function acquireTargets(s: SimState, hash: SpatialHash): void {
 
     let best = -1
     let bestDSq = acquire * acquire
-    hash.forNeighbors(s.posX[i], s.posZ[i], acquire, (j) => {
+    // Ask only the side that can possibly answer. This is by far the widest
+    // query in the tick, and an army massed in its own ranks would otherwise
+    // walk every friendly soldier in reach, per unit, per tick, to reject them
+    // all on the team test. The grid is partitioned by team, so those cells
+    // are simply not visited.
+    const visit = (j: number): void => {
       if (!s.alive[j] || j === i || st.untargetable[s.type[j]]) return
-      if (mode !== 2 && !canHit(s, ty, j)) return // wrong layer
       if (mode === 2) {
-        if (!allied(s, s.owner[j], s.owner[i]) || s.hp[j] >= st.maxHp[s.type[j]]) return
-      } else if (allied(s, s.owner[j], s.owner[i])) return
+        if (s.hp[j] >= st.maxHp[s.type[j]]) return
+      } else if (!canHit(s, ty, j)) return // wrong layer
       const dx = s.posX[j] - s.posX[i]
       const dz = s.posZ[j] - s.posZ[i]
       const dSq = dx * dx + dz * dz
@@ -60,7 +64,10 @@ export function acquireTargets(s: SimState, hash: SpatialHash): void {
         best = j
         bestDSq = dSq
       }
-    })
+    }
+    const myTeam = s.playerTeam[s.owner[i]]
+    if (mode === 2) hash.forTeamNeighbors(myTeam, s.posX[i], s.posZ[i], acquire, visit)
+    else hash.forEnemyNeighbors(myTeam, s.posX[i], s.posZ[i], acquire, visit)
     if (best >= 0) {
       s.target[i] = best
       // engaging from a standstill means leaving the post: remember to return

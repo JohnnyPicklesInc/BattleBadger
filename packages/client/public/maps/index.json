@@ -1,5 +1,11 @@
 [
   {
+    "file": "middle-earth.json",
+    "name": "The War of the Ring (muster camps & ages, 2–8 players)",
+    "mapName": "middle-earth",
+    "hash": 723091029
+  },
+  {
     "file": "cerebrate-war.json",
     "name": "Cerebrate War (3-lane MOBA, 2–8 players)",
     "mapName": "cerebrate-war",
@@ -9,37 +15,37 @@
     "file": "dunhollow.json",
     "name": "Siege of Dunhollow (plots, hordes & formations, 2–4 players)",
     "mapName": "dunhollow",
-    "hash": 1877266908
+    "hash": 138533661
   },
   {
     "file": "four-corners.json",
     "name": "Four Corners (4-player FFA, mountains & a contested centre)",
     "mapName": "four-corners",
-    "hash": 3746499809
+    "hash": 3653173852
   },
   {
     "file": "last-alliance.json",
     "name": "The Last Alliance (4v4 siege — west vs east, fortress at each end)",
     "mapName": "last-alliance",
-    "hash": 633332700
+    "hash": 2324995087
   },
   {
     "file": "ridge-crossing.json",
     "name": "Ridge Crossing (Badgers vs the Compact — air, 2 players)",
     "mapName": "ridge-crossing",
-    "hash": 3856469600
+    "hash": 1407885678
   },
   {
     "file": "charge-field.json",
     "name": "The Charge (50 horse vs a shield wall — battle test)",
     "mapName": "charge-field",
-    "hash": 724135446
+    "hash": 751404757
   },
   {
     "file": "troll-pit.json",
     "name": "The Pit (one ogre vs a mob — battle test)",
     "mapName": "troll-pit",
-    "hash": 3199526842
+    "hash": 3967461937
   },
   {
     "file": "econ-demo.json",

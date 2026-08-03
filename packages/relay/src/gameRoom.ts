@@ -1,5 +1,5 @@
 import { DurableObject } from 'cloudflare:workers'
-import { TICK_MS } from '@battlebadger/sim'
+import { REJOIN_GRACE_MS, TICK_MS } from '@battlebadger/sim'
 import type { ClientMsg, ServerMsg } from '@battlebadger/sim/protocol'
 import type { PlayerCommand } from '@battlebadger/sim'
 
@@ -11,14 +11,73 @@ interface Attachment {
   ver?: string
 }
 
+/** A seat, remembered across the socket that was sitting in it. */
+interface Seat {
+  name: string
+  /** Presented on reconnect to claim this slot back. Without it, anyone with
+   * the room code could take a dropped player's army. */
+  token: string
+  ver?: string
+  /** Dropped for good — timed out or kicked. Their seat cannot be reclaimed. */
+  gone?: boolean
+}
+
 const MAX_PLAYERS = 8
+
+// What has to outlive an eviction. Everything else a room holds — reported
+// hashes, transferred map bytes — is re-derivable or disposable; this is not.
+interface RoomState {
+  started: boolean
+  ended: boolean
+  /** The next tick to emit. The bundle stream is the sim's ONLY clock and is
+   * never resynced, so resuming anywhere but here desyncs every client at
+   * once — which is why it is worth a storage write per bundle. */
+  tick: number
+  /** Held for players who dropped: the metronome is stopped, so nobody plays
+   * on while a returning client is still replaying the backlog. */
+  paused: boolean
+  /** Slots being waited for. */
+  missing: number[]
+  /** When the wait runs out and the missing are dropped for good. */
+  graceEndsAt: number
+  /** By slot. Survives the socket, which is the whole point: a seat has to be
+   * recognisable when its player comes back on a new connection. */
+  seats: (Seat | null)[]
+}
+
+const STATE_KEY = 'room'
+/** Per-tick orders, keyed `c:<zero-padded tick>` so a range list is ordered.
+ * Only ticks that carry orders are stored — the rest are empty by definition
+ * and cost nothing to reconstruct. This log IS the match: replaying it from
+ * tick 0 is how a client that reloaded gets back to the present. */
+const CMD_PREFIX = 'c:'
+const cmdKey = (tick: number): string => CMD_PREFIX + String(tick).padStart(9, '0')
+
+// Seat secret. Long enough that guessing one is not a way into someone else's
+// army; the room code is already the door, this is the key to a chair.
+function newToken(): string {
+  const bytes = new Uint8Array(16)
+  crypto.getRandomValues(bytes)
+  return [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+// How often the watchdog alarm checks that a running room still has its
+// metronome. A frozen room sends nothing, so no client will ever wake it: an
+// alarm is the only thing that can. Long enough to be cheap, short enough that
+// an eviction costs seconds rather than the match.
+const WATCHDOG_MS = 10_000
 
 // One room = one match, up to 8 players. The DO is a dumb relay and metronome:
 // it never runs the sim, knows nothing about teams, and stamps player slots
 // onto commands from the connection (never the payload). It broadcasts a
 // TickBundle every TICK_MS and compares client state hashes for desync
 // detection across every connected client.
-export class GameRoom extends DurableObject {
+//
+// Its WebSockets are hibernatable and outlive the object's memory. Everything
+// that drives a running match therefore has to be restorable, or an eviction
+// leaves every client watching a picture that never moves again.
+// No bindings of its own: a room is a metronome and a mailbox.
+export class GameRoom extends DurableObject<unknown> {
   private started = false
   private ended = false
   private tick = 0
@@ -26,6 +85,213 @@ export class GameRoom extends DurableObject {
   private hashes = new Map<number, Map<number, number>>()
   private timer: ReturnType<typeof setInterval> | null = null
   private mapBytes = 0
+  private paused = false
+  private missing: number[] = []
+  private graceEndsAt = 0
+  private seats: (Seat | null)[] = Array.from({ length: MAX_PLAYERS }, () => null)
+  /** The match's orders by tick, sparse — see CMD_PREFIX. */
+  private log = new Map<number, PlayerCommand[]>()
+
+  constructor(ctx: DurableObjectState, env: unknown) {
+    super(ctx, env)
+    // Every handler below assumes the room's state is in memory. After an
+    // eviction it is not, so no request may be served until it is back.
+    ctx.blockConcurrencyWhile(async () => this.restore())
+  }
+
+  // Pick the match back up exactly where it stopped. The clients never learned
+  // that anything happened: their sims are parked one tick behind the last
+  // bundle we emitted, so the stream resumes there and the only casualty is
+  // the orders that were in flight — dropped for everyone alike, which is the
+  // one kind of loss lockstep does not mind.
+  private async restore(): Promise<void> {
+    const saved = await this.ctx.storage.get<RoomState>(STATE_KEY)
+    if (!saved) return
+    this.started = saved.started
+    this.ended = saved.ended
+    this.tick = saved.tick
+    this.paused = saved.paused
+    this.missing = saved.missing
+    this.graceEndsAt = saved.graceEndsAt
+    this.seats = saved.seats
+    if (!this.started || this.ended) return
+
+    // The order log has to come back too: it is what a returning player
+    // replays, and a match that lost it can never take one back.
+    const stored = await this.ctx.storage.list<PlayerCommand[]>({ prefix: CMD_PREFIX })
+    for (const [key, cmds] of stored) this.log.set(Number(key.slice(CMD_PREFIX.length)), cmds)
+
+    if (this.sockets().length === 0 && !this.paused) {
+      // Nobody came back with us: the match is over whether or not anyone
+      // said so, and a metronome ticking to an empty room is just a bill.
+      this.finish()
+      return
+    }
+    if (this.paused) return // still waiting on someone; the alarm decides
+    console.warn(`[relay] room revived at tick ${this.tick} — restarting the metronome`)
+    this.startMetronome()
+  }
+
+  /**
+   * A room's vital signs, for diagnosing a reported freeze from outside:
+   * a climbing `tick` means the relay is fine and the problem is a client; a
+   * stuck one with players still connected means the room is the problem.
+   */
+  async roomState(): Promise<{
+    started: boolean
+    ended: boolean
+    tick: number
+    players: number
+    ticking: boolean
+    alarmInMs: number | null
+    paused: boolean
+    missing: number[]
+    /** Orders kept for replay — what a returning player would receive. */
+    logged: number
+  }> {
+    const alarm = await this.ctx.storage.getAlarm()
+    return {
+      started: this.started,
+      ended: this.ended,
+      tick: this.tick,
+      players: this.sockets().length,
+      ticking: this.timer !== null,
+      alarmInMs: alarm === null ? null : alarm - Date.now(),
+      paused: this.paused,
+      missing: [...this.missing],
+      logged: this.log.size,
+    }
+  }
+
+  private persist(): void {
+    // Unawaited: the runtime flushes pending writes before it evicts, and
+    // putting disk latency inside a 10 Hz metronome would be worse than the
+    // failure it protects against.
+    void this.ctx.storage.put(STATE_KEY, {
+      started: this.started,
+      ended: this.ended,
+      tick: this.tick,
+      paused: this.paused,
+      missing: this.missing,
+      graceEndsAt: this.graceEndsAt,
+      seats: this.seats,
+    } satisfies RoomState)
+  }
+
+  private startMetronome(): void {
+    if (this.timer !== null || this.ended || this.paused) return
+    this.timer = setInterval(() => this.emitBundle(), TICK_MS)
+    void this.armWatchdog()
+  }
+
+  private stopMetronome(): void {
+    if (this.timer === null) return
+    clearInterval(this.timer)
+    this.timer = null
+  }
+
+  private async armWatchdog(): Promise<void> {
+    if ((await this.ctx.storage.getAlarm()) === null) {
+      await this.ctx.storage.setAlarm(Date.now() + WATCHDOG_MS)
+    }
+  }
+
+  // Two jobs on one alarm: keep a running room's metronome alive across an
+  // eviction, and end the wait for players who never came back.
+  override async alarm(): Promise<void> {
+    if (this.ended) return
+    if (this.paused && Date.now() >= this.graceEndsAt) {
+      // Their time is up. Whoever is still here plays on without them.
+      // A copy: dropSlot edits the list we are walking.
+      for (const slot of this.missing.slice()) this.dropSlot(slot, 'timed out')
+      this.settleWait()
+    }
+    if (this.ended) return
+    if (this.sockets().length === 0 && !this.paused) return
+    if (this.started && !this.paused) this.startMetronome()
+    const next = this.paused ? Math.min(this.graceEndsAt, Date.now() + WATCHDOG_MS) : Date.now() + WATCHDOG_MS
+    await this.ctx.storage.setAlarm(Math.max(next, Date.now() + 250))
+  }
+
+  // ---- rejoin: hold the match, then either welcome them back or move on ----
+
+  /** Hold everything for a slot whose socket just went away. */
+  private holdFor(slot: number): void {
+    if (this.missing.includes(slot)) return
+    this.missing.push(slot)
+    this.stopMetronome()
+    if (!this.paused) {
+      this.paused = true
+      // One deadline for the whole wait: a second player dropping must not
+      // extend the first one's grace indefinitely.
+      this.graceEndsAt = Date.now() + REJOIN_GRACE_MS
+    }
+    this.persist()
+    this.announceWait()
+    void this.ctx.storage.setAlarm(this.graceEndsAt)
+  }
+
+  private announceWait(): void {
+    this.broadcast({
+      t: 'paused',
+      slots: [...this.missing],
+      names: this.missing.map((s) => this.seats[s]?.name ?? null),
+      untilMs: Math.max(0, this.graceEndsAt - Date.now()),
+    })
+  }
+
+  /** Out for good: timed out, or kicked by someone who did not want to wait. */
+  private dropSlot(slot: number, why: string): void {
+    const seat = this.seats[slot]
+    this.missing = this.missing.filter((s) => s !== slot)
+    if (!seat || seat.gone) return
+    seat.gone = true
+    console.warn(`[relay] slot ${slot} ${why} — dropped from the match`)
+    this.broadcast({ t: 'playerLeft', slot, name: seat.name })
+  }
+
+  /**
+   * Decide what a room does now that its missing list has changed: resume if
+   * everyone is back, end if too few are left to have a match.
+   */
+  private settleWait(): void {
+    if (this.ended) return
+    const here = this.sockets().length
+    if (here === 0) {
+      // Everybody is gone and nobody is coming back.
+      this.finish()
+      return
+    }
+    if (this.missing.length > 0) {
+      this.announceWait()
+      return
+    }
+    // A match needs an opponent. One player left standing wins by forfeit,
+    // exactly as when someone quits outright.
+    const contenders = this.seats.filter((s) => s && !s.gone).length
+    if (contenders <= 1 && this.startedWithMany) {
+      const winner = this.sockets()[0]
+      this.finish()
+      this.broadcast({ t: 'forfeit', winner: this.att(winner).slot })
+      for (const ws of this.sockets()) {
+        try {
+          ws.close(1000, 'match over')
+        } catch {
+          // already closing
+        }
+      }
+      return
+    }
+    this.paused = false
+    this.persist()
+    this.broadcast({ t: 'resumed', tick: this.tick })
+    this.startMetronome()
+  }
+
+  /** Whether this match ever had an opponent to lose. */
+  private get startedWithMany(): boolean {
+    return this.seats.filter(Boolean).length > 1
+  }
 
   private att(ws: WebSocket): Attachment {
     return ws.deserializeAttachment() as Attachment
@@ -80,15 +346,36 @@ export class GameRoom extends DurableObject {
     if (request.headers.get('Upgrade') !== 'websocket') {
       return new Response('expected websocket', { status: 426 })
     }
+    const name = (url.searchParams.get('name') ?? 'Badger').slice(0, 16)
+    const ver = url.searchParams.get('ver')?.slice(0, 24) ?? undefined
+    const claim = url.searchParams.get('token')
+    const claimSlot = Number(url.searchParams.get('slot'))
+
+    // A player coming back to a seat they already hold. Only their own token
+    // opens it, and only while the match is still running.
+    if (claim) {
+      const seat = Number.isInteger(claimSlot) ? this.seats[claimSlot] : null
+      if (!this.started || this.ended) return new Response('no match to rejoin', { status: 409 })
+      if (!seat || seat.token !== claim || seat.gone) return new Response('seat not yours', { status: 403 })
+      if (this.sockets().some((w) => this.att(w).slot === claimSlot)) {
+        return new Response('seat already connected', { status: 409 })
+      }
+      return this.attach(claimSlot, seat.name, ver, true)
+    }
+
     if (this.started || this.sockets().length >= MAX_PLAYERS) {
       return new Response('room full or match already started', { status: 409 })
     }
-    const name = (url.searchParams.get('name') ?? 'Badger').slice(0, 16)
-    const ver = url.searchParams.get('ver')?.slice(0, 24) ?? undefined
     const taken = new Set(this.sockets().map((w) => this.att(w).slot))
     let slot = 0
     while (taken.has(slot)) slot++
+    // The seat is recorded now, not at start: it is what a reconnect is checked
+    // against, and it has to outlive the socket it was created for.
+    this.seats[slot] = { name, token: newToken(), ver }
+    return this.attach(slot, name, ver, false)
+  }
 
+  private attach(slot: number, name: string, ver: string | undefined, resumed: boolean): Response {
     const pair = new WebSocketPair()
     this.ctx.acceptWebSocket(pair[1])
     pair[1].serializeAttachment({ slot, name, ver } satisfies Attachment)
@@ -97,9 +384,18 @@ export class GameRoom extends DurableObject {
     players[slot] = name
     const versions = this.lobbyVersions()
     versions[slot] = ver ?? null
-    pair[1].send(JSON.stringify({ t: 'joined', slot, players, versions } satisfies ServerMsg))
-    this.broadcast({ t: 'lobby', players, versions })
-
+    pair[1].send(
+      JSON.stringify({
+        t: 'joined',
+        slot,
+        players,
+        versions,
+        token: this.seats[slot]?.token,
+        ...(resumed ? { resumed: true } : {}),
+      } satisfies ServerMsg),
+    )
+    if (!resumed) this.broadcast({ t: 'lobby', players, versions })
+    this.persist()
     return new Response(null, { status: 101, webSocket: pair[0] })
   }
 
@@ -111,7 +407,55 @@ export class GameRoom extends DurableObject {
       return
     }
     const a = this.att(ws)
+    // A started room with no metronome should be impossible unless it is
+    // deliberately held: an eviction is repaired on the way in (see restore),
+    // and the only other way to lose the timer is finishing, which sets
+    // `ended`. If it happens anyway the room can never tick again, so close it
+    // rather than let it freeze in silence.
+    if (this.started && !this.ended && !this.paused && this.timer === null) {
+      this.roomLost()
+      return
+    }
     switch (msg.t) {
+      // ---- rejoin ----
+      case 'resume': {
+        // A returning client says how far it got; we send the rest. Sparse,
+        // because a match is mostly ticks in which nobody ordered anything.
+        if (!this.started || this.ended) return
+        const from = Math.max(0, Math.min(this.tick, msg.tick | 0))
+        const cmds: [number, PlayerCommand[]][] = []
+        for (let t = from; t < this.tick; t++) {
+          const c = this.log.get(t)
+          if (c && c.length > 0) cmds.push([t, c])
+        }
+        try {
+          ws.send(JSON.stringify({ t: 'catchup', from, to: this.tick, cmds } satisfies ServerMsg))
+        } catch {
+          // closing; webSocketClose will hold the seat again
+        }
+        break
+      }
+      case 'ready': {
+        // Level with everyone else. If they were the last one being waited
+        // for, the match starts moving again.
+        if (!this.started || this.ended) return
+        if (!this.missing.includes(a.slot)) return
+        this.missing = this.missing.filter((s) => s !== a.slot)
+        this.persist()
+        console.warn(`[relay] slot ${a.slot} rejoined at tick ${this.tick}`)
+        this.settleWait()
+        break
+      }
+      case 'kick': {
+        // Anyone still here may end the wait. It only brings forward what the
+        // grace timer would do on its own, so there is nothing to vote on.
+        if (!this.paused || this.ended) return
+        const slot = msg.slot | 0
+        if (!this.missing.includes(slot)) return
+        this.dropSlot(slot, `kicked by slot ${a.slot}`)
+        this.settleWait()
+        break
+      }
       case 'startReq': {
         // only the host starts; solo (1-player) matches are allowed
         if (this.started || a.slot !== 0 || this.sockets().length < 1) return
@@ -122,7 +466,8 @@ export class GameRoom extends DurableObject {
         const players = this.lobbyPlayers()
         const seed = Math.floor(Math.random() * 0xffffffff)
         this.broadcast({ t: 'start', seed, players })
-        this.timer = setInterval(() => this.emitBundle(), TICK_MS)
+        this.persist()
+        this.startMetronome()
         break
       }
       case 'cmd': {
@@ -230,40 +575,73 @@ export class GameRoom extends DurableObject {
 
   override webSocketClose(ws: WebSocket): void {
     const a = this.att(ws)
-    if (this.started && !this.ended) {
-      const remaining = this.sockets().filter((s) => s !== ws)
-      this.broadcast({ t: 'playerLeft', slot: a.slot, name: a.name })
-      // a solo match ending is just the player leaving — nothing to forfeit
-      if (remaining.length === 0) {
-        this.finish()
-      } else if (remaining.length === 1) {
-        this.finish()
-        this.broadcast({ t: 'forfeit', winner: this.att(remaining[0]).slot })
-        for (const s of remaining) {
-          try {
-            s.close(1000, 'match over')
-          } catch {
-            // already closed
-          }
-        }
-      }
-    } else if (!this.started) {
+    if (!this.started) {
+      // In the lobby a disconnect is just a disconnect — the seat opens up.
+      this.seats[a.slot] = null
+      this.persist()
       this.broadcast({ t: 'lobby', players: this.lobbyPlayers(), versions: this.lobbyVersions() })
+      return
     }
+    if (this.ended) return
+    const seat = this.seats[a.slot]
+    if (seat?.gone) return // already dropped for good; nothing to wait for
+    // Mid-match a disconnect is not a departure any more: it might be a tab
+    // reloading or a lift with no signal. Hold the match and let them back in.
+    if (this.sockets().filter((s) => s !== ws).length === 0 && !this.startedWithMany) {
+      // A solo match ending is just the player leaving — nothing to hold for.
+      this.finish()
+      return
+    }
+    console.warn(`[relay] slot ${a.slot} dropped at tick ${this.tick} — holding the match`)
+    this.holdFor(a.slot)
   }
 
   private emitBundle(): void {
-    if (this.ended) return
+    if (this.ended || this.paused) return
     const cmds = this.pending
     this.pending = []
-    this.broadcast({ t: 'bundle', tick: this.tick++, cmds })
+    const tick = this.tick++
+    this.broadcast({ t: 'bundle', tick, cmds })
+    if (cmds.length > 0) {
+      // Only ticks that carry orders are worth keeping: the rest are empty by
+      // definition, and a returning client fills them in itself.
+      this.log.set(tick, cmds)
+      void this.ctx.storage.put(cmdKey(tick), cmds)
+    }
+    this.persist()
   }
 
   private finish(): void {
     this.ended = true
-    if (this.timer !== null) {
-      clearInterval(this.timer)
-      this.timer = null
+    this.paused = false
+    this.missing = []
+    this.stopMetronome()
+    this.persist()
+    // The replay log exists to let someone rejoin THIS match. There is no
+    // match now, so it is just storage nobody will ever read.
+    if (this.log.size > 0) {
+      void this.ctx.storage.delete([...this.log.keys()].map(cmdKey))
+      this.log.clear()
+    }
+    // Nothing left to watch over. An alarm left armed would revive this object
+    // every ten seconds for a match that is already over.
+    void this.ctx.storage.deleteAlarm()
+  }
+
+  // Backstop for a room whose state could not be restored at all — a room
+  // started before this object learned to persist itself, say. The tick stream
+  // is the sim's only clock and cannot be guessed, so resuming would desync
+  // every client at once. Tell them plainly and hang up.
+  private roomLost(): void {
+    console.error('[relay] room state lost mid-match (evicted) — closing the room')
+    this.finish()
+    this.broadcast({ t: 'error', message: 'the room restarted — the match cannot continue' })
+    for (const ws of this.sockets()) {
+      try {
+        ws.close(1011, 'room restarted')
+      } catch {
+        // already closing
+      }
     }
   }
 }

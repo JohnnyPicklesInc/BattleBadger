@@ -16,6 +16,7 @@ import {
 } from '@battlebadger/sim'
 import { generateFourCorners } from '../src/mapgen/fourCorners.ts'
 import { generateMap } from '../src/mapgen/simpleMap.ts'
+import { generateRidgeCrossing } from '../src/mapgen/skirmishRidge.ts'
 
 // Seating rewrites the map before the match: it must move a player's race
 // without disturbing anyone else's start, and must never hand the sim a doc
@@ -30,6 +31,12 @@ const COMPACT = factionOf('compact')
 
 const doc = (): ReturnType<typeof generateFourCorners> => generateFourCorners(1234)
 
+// The same map with its race roster lifted. A roster is a statement about
+// which game a map is, and several tests below are about the machinery
+// underneath it — installing an unfamiliar module, refusing one whose rules do
+// not fit — which needs a map that will consider anything.
+const openDoc = (): ReturnType<typeof generateFourCorners> => ({ ...doc(), races: undefined })
+
 describe('slot inspection', () => {
   it('reads the faction a map seats a slot as', () => {
     const d = doc()
@@ -39,11 +46,19 @@ describe('slot inspection', () => {
     expect(defaultFactionName(d, 1, [BADGERS, HORDE])).toBe('The Horde')
   })
 
-  it('offers the shipped factions on a BFME map and refuses content packs', () => {
+  it('offers a BFME map its two races, and refuses content packs', () => {
     const d = doc()
-    for (const m of [BADGERS, HORDE, COMPACT]) expect(seatingProblems(d, m), m.name).toEqual([])
+    for (const m of [BADGERS, HORDE]) expect(seatingProblems(d, m), m.name).toEqual([])
     const pack: RulesetModule = { id: 'x', name: 'Scenery', entities: BADGERS.entities.slice(0, 1) }
     expect(seatingProblems(d, pack)[0]).toMatch(/content pack/)
+  })
+
+  it('refuses a race the map does not list, however well its rules fit', () => {
+    // The Compact is a StarCraft-shaped army: it slots into the damage matrix
+    // perfectly and still has no business in a BFME lobby. Fit is not the
+    // question once a map has said which game it is.
+    expect(seatingProblems(openDoc(), COMPACT)).toEqual([])
+    expect(seatingProblems(doc(), COMPACT)[0]).toMatch(/not one of this map's races/)
   })
 
   it('falls back to a faction’s own battalions when it names no muster', () => {
@@ -57,14 +72,16 @@ describe('the lobby’s generated map', () => {
   // The generated map is what the lobby opens on, so if race choice is dead
   // there it is dead for most players. It seats a fortress per side precisely
   // so the pickers work.
-  it('offers every shipped faction and seats it', () => {
+  it('offers both of its races and seats them', () => {
     const valley = generateMap(2026)
     expect(slotKeep(valley, 0)).toBe(BADGERS.keep)
-    for (const m of [BADGERS, HORDE, COMPACT]) expect(seatingProblems(valley, m), m.name).toEqual([])
+    expect(valley.races).toEqual(['badgers', 'horde'])
+    for (const m of [BADGERS, HORDE]) expect(seatingProblems(valley, m), m.name).toEqual([])
+    expect(seatingProblems(valley, COMPACT)).not.toEqual([])
 
-    const seated = seatPlayers(valley, [{ faction: HORDE, team: 0 }, { faction: COMPACT, team: 1 }]).doc
+    const seated = seatPlayers(valley, [{ faction: HORDE, team: 0 }, { faction: BADGERS, team: 1 }]).doc
     expect(slotKeep(seated, 0)).toBe(HORDE.keep)
-    expect(slotKeep(seated, 1)).toBe(COMPACT.keep)
+    expect(slotKeep(seated, 1)).toBe(BADGERS.keep)
     const s = setupMatch(seated, walkGridFromDoc(seated), 2)
     const fielded = (slot: number): string[] => {
       const out = new Set<string>()
@@ -73,7 +90,7 @@ describe('the lobby’s generated map', () => {
     }
     // each side fields its own faction's content and none of the other's
     expect(fielded(0)).toContain(HORDE.keep)
-    expect(fielded(1)).toContain(COMPACT.keep)
+    expect(fielded(1)).toContain(BADGERS.keep)
     expect(fielded(0)).not.toContain(BADGERS.keep)
   })
 
@@ -106,7 +123,7 @@ describe('seatPlayers', () => {
   })
 
   it('keeps every authored start position — only the defs change', () => {
-    const before = doc()
+    const before = openDoc()
     const { doc: after } = seatPlayers(before, [{ faction: COMPACT }])
     const pos = (d: typeof before): string[] =>
       (d.placed ?? []).map((p) => `${p.owner}@${p.x},${p.z}`)
@@ -127,8 +144,9 @@ describe('seatPlayers', () => {
   })
 
   it('installs the seated faction’s rules, research and models', () => {
-    const before = doc()
-    // four-corners seats badgers + horde, so the Compact is genuinely new content
+    // four-corners seats badgers + horde, so the Compact is genuinely new
+    // content — on a map open enough to accept it.
+    const before = openDoc()
     const { doc: after } = seatPlayers(before, [{ faction: COMPACT }])
     const ids = new Set((after.gameDef?.entities ?? []).map((e) => e.id))
     for (const e of COMPACT.entities) expect(ids.has(e.id), e.id).toBe(true)
@@ -139,7 +157,7 @@ describe('seatPlayers', () => {
   })
 
   it('produces a doc the sim actually starts', () => {
-    const seated = seatPlayers(doc(), [
+    const seated = seatPlayers(openDoc(), [
       { faction: COMPACT, team: 0 },
       { faction: HORDE, team: 1 },
       { faction: HORDE, team: 0 },
@@ -160,7 +178,7 @@ describe('seatPlayers', () => {
     // The host bakes the seating and ships the result; the guest plays the
     // JSON it received. If those two states differ at all they desync at the
     // first hash, so this is the check that matters most about seating.
-    const host = seatPlayers(doc(), [{ faction: COMPACT, team: 0 }, { faction: HORDE, team: 1 }]).doc
+    const host = seatPlayers(openDoc(), [{ faction: COMPACT, team: 0 }, { faction: HORDE, team: 1 }]).doc
     const guest = JSON.parse(JSON.stringify(host)) as typeof host
     expect(mapContentHash(guest)).toBe(mapContentHash(host))
     const a = setupMatch(host, walkGridFromDoc(host), 4)
@@ -175,7 +193,8 @@ describe('seatPlayers', () => {
   })
 
   it('refuses a faction whose rules do not fit and keeps the map as authored', () => {
-    const before = doc()
+    // Open roster: the point is the rules check, not the guest list.
+    const before = openDoc()
     const alien: RulesetModule = {
       ...HORDE,
       id: 'alien',
@@ -262,7 +281,7 @@ describe('start positions', () => {
   })
 
   it('combines with a race pick: the mover’s new base is their own race', () => {
-    const before = doc()
+    const before = openDoc()
     const { doc: after } = seatPlayers(before, [{ start: 1, faction: COMPACT }, { start: 0 }])
     expect(slotKeep(after, 0)).toBe(COMPACT.keep)
     // the Compact keep stands on the ground slot 0 moved to
@@ -343,7 +362,7 @@ describe('computers and empty seats', () => {
   })
 
   it('a computer plays the race and base the lobby gave it', () => {
-    const before = doc()
+    const before = openDoc()
     const { doc: after } = seatPlayers(before, [
       { active: true },
       { ai: 2, faction: COMPACT, start: 2, active: true },
@@ -356,5 +375,33 @@ describe('computers and empty seats', () => {
     expect(validateGameDef(after.gameDef!)).toEqual([])
     const s = setupMatch(after, walkGridFromDoc(after), 2)
     expect(stateHash(s)).toBe(stateHash(setupMatch(JSON.parse(JSON.stringify(after)), walkGridFromDoc(after), 2)))
+  })
+})
+
+describe('the shipped lineup', () => {
+  // BFME is a two-race game. The Compact is a StarCraft-shaped army that
+  // happens to fit the same damage matrix, which is exactly why "does it fit"
+  // cannot be the test — without a roster it turns up in every lobby.
+  it('offers Badgers and the Horde on the BFME maps, and nothing else', () => {
+    for (const [name, map] of [
+      ['four-corners', generateFourCorners(7)],
+      ['skirmish valley', generateMap(7)],
+    ] as const) {
+      expect(map.races, name).toEqual(['badgers', 'horde'])
+      expect(seatingProblems(map, COMPACT), name).not.toEqual([])
+    }
+  })
+
+  it('keeps the Compact playable on the map built for it', () => {
+    const ridge = generateRidgeCrossing(11)
+    expect(ridge.races).toEqual(['badgers', 'compact'])
+    expect(seatingProblems(ridge, COMPACT)).toEqual([])
+    expect(seatingProblems(ridge, BADGERS)).toEqual([])
+    // ...and the Horde, which has no business on an air map, stays off it
+    expect(seatingProblems(ridge, HORDE)[0]).toMatch(/not one of this map's races/)
+  })
+
+  it('leaves a map with no roster open to anything that fits', () => {
+    for (const m of [BADGERS, HORDE, COMPACT]) expect(seatingProblems(openDoc(), m), m.name).toEqual([])
   })
 })

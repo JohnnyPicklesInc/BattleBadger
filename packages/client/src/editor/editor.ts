@@ -42,7 +42,7 @@ type ToolId =
   | 'erase'
 
 const AUTOSAVE_KEY = 'bb-editor-current'
-const TEX_NAMES = ['Grass', 'Dirt', 'Rock', 'Sand', 'Snow', 'Dark grass']
+const TEX_NAMES = ['Grass', 'Dirt', 'Rock', 'Sand', 'Snow', 'Dark grass', 'Water', 'Ash']
 
 function blankDoc(size = 64): RtsMapDoc {
   const n = size * size
@@ -89,6 +89,7 @@ import {
   listRulesets,
   saveRuleset,
 } from '../rulesetLibrary.ts'
+import { listFactions } from '../ui/factions.ts'
 
 export function validateMap(doc: RtsMapDoc): string[] {
   const errs: string[] = []
@@ -315,6 +316,9 @@ export async function bootEditor(app: HTMLElement): Promise<void> {
         <option value="units">On — show map, hide units</option>
         <option value="full">On — hide everything</option>
       </select></div>
+      <div class="ed-group"><label>Races the lobby may seat</label>
+        <select id="ed-races" multiple size="4"></select>
+        <div class="ed-hint">none selected = any faction whose rules fit</div></div>
       <div class="ed-group"><label>Texture</label><select id="ed-tex"></select></div>
       <div class="ed-group"><label>Doodad</label><select id="ed-doodad"></select></div>
       <div class="ed-group"><label>Entity</label><select id="ed-entity"></select>
@@ -357,6 +361,18 @@ export async function bootEditor(app: HTMLElement): Promise<void> {
   fogSel.addEventListener('change', () => {
     doc.fog = fogSel.value as FogMode
   })
+  // A map's roster: which races a lobby may swap onto its start positions.
+  // Selecting none leaves it open, which is what an unopinionated map wants.
+  const racesSel = $<HTMLSelectElement>('ed-races')
+  let editorFactions: { id: string; name: string }[] = []
+  void listFactions().then((f) => {
+    editorFactions = f
+    syncPickers()
+  })
+  racesSel.addEventListener('change', () => {
+    const picked = [...racesSel.selectedOptions].map((o) => o.value)
+    doc.races = picked.length > 0 ? picked : undefined
+  })
   const doodadSel = $<HTMLSelectElement>('ed-doodad')
   const entitySel = $<HTMLSelectElement>('ed-entity')
   const ownerSel = $<HTMLSelectElement>('ed-owner')
@@ -367,6 +383,12 @@ export async function bootEditor(app: HTMLElement): Promise<void> {
   const syncPickers = (): void => {
     nameInput.value = doc.name
     fogSel.value = doc.fog ?? 'off'
+    // Every faction on the local ruleset shelf is offerable — including one
+    // the author imported themselves, the same list the lobby picks from.
+    const chosen = new Set(doc.races ?? [])
+    racesSel.innerHTML = editorFactions
+      .map((f) => `<option value="${f.id}"${chosen.has(f.id) ? ' selected' : ''}>${f.name}</option>`)
+      .join('')
     // Owners come from the map, not from a hardcoded pair. Start locations are
     // the player slots; anything beyond them is a war slot the map owns content
     // in but no human ever occupies (MOBA creeps, scripted attackers). Two

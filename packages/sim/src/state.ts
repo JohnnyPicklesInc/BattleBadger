@@ -6,7 +6,11 @@ export const TICK_MS = 100
 export const TICK_S = 0.1
 // BFME-scale: a 4v4 fields thousands of soldiers, since a single battalion is
 // already nine entities. Handles pack id | gen<<16, so this must stay < 2^16.
-export const MAX_UNITS = 4096
+// Raised for army maps whose armies are GIVEN rather than bought (The War of
+// the Ring musters eight realms for free, forever): the ceiling has to clear
+// eight standing armies plus a full round of waves landing at once, because
+// spawnUnit THROWS at the limit rather than degrading. ~5 MB of typed arrays.
+export const MAX_UNITS = 8192
 
 // WC3-style order set. Move ignores enemies; AttackMove engages along the way;
 // Hold never moves; Patrol walks a leg and returns; Follow shadows an ally;
@@ -115,7 +119,10 @@ export function createProjectileStore(): ProjectileStore {
   }
 }
 
-export const MAX_HORDES = 512
+// One horde per battalion, and a battalion averages under ten men — so this
+// has to scale with MAX_UNITS or createHorde throws long before the entity
+// pool is anywhere near full.
+export const MAX_HORDES = 2048
 
 // A horde (BFME battalion): the real unit of play. Soldiers are entities, but
 // selection, orders, formation, veterancy and command points all live here.
@@ -311,6 +318,7 @@ export function createSim(seed: number, def: GameDefCompiled): SimState {
       trigIdx: new Map(),
       enabled: new Uint8Array(0),
       armed: new Uint8Array(0),
+      watchesRegions: false,
       timerNext: new Int32Array(0),
       prevRegionMask: new Int32Array(0),
       fired: new Int32Array(0),

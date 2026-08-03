@@ -3,7 +3,9 @@ import { GameRoom } from './gameRoom.ts'
 export { GameRoom }
 
 interface Env {
-  GAME_ROOM: DurableObjectNamespace
+  // Typed with the class so the room's RPC methods (roomState) are callable
+  // through the stub rather than only over fetch.
+  GAME_ROOM: DurableObjectNamespace<GameRoom>
   ASSETS: Fetcher
 }
 
@@ -30,6 +32,16 @@ export default {
       const code = wsMatch[1].toUpperCase()
       const id = env.GAME_ROOM.idFromName(code)
       return env.GAME_ROOM.get(id).fetch(request)
+    }
+
+    // "Is the room still ticking?" — the question you actually have when a
+    // player reports a freeze. Needs the room code, which is the only secret a
+    // room has, and reports no player data.
+    const stateMatch = url.pathname.match(/^\/api\/rooms\/([A-Za-z]{4})\/state$/)
+    if (stateMatch) {
+      const code = stateMatch[1].toUpperCase()
+      const id = env.GAME_ROOM.idFromName(code)
+      return Response.json(await env.GAME_ROOM.get(id).roomState())
     }
 
     if (url.pathname.startsWith('/api/')) {

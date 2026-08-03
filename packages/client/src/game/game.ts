@@ -6,6 +6,7 @@ import {
   step,
   walkGridFromDoc,
   FogState,
+  type PlayerCommand,
   type RtsMapDoc,
   type SimState,
   type TickBundle,
@@ -17,12 +18,22 @@ import { PLAYER_COLORS } from '../render/unitMeshes.ts'
 import { InputController } from '../input/input.ts'
 import { MouseCursor } from '../input/cursor.ts'
 import { Hud } from '../ui/hud.ts'
+import { banner, DiagOverlay } from '../ui/diag.ts'
+import { HoldOverlay } from '../ui/hold.ts'
 import { VERSION } from '../version.ts'
 
 export interface GameEndInfo {
   won: boolean
-  reason: 'defeat' | 'forfeit' | 'desync' | 'surrender'
+  reason: 'defeat' | 'forfeit' | 'desync' | 'surrender' | 'crash'
 }
+
+// How long without a tick bundle before we say so on screen. The relay sends
+// one every TICK_MS, so a second of silence is already far outside normal.
+const STALL_MS = 1500
+// Bundles queued before this machine is declared unable to keep up. The loop
+// fast-forwards up to 30 steps a frame, so a queue that stays above this is
+// losing ground rather than absorbing a hiccup.
+const BEHIND_QUEUE = 20
 
 export class Game {
   private sim: SimState
@@ -41,6 +52,30 @@ export class Game {
   private lastStepAt = 0
   private lastFrameAt = 0
   private running = true
+  // ---- freeze diagnostics ----
+  private diag = new DiagOverlay()
+  private lastBundleAt = 0
+  private fps = 0
+  private framesThisSecond = 0
+  private fpsWindowAt = 0
+  private stepMs = 0
+  private frameMs = 0
+  private trouble = ''
+  // Consecutive throws out of the frame loop. One is a hiccup worth logging;
+  // a run of them means the loop cannot make progress and limping on would
+  // only bury the first, most useful error under thousands of repeats.
+  private frameErrors = 0
+  // ---- rejoin ----
+  /** Tick we are replaying towards; -1 when not catching up. While catching
+   * up the sim runs flat out and stays quiet: its hashes describe ticks the
+   * rest of the room settled long ago. */
+  private catchupTo = -1
+  private catchupFrom = 0
+  private hold: HoldOverlay | null = null
+  /** The room is deliberately not sending ticks — held, replaying, or
+   * reconnecting. Distinguishes "nothing is arriving" from "nothing is meant
+   * to be arriving yet". */
+  private waiting = false
   private seed: number
   private onEnd: (info: GameEndInfo) => void
 
@@ -139,7 +174,11 @@ export class Game {
       ownerColors,
     )
     this.input.hud = this.hud
-    transport.onBundle = (b) => this.bundles.push(b)
+    transport.onBundle = (b) => {
+      this.bundles.push(b)
+      this.lastBundleAt = performance.now()
+    }
+    this.lastBundleAt = performance.now()
     requestAnimationFrame((t) => this.frame(t))
   }
 
@@ -166,6 +205,8 @@ export class Game {
     this.cursor.enabled = false
     this.cursor.destroy()
     this.hud.destroy()
+    this.diag.destroy()
+    this.hold?.destroy()
     if (info.reason === 'desync') {
       // The command log + seed IS a replay — dump it for offline debugging.
       // The build goes in it too: "the two clients were on different code" is
@@ -191,16 +232,24 @@ export class Game {
     this.prevZ.set(this.sim.posZ)
     this.cmdLog.push(bundle)
     step(this.sim, this.grid, bundle.cmds)
-    // trigger-driven client effects
-    for (const ev of this.sim.events) {
-      if (ev.t === 'message' && (ev.player === -1 || ev.player === this.mySlot)) {
-        this.toast(ev.text)
-      } else if (ev.t === 'panCamera' && ev.player === this.mySlot) {
-        this.renderer3d.cam.moveTo(ev.x, ev.z)
+    // Replaying history: these already happened. Toasting a rejoining player
+    // through twenty minutes of announcements, or panning their camera around
+    // to old events, would be theatre.
+    const replaying = this.catchupTo >= 0
+    if (!replaying) {
+      // trigger-driven client effects
+      for (const ev of this.sim.events) {
+        if (ev.t === 'message' && (ev.player === -1 || ev.player === this.mySlot)) {
+          this.toast(ev.text)
+        } else if (ev.t === 'panCamera' && ev.player === this.mySlot) {
+          this.renderer3d.cam.moveTo(ev.x, ev.z)
+        }
       }
     }
     this.lastStepAt = now
-    if (this.sim.tick % HASH_EVERY_TICKS === 0) {
+    // Hashes describe a tick everyone else agreed on long ago; reporting them
+    // mid-replay would compare our past against their present.
+    if (!replaying && this.sim.tick % HASH_EVERY_TICKS === 0) {
       this.transport.sendHash(this.sim.tick, stateHash(this.sim))
     }
     if (this.sim.winner >= 0) {
@@ -220,26 +269,188 @@ export class Game {
     this.toast(text)
   }
 
+  // ---- rejoin ----
+
+  /** How far this client has simulated — where a reconnect asks to resume. */
+  get tick(): number {
+    return this.sim.tick
+  }
+
+  private holdUi(): HoldOverlay {
+    this.hold ??= new HoldOverlay({
+      kick: (slot) => {
+        this.transport.sendKick(slot)
+      },
+    })
+    return this.hold
+  }
+
+  /**
+   * Replay what we missed. The bundles go through the ordinary queue and the
+   * ordinary step path — a rejoin is not a special kind of simulation, it is
+   * the same simulation run faster — with the empty ticks the relay left out
+   * filled back in, because the sim counts bundles, not orders.
+   */
+  catchUp(from: number, to: number, cmds: [number, PlayerCommand[]][]): void {
+    this.waiting = true
+    if (to <= from) {
+      this.transport.sendReady()
+      return
+    }
+    const byTick = new Map(cmds)
+    for (let t = from; t < to; t++) this.bundles.push({ tick: t, cmds: byTick.get(t) ?? [] })
+    this.catchupFrom = from
+    this.catchupTo = to
+    this.lastBundleAt = performance.now()
+    this.holdUi().catchingUp(from, to)
+    console.warn(`[bb] rejoin: replaying ticks ${from}..${to}`)
+  }
+
+  /** The room is holding for players who dropped. */
+  heldFor(slots: number[], names: (string | null)[], untilMs: number): void {
+    this.waiting = true
+    if (this.catchupTo >= 0) return // our own catch-up screen is more useful
+    if (slots.includes(this.mySlot)) return // we are the missing one; we are back
+    this.holdUi().waitingFor(slots, names, untilMs)
+  }
+
+  /** Everyone is present again and the stream is about to restart. */
+  released(): void {
+    this.waiting = false
+    this.hold?.hide()
+    // A long hold leaves the step clock far in the past; without this the loop
+    // would treat every queued bundle as overdue and fast-forward through it.
+    this.lastStepAt = performance.now()
+    this.lastBundleAt = performance.now()
+  }
+
+  reconnecting(attempt: number): void {
+    this.waiting = true
+    this.holdUi().reconnecting(attempt)
+  }
+
+  // An exception used to escape here and take requestAnimationFrame with it:
+  // the loop was never re-armed, so the client stopped dead with nothing on
+  // screen and nothing in the console beyond the raw error. Re-arming is what
+  // makes a freeze survivable — and reportable.
   private frame(now: number): void {
     if (!this.running) return
+    try {
+      this.tickFrame(now)
+      this.frameErrors = 0
+    } catch (err) {
+      if (!this.onFrameError(err)) return
+    }
+    requestAnimationFrame((t) => this.frame(t))
+  }
+
+  /** True if the loop should keep running. */
+  private onFrameError(err: unknown): boolean {
+    this.frameErrors++
+    console.error(
+      `[bb] frame error #${this.frameErrors} — v${VERSION}, tick ${this.sim.tick}, ` +
+        `queue ${this.bundles.length}, entities ${this.sim.count}`,
+      err,
+    )
+    if (this.frameErrors < 3) {
+      // Probably a one-off (a mesh, a HUD paint). Say so and carry on rather
+      // than ending a match that is otherwise fine.
+      this.trouble = 'recovered from a client error — see the console'
+      this.diag.force(true)
+      return true
+    }
+    banner(`Client error at tick ${this.sim.tick} — see the console (F12). Build v${VERSION}.`, { sticky: true })
+    this.end({ won: false, reason: 'crash' })
+    return false
+  }
+
+  private tickFrame(now: number): void {
     const dtMs = this.lastFrameAt === 0 ? 16 : Math.min(100, now - this.lastFrameAt)
+    this.frameMs = this.lastFrameAt === 0 ? 16 : now - this.lastFrameAt
     this.lastFrameAt = now
 
-    // Step when a bundle is due; fast-forward if we've fallen behind.
+    // Step when a bundle is due; fast-forward if we've fallen behind. While
+    // replaying a rejoin the whole point is to go as fast as the machine can,
+    // so the step cap becomes a time budget instead — enough to keep the
+    // progress bar painting, not so little that a long match takes minutes.
+    const stepStart = performance.now()
+    const replaying = this.catchupTo >= 0
     let guard = 0
-    while (this.bundles.length > 0 && guard < 30) {
+    while (this.bundles.length > 0 && (replaying ? performance.now() - stepStart < 24 : guard < 30)) {
       const behind = this.bundles.length > 2
       const due = now - this.lastStepAt >= TICK_MS - 4
-      if (!behind && !due) break
+      if (!replaying && !behind && !due) break
       this.stepOnce(now)
       guard++
       if (!this.running) return
     }
+    this.stepMs = performance.now() - stepStart
+    if (replaying) this.replayProgress()
 
     const alpha = Math.min(1, (now - this.lastStepAt) / TICK_MS)
     this.input.prune()
     this.renderer3d.render(this.sim, this.prevX, this.prevZ, alpha, this.input.selection, dtMs, this.fog)
     this.hud.update(this.sim, this.input.selection, this.renderer3d.camera, this.fog)
-    requestAnimationFrame((t) => this.frame(t))
+    this.watch(now)
+  }
+
+  // Replaying the backlog: paint the bar, and announce the moment we are level
+  // with everyone else — the room is paused waiting for exactly that.
+  private replayProgress(): void {
+    if (this.sim.tick < this.catchupTo) {
+      this.holdUi().catchingUp(this.sim.tick - this.catchupFrom, this.catchupTo - this.catchupFrom)
+      return
+    }
+    console.warn(`[bb] rejoin: caught up at tick ${this.sim.tick}`)
+    this.catchupTo = -1
+    this.hold?.hide()
+    this.lastStepAt = performance.now()
+    this.transport.sendReady()
+  }
+
+  // Name the freeze while it is happening. Both conditions look the same to a
+  // player — the picture stops — but one is the room's problem and the other
+  // is this machine's, and they are told apart by which number is climbing.
+  private watch(now: number): void {
+    this.framesThisSecond++
+    if (now - this.fpsWindowAt >= 1000) {
+      this.fps = (this.framesThisSecond * 1000) / (now - this.fpsWindowAt)
+      this.framesThisSecond = 0
+      this.fpsWindowAt = now
+    }
+
+    const bundleAgeMs = now - this.lastBundleAt
+    // A held room is silent on purpose and says so on its own screen; calling
+    // that a stall would be crying wolf at the one moment the player already
+    // knows exactly what is happening.
+    const held = this.waiting
+    const stalled = bundleAgeMs > STALL_MS && !held
+    const behind = this.bundles.length > BEHIND_QUEUE
+    const note = stalled
+      ? `no ticks from the relay for ${(bundleAgeMs / 1000).toFixed(1)}s — the connection or the room stalled`
+      : behind
+        ? `${this.bundles.length} ticks behind — this machine cannot simulate as fast as the match runs`
+        : this.frameErrors > 0
+          ? this.trouble
+          : ''
+    if (note !== this.trouble) {
+      this.trouble = note
+      // Log the transition, not the state: a copy of the console then reads as
+      // a timeline of when the trouble started and when it cleared.
+      console.warn(`[bb] ${note || 'recovered — ticks flowing again'} (tick ${this.sim.tick})`)
+    }
+    banner(note || null)
+    this.diag.force(Boolean(note))
+    this.diag.update(now, {
+      slot: this.mySlot,
+      tick: this.sim.tick,
+      queue: this.bundles.length,
+      bundleAgeMs,
+      fps: this.fps,
+      frameMs: this.frameMs,
+      stepMs: this.stepMs,
+      entities: this.sim.count,
+      note,
+    })
   }
 }

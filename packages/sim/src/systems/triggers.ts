@@ -1,7 +1,8 @@
-import { Kind, Order, spawnUnit, type SimState } from '../state.ts'
+import { Kind, MAX_UNITS, Order, spawnUnit, type SimState } from '../state.ts'
 import type { MapRegion, RtsMapDoc, TriggerDef } from '../mapdoc.ts'
 import type { WalkGrid } from '../path/walkgrid.ts'
 import { TICK_MS } from '../state.ts'
+import { spawnHorde } from './economy.ts'
 import { formationOffset, planPath } from './orders.ts'
 
 // Deterministic trigger runtime. Compiled once at setup; evaluated in one
@@ -17,6 +18,7 @@ export interface TriggerRuntime {
   armed: Uint8Array // level-events (resourceReached) re-arm when false again
   timerNext: Int32Array // absolute tick, -1 = no timer event
   prevRegionMask: Int32Array // per entity, bit r = inside region r (≤ 30 regions)
+  watchesRegions: boolean // any trigger actually listens for region entry?
   fired: Int32Array
 }
 
@@ -44,7 +46,15 @@ export function compileTriggers(doc: RtsMapDoc): TriggerRuntime {
     enabled,
     armed: new Uint8Array(defs.length).fill(1),
     timerNext,
-    prevRegionMask: new Int32Array(1024),
+    // Indexed by ENTITY ID, so it has to cover every slot the sim can hand
+    // out. At 1024 an entity above that id read undefined, which makes
+    // `cur & ~undefined` collapse to `cur` — every such unit standing in a
+    // region re-fired its enter event on every tick, forever.
+    prevRegionMask: new Int32Array(MAX_UNITS),
+    // A region is also just a query box for unitCountInRegion conditions. If
+    // nothing listens for entry, skip the per-entity scan entirely rather
+    // than walk every unit on the map each tick to build a list nobody reads.
+    watchesRegions: defs.some((t) => t.events.some((ev) => ev.type === 'unitEntersRegion')),
     fired: new Int32Array(defs.length),
   }
 }
@@ -82,7 +92,7 @@ export function triggers(s: SimState, grid: WalkGrid): void {
 
   // current region masks + enter detection
   const entered: number[] = [] // packed (entity << 5) | region
-  if (rt.regions.length > 0) {
+  if (rt.watchesRegions && rt.regions.length > 0) {
     for (let i = 0; i < s.count; i++) {
       if (!s.alive[i]) {
         rt.prevRegionMask[i] = 0
@@ -200,8 +210,26 @@ export function triggers(s: SimState, grid: WalkGrid): void {
           ax = a.at.x
           az = a.at.z
         }
+        // A horde ticket spawns the whole battalion, bound as one horde —
+        // the same rule setup.ts applies to a pre-placed army. Without it a
+        // timed wave on a battalion-centric map would arrive as loose
+        // soldiers with no formation, no veterancy track and no command-point
+        // cost, playing by different rules than anything trained at a keep.
+        const isHorde = s.def.hordeUnit[defIdx] >= 0
+        // Battalions need room to form up; loose units pack tight.
+        const spread = isHorde ? 6 : 1.15
+        let dirX = a.facing?.x ?? 0
+        let dirZ = a.facing?.z ?? 1
+        const dl = Math.sqrt(dirX * dirX + dirZ * dirZ)
+        if (dl < 1e-9) {
+          dirX = 0
+          dirZ = 1
+        } else {
+          dirX /= dl
+          dirZ /= dl
+        }
         for (let k = 0; k < Math.min(a.count, 64); k++) {
-          const [ox, oz] = formationOffset(k, 1.15)
+          const [ox, oz] = formationOffset(k, spread)
           let x = ax + ox
           let z = az + oz
           if (!grid.isWalkableWorld(x, z)) {
@@ -210,7 +238,8 @@ export function triggers(s: SimState, grid: WalkGrid): void {
             x = grid.centerX(near[0])
             z = grid.centerZ(near[1])
           }
-          spawnUnit(s, defIdx, a.owner, x, z)
+          if (isHorde) spawnHorde(s, grid, defIdx, a.owner, x, z, dirX, dirZ)
+          else spawnUnit(s, defIdx, a.owner, x, z)
         }
       } else if (a.type === 'orderUnits') {
         const r = rt.regionIdx.get(a.region)

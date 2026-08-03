@@ -324,6 +324,8 @@ export function generateDunhollow(seed = 20260727): RtsMapDoc {
     texture,
     heightJitter,
     fog: 'full',
+    // BFME is a two-race game: these are the armies a lobby may seat here.
+    races: ['badgers', 'horde'],
     startLocations: [
       { x: BASE_A.x, z: BASE_A.z },
       { x: BASE_B.x, z: BASE_B.z },

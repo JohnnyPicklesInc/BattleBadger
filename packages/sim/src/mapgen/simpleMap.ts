@@ -224,6 +224,8 @@ export function generateMap(seed: number): RtsMapDoc {
     ramp,
     texture,
     heightJitter,
+    // BFME is a two-race game: these are the armies a lobby may seat here.
+    races: ['badgers', 'horde'],
     startLocations: [startA, startB],
     placed,
     gameDef: SKIRMISH_VALLEY_DEF,

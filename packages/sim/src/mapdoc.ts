@@ -66,6 +66,10 @@ export type TriggerCondition =
 
 export type TriggerAction =
   // `always` spawns even when the owning slot has no human player (AI slots).
+  // A horde TICKET spawns its whole battalion, bound as one horde — the same
+  // rule setup.ts applies to pre-placed armies. `count` is then battalions,
+  // not soldiers. `facing` is a direction vector (no trigonometry in the sim);
+  // absent = south, so a wave that wants to form up looking at the enemy says so.
   | {
       type: 'spawnUnits'
       def: string
@@ -73,6 +77,7 @@ export type TriggerAction =
       count: number
       at: { x: number; z: number } | { region: string }
       always?: boolean
+      facing?: { x: number; z: number }
     }
   | { type: 'orderUnits'; region: string; owner?: number; order: 'move' | 'attackMove'; x: number; z: number }
   | { type: 'victory'; player: number }
@@ -119,6 +124,14 @@ export interface RtsMapDoc {
   texture?: number[] // palette index per cell (render-only)
   heightJitter?: number[] // small render-only height detail per cell
   fog?: FogMode // absent = 'off'
+  // The races this map offers, by faction module id. Absent = any faction whose
+  // rules fit, which is the right default for a map that was authored without
+  // a roster in mind. Present, it is the map's own answer to "what game is
+  // this": a BFME map seats Badgers and the Horde, and a StarCraft-shaped army
+  // has no business turning up in the picker on it. The map still PLAYS
+  // whatever its own content places — a roster narrows what a lobby may swap
+  // in, not what the author put on the ground.
+  races?: string[]
   startLocations: { x: number; z: number }[]
   // team id per player slot (index = slot). Absent = free-for-all (slot = team).
   // Alternating sides (e.g. [0,1,0,1]) keeps 2-player games 1v1 on team maps.

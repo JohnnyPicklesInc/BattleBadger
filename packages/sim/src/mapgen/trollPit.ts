@@ -77,6 +77,8 @@ export function generateTrollPit(seed = 20260729): RtsMapDoc {
     texture,
     heightJitter,
     fog: 'off', // a thing to watch, not a thing to scout
+    // BFME is a two-race game: these are the armies a lobby may seat here.
+    races: ['badgers', 'horde'],
     startLocations: [
       { x: cx - 8, z: cz },
       { x: cx + 14, z: cz },
