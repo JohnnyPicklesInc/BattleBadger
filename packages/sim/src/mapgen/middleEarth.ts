@@ -71,11 +71,13 @@ import { FORTIFICATIONS } from './factions/fortifications.ts'
 //     the Gap, 3v3 the Elves against Harad, 4v4 the Dwarves against Moria.
 //     Four powers a side, and the Shadow holds the extra camps.
 
-// Wider south than east: Middle-earth's powers run from Lindon on the west
-// coast to the Iron Hills, but Harad has to sit BELOW Gondor and Mordor, and
-// there was no room left under them on a square map.
-const COLS = 256
-const ROWS = 320
+// Landscape, and half again as big as it was. Two things forced the size: two
+// fortified camps need ~40 tiles between them or their curtains interleave,
+// and Barad-dûr's ring used to run off the east edge of the map entirely.
+// Wider than tall because Middle-earth is — Lindon to the Iron Hills is a
+// longer journey than the North Downs to Harad.
+const COLS = 480
+const ROWS = 384
 
 const TEX_GRASS = 0
 const TEX_DIRT = 1
@@ -134,17 +136,43 @@ type Pt = { x: number; z: number }
 
 const D = 0.7071067811865476 // unit diagonal; no trigonometry in the sim
 /**
- * A fortified camp's curtain, as unit vectors off its facing: a great gate dead
- * ahead, two wall sections either side of it, and a tower on each shoulder.
- * Sines and cosines are written out because the sim bans trigonometry — see
- * scripts/check-sim-purity.mjs.
+ * The curtain, as a COMPLETE ring rather than an arc.
+ *
+ * The previous version placed seven pieces on a 15-tile arc — a gate, four
+ * wall sections and two towers — spaced 9.4 tiles apart for a wall three tiles
+ * wide. It read as a fortress in a screenshot and was two thirds holes in
+ * practice: an army walked between the stones without touching them.
+ *
+ * A ring is built by repeatedly rotating a unit vector by one step, because
+ * the sim bans trigonometry (not bit-exact across engines — see
+ * scripts/check-sim-purity.mjs) and a 32-entry table of hand-written sines is
+ * worse than two constants and a multiply. The error accumulated over 32
+ * rotations is deterministic and identical on every client, which is the only
+ * property that matters here.
  */
-const ARC: { c: number; s: number; def: string }[] = [
-  { c: 1, s: 0, def: 'gate' }, // dead ahead
-  { c: 0.8139, s: 0.581, def: 'wall' }, // ±36°
-  { c: 0.5978, s: 0.8016, def: 'wall' }, // ±53°
-  { c: 0.3248, s: 0.9458, def: 'wall-tower' }, // ±71°, the shoulders
-]
+const RING_SLOTS = 32
+const RING_COS = 0.9807852804032304 // cos(2π/32)
+const RING_SIN = 0.19509032201612825 // sin(2π/32)
+/**
+ * Ring radius. RING_SLOTS pieces at this radius sit 2.95 tiles apart, and a
+ * wall section is 3.0 wide — so the stones touch, which is the entire point.
+ * Outside the age musters (MUSTER_R) and inside the cleared ground (CLEARING).
+ */
+const RING_R = 15
+
+/** What stands in each slot of the ring, by index from dead ahead. */
+function ringPiece(slot: number): string | null {
+  if (slot === 0) return 'gate'
+  // The gate is 8.4 wide and swallows its neighbours; anything placed there
+  // would be inside the gatehouse.
+  if (slot === 1 || slot === RING_SLOTS - 1) return null
+  // Towers on both flanks and at the back.
+  if (slot === 8 || slot === 16 || slot === 24) return 'wall-tower'
+  // Two automatic posterns at the rear quarters. Without them a sealed ring
+  // traps its own garrison behind a great gate that starts barred.
+  if (slot === 12 || slot === 20) return 'sally-port'
+  return 'wall'
+}
 
 /** The four diagonals, one per age, so ages never stack on one point. */
 const MUSTER_DIRS: Pt[] = [
@@ -216,17 +244,17 @@ const REALMS: Realm[] = [
     // from Belfalas to the far bank of the Anduin: Gondor cannot hold all of
     // it, which is the point — it has more to lose than anyone.
     camps: [
-      { id: 'muster-minas-tirith', name: 'Minas Tirith', at: { x: 140, z: 206 }, fort: true },
+      { id: 'muster-minas-tirith', name: 'Minas Tirith', at: { x: 200, z: 292 }, fort: true },
       // ACROSS the Anduin, with the Pelennor — forty tiles of open field — between
       // it and Minas Tirith. Gondor's ground is wide on purpose: its three camps
       // used to sit close enough to cover each other with tower fire, which is
       // most of why it beat Mordor from a standing start.
-      { id: 'muster-osgiliath', name: 'Osgiliath', at: { x: 180, z: 198 }, fort: true },
-      { id: 'muster-pelargir', name: 'Pelargir', at: { x: 139, z: 233 } },
+      { id: 'muster-osgiliath', name: 'Osgiliath', at: { x: 254, z: 282 }, fort: true },
+      { id: 'muster-pelargir', name: 'Pelargir', at: { x: 206, z: 336 } },
       // Belfalas, on the west coast — and the only thing between Umbar's landing
       // and the back of Gondor. Facing south rather than east: its war is with
       // the Corsairs, not with Mordor.
-      { id: 'muster-dol-amroth', name: 'Dol Amroth', at: { x: 96, z: 240 }, face: { x: 0, z: 1 } },
+      { id: 'muster-dol-amroth', name: 'Dol Amroth', at: { x: 122, z: 322 }, face: { x: 0, z: 1 } },
     ],
     // The tower of the west: the siege realm. Catapults an age early, and two.
     // Horse from the second age — Gondor's answer to a shadow that simply
@@ -252,20 +280,20 @@ const REALMS: Realm[] = [
       // North-east of the vale, not south of it: the home camp's opening army
       // forms up fifteen tiles toward the enemy, and from the old spot that put
       // Mordor's whole starting host on Minas Morgul's cliff edge.
-      { id: 'muster-barad-dur', name: 'Barad-dûr', at: { x: 242, z: 196 }, fort: true },
+      { id: 'muster-barad-dur', name: 'Barad-dûr', at: { x: 392, z: 278 }, fort: true },
       // Raised above the vale on its own shelf, well BEHIND Cirith Ungol. Sited
       // by arithmetic, not by the map: two fortresses whose engines reach each
       // other are a siege line from tick zero, and the front is supposed to be
       // a march. 41 tiles from Osgiliath keeps every stone of each out of the
       // other's range (see the engines' placement below).
-      { id: 'muster-minas-morgul', name: 'Minas Morgul', at: { x: 216, z: 216 }, fort: true },
-      { id: 'muster-durthang', name: 'Durthang', at: { x: 204, z: 163 } },
+      { id: 'muster-minas-morgul', name: 'Minas Morgul', at: { x: 300, z: 280 }, fort: true },
+      { id: 'muster-durthang', name: 'Durthang', at: { x: 315, z: 238 } },
       // Tucked against the mountain's skirt, so its clearing is cut short rather
       // than flattening Mount Doom itself.
-      { id: 'muster-mount-doom', name: 'Mount Doom', at: { x: 224, z: 184 }, clearing: 13 },
+      { id: 'muster-mount-doom', name: 'Mount Doom', at: { x: 350, z: 300 } },
       // The northern war, in southern Mirkwood. Faces north-west at the wood
       // the Elves hold rather than back at Gondor.
-      { id: 'muster-dol-guldur', name: 'Dol Guldur', at: { x: 182, z: 64 }, face: { x: -D, z: -D } },
+      { id: 'muster-dol-guldur', name: 'Dol Guldur', at: { x: 337, z: 162 }, face: { x: -D, z: -D } },
     ],
     // Bodies, not quality: more swordsmen than Gondor at every age and almost
     // no bows to go with them — an orc horde wins by reaching you. Pikes at the
@@ -287,9 +315,9 @@ const REALMS: Realm[] = [
     slot: 2, name: 'Rohan', team: 0, side: 'free',
     facing: { x: -D, z: -D },
     camps: [
-      { id: 'muster-edoras', name: 'Edoras', at: { x: 124, z: 157 } },
-      { id: 'muster-helms-deep', name: "Helm's Deep", at: { x: 104, z: 148 } },
-      { id: 'muster-aldburg', name: 'Aldburg', at: { x: 144, z: 164 } },
+      { id: 'muster-edoras', name: 'Edoras', at: { x: 172, z: 236 } },
+      { id: 'muster-helms-deep', name: "Helm's Deep", at: { x: 132, z: 232 } },
+      { id: 'muster-aldburg', name: 'Aldburg', at: { x: 212, z: 230 } },
     ],
     // Horse from the first minute and horse forever. No siege, thin infantry,
     // and the only realm whose opening wave can already run something down —
@@ -309,9 +337,9 @@ const REALMS: Realm[] = [
     // Fortified like the two great powers, because Isengard is a fortress with
     // a realm attached rather than the other way round.
     camps: [
-      { id: 'muster-orthanc', name: 'Orthanc', at: { x: 96, z: 116 }, fort: true },
-      { id: 'muster-nan-curunir', name: 'Nan Curunír', at: { x: 110, z: 132 }, fort: true },
-      { id: 'muster-dunland', name: 'Dunland', at: { x: 82, z: 136 } },
+      { id: 'muster-orthanc', name: 'Orthanc', at: { x: 150, z: 190 }, fort: true },
+      { id: 'muster-nan-curunir', name: 'Nan Curunír', at: { x: 192, z: 204 }, fort: true },
+      { id: 'muster-dunland', name: 'Dunland', at: { x: 140, z: 226 } },
     ],
     // The only roster on the map that fields BOTH: men and orcs in the same
     // battle line, swords and pikes beside orc bows, horse and engines. Saruman
@@ -333,10 +361,10 @@ const REALMS: Realm[] = [
     // on purpose: the Elves are the widest-spread power on the map and the
     // least able to defend any single piece of it.
     camps: [
-      { id: 'muster-rivendell', name: 'Rivendell', at: { x: 66, z: 44 } },
-      { id: 'muster-lindon', name: 'Lindon', at: { x: 20, z: 112 }, clearing: 15 },
-      { id: 'muster-lothlorien', name: 'Lothlórien', at: { x: 151, z: 90 }, clearing: 15 },
-      { id: 'muster-thranduil', name: "Thranduil's Halls", at: { x: 196, z: 40 }, clearing: 15 },
+      { id: 'muster-rivendell', name: 'Rivendell', at: { x: 113, z: 61 } },
+      { id: 'muster-lindon', name: 'Lindon', at: { x: 33, z: 63 } },
+      { id: 'muster-lothlorien', name: 'Lothlórien', at: { x: 283, z: 157 } },
+      { id: 'muster-thranduil', name: "Thranduil's Halls", at: { x: 210, z: 74 } },
     ],
     // Archers, and archers, and then some archers. Seventeen tiles of range
     // against everyone else's thirteen: an elven line that is allowed to stand
@@ -357,9 +385,9 @@ const REALMS: Realm[] = [
     // river mouth from Dol Amroth and Near Harad under Mordor's skirt, so
     // Harad's two ends threaten opposite flanks of the same war.
     camps: [
-      { id: 'muster-umbar', name: 'Umbar', at: { x: 104, z: 308 } },
-      { id: 'muster-harondor', name: 'Harondor', at: { x: 178, z: 262 } },
-      { id: 'muster-near-harad', name: 'Near Harad', at: { x: 236, z: 292 } },
+      { id: 'muster-umbar', name: 'Umbar', at: { x: 104, z: 354 } },
+      { id: 'muster-harondor', name: 'Harondor', at: { x: 286, z: 342 } },
+      { id: 'muster-near-harad', name: 'Near Harad', at: { x: 339, z: 347 } },
     ],
     // Men of the south: the same trades Gondor makes, in a different order.
     // Bows first rather than second, and no engines until the last age.
@@ -379,10 +407,10 @@ const REALMS: Realm[] = [
     // Mountains alone at the far west edge — the longest reach on the map, and
     // the slowest army on it to walk between them.
     camps: [
-      { id: 'muster-erebor', name: 'Erebor', at: { x: 224, z: 38 } },
-      { id: 'muster-iron-hills', name: 'The Iron Hills', at: { x: 244, z: 58 } },
-      { id: 'muster-lake-town', name: 'Lake-town', at: { x: 206, z: 68 } },
-      { id: 'muster-blue-mountains', name: 'The Blue Mountains', at: { x: 38, z: 62 }, clearing: 16 },
+      { id: 'muster-erebor', name: 'Erebor', at: { x: 337, z: 90 } },
+      { id: 'muster-iron-hills', name: 'The Iron Hills', at: { x: 379, z: 74 } },
+      { id: 'muster-lake-town', name: 'Lake-town', at: { x: 244, z: 174 } },
+      { id: 'muster-blue-mountains', name: 'The Blue Mountains', at: { x: 46, z: 58 } },
     ],
     // Heavy foot that arrives late and cannot be moved once it is somewhere.
     // Two hundred and forty hit points a man against a Gondorian's hundred and
@@ -405,9 +433,9 @@ const REALMS: Realm[] = [
     // and both elven havens across the range, which is the whole of its war:
     // Moria is the power the Free Peoples cannot go around.
     camps: [
-      { id: 'muster-khazad-dum', name: 'Khazad-dûm', at: { x: 90, z: 70 }, clearing: 14 },
-      { id: 'muster-east-gate', name: 'The East-gate', at: { x: 118, z: 82 }, clearing: 14 },
-      { id: 'muster-dimrill-dale', name: 'Dimrill Dale', at: { x: 110, z: 98 }, clearing: 14 },
+      { id: 'muster-khazad-dum', name: 'Khazad-dûm', at: { x: 150, z: 146 } },
+      { id: 'muster-east-gate', name: 'The East-gate', at: { x: 185, z: 156 } },
+      { id: 'muster-dimrill-dale', name: 'Dimrill Dale', at: { x: 158, z: 184 } },
     ],
     // The swarm: the most bodies on the map and the worst of them. No engines,
     // no horse, nothing clever — goblins arrive in numbers or not at all, and
@@ -864,14 +892,14 @@ const MILITIA = [
 ]
 
 const GARRISONS: Garrison[] = [
-  { id: 'hold-druadan', name: 'The Drúadan Forest', at: { x: 156, z: 186 }, militia: MILITIA[0] },
-  { id: 'hold-dunland', name: 'The Dunland Hills', at: { x: 58, z: 158 }, militia: MILITIA[1] },
-  { id: 'hold-lossarnach', name: 'Lossarnach', at: { x: 116, z: 214 }, militia: MILITIA[2] },
-  { id: 'hold-dale', name: 'Dale', at: { x: 238, z: 92 }, militia: MILITIA[3] },
-  { id: 'hold-pelargir', name: 'The Havens', at: { x: 130, z: 268 }, militia: MILITIA[4] },
-  { id: 'hold-rhun', name: 'The Marches of Rhûn', at: { x: 238, z: 126 }, militia: MILITIA[5] },
-  { id: 'hold-carrock', name: 'The Carrock', at: { x: 150, z: 46 }, militia: MILITIA[6] },
-  { id: 'hold-eaves', name: 'The Eaves of Lórien', at: { x: 176, z: 118 }, militia: MILITIA[7] },
+  { id: 'hold-druadan', name: 'The Drúadan Forest', at: { x: 218, z: 268 }, militia: MILITIA[0] },
+  { id: 'hold-dunland', name: 'The Dunland Hills', at: { x: 96, z: 254 }, militia: MILITIA[1] },
+  { id: 'hold-lossarnach', name: 'Lossarnach', at: { x: 158, z: 300 }, militia: MILITIA[2] },
+  { id: 'hold-dale', name: 'Dale', at: { x: 358, z: 120 }, militia: MILITIA[3] },
+  { id: 'hold-pelargir', name: 'The Havens', at: { x: 168, z: 348 }, militia: MILITIA[4] },
+  { id: 'hold-rhun', name: 'The Marches of Rhûn', at: { x: 412, z: 176 }, militia: MILITIA[5] },
+  { id: 'hold-carrock', name: 'The Carrock', at: { x: 238, z: 112 }, militia: MILITIA[6] },
+  { id: 'hold-eaves', name: 'The Eaves of Lórien', at: { x: 252, z: 200 }, militia: MILITIA[7] },
 ]
 
 /** The claimable pad. Neutral: this is ground, and ground changes hands. */
@@ -1088,72 +1116,72 @@ export function generateMiddleEarth(seed: number): RtsMapDoc {
   // one end of a corner Mordor has to cross everything else to reach.
   range(
     [
-      { x: 36, z: 12 },
-      { x: 40, z: 55 },
-      { x: 34, z: 96 },
-      { x: 38, z: 132 },
+      { x: 60, z: 30 },
+      { x: 68, z: 76 },
+      { x: 62, z: 122 },
+      { x: 66, z: 160 },
     ],
-    11,
+    12,
     true,
   )
   // The Great Sea, down the west edge. Cosmetic — the map border already stops
   // anyone — but a coast is what tells you Lindon is the end of the world.
   water(
     [
-      { x: 2, z: 0 },
-      { x: 5, z: 160 },
-      { x: 3, z: 320 },
+      { x: 6, z: 0 },
+      { x: 12, z: 190 },
+      { x: 8, z: 384 },
     ],
-    6,
+    7,
   )
 
   const MISTY: Pt[] = [
-    { x: 98, z: 2 },
-    { x: 100, z: 38 },
-    { x: 95, z: 68 },
-    { x: 104, z: 100 },
-    { x: 110, z: 132 },
-    { x: 114, z: 150 },
+    { x: 122, z: 20 },
+    { x: 128, z: 78 },
+    { x: 146, z: 130 },
+    { x: 163, z: 178 },
+    { x: 178, z: 232 },
   ]
-  range(MISTY, 14, true)
+  range(MISTY, 18, true)
 
   // Ered Nimrais, the White Mountains: Rohan above, Gondor below.
   const WHITE: Pt[] = [
-    { x: 106, z: 177 },
-    { x: 140, z: 170 },
-    { x: 170, z: 176 },
-    { x: 198, z: 187 },
+    { x: 84, z: 264 },
+    { x: 146, z: 252 },
+    { x: 204, z: 256 },
+    { x: 248, z: 270 },
   ]
-  range(WHITE, 11, true)
+  range(WHITE, 12, true)
 
   // Mordor's two walls meet at the Morannon in the north-west corner.
   range(
     [
-      { x: 192, z: 150 },
-      { x: 189, z: 182 },
-      { x: 193, z: 216 },
-      { x: 199, z: 246 },
+      { x: 283, z: 220 },
+      { x: 278, z: 262 },
+      { x: 286, z: 304 },
+      { x: 294, z: 348 },
     ],
-    8,
+    10,
     false,
   )
   range(
     [
-      { x: 192, z: 150 },
-      { x: 222, z: 146 },
-      { x: 254, z: 151 },
+      { x: 283, z: 220 },
+      { x: 345, z: 213 },
+      { x: 410, z: 219 },
+      { x: 470, z: 228 },
     ],
-    8,
+    10,
     false,
   )
 
   // The Lonely Mountain and the Iron Hills.
-  disc({ x: 228, z: 27 }, 14, (i, d) => {
+  disc({ x: 352, z: 62 }, 16, (i, d) => {
     cliffLevel[i] = 3
     blocked[i] = 1
     texture[i] = d < 6 ? TEX_SNOW : TEX_ROCK
   })
-  disc({ x: 252, z: 26 }, 11, (i) => {
+  disc({ x: 404, z: 46 }, 13, (i) => {
     cliffLevel[i] = 3
     blocked[i] = 1
     texture[i] = TEX_ROCK
@@ -1161,22 +1189,22 @@ export function generateMiddleEarth(seed: number): RtsMapDoc {
   // Mount Doom, alone on the plain of Gorgoroth. Smaller than it was, and set
   // west of the camp that musters at its foot: a clearing flattens whatever it
   // covers, so the mountain has to stand clear of one by its own radius.
-  disc({ x: 205, z: 188 }, 8, (i) => {
+  disc({ x: 372, z: 268 }, 11, (i) => {
     cliffLevel[i] = 3
     blocked[i] = 1
     texture[i] = TEX_ROCK
   })
 
   // ---- passes ------------------------------------------------------------
-  pass({ x: 103, z: 82 }, 13, TEX_ROCK) // Moria's hall, opening east
-  pass({ x: 99, z: 47 }, 8, TEX_ROCK) // the High Pass
-  pass({ x: 150, z: 174 }, 10, TEX_DIRT) // the road from Rohan down to Gondor
-  pass({ x: 193, z: 153 }, 8, TEX_ASH) // the Black Gate
-  pass({ x: 190, z: 200 }, 6, TEX_ASH) // Cirith Ungol
-  pass({ x: 96, z: 116 }, 12, TEX_ROCK) // Nan Curunír, Isengard's valley
+  pass({ x: 150, z: 146 }, 15, TEX_ROCK) // Moria's hall, opening east
+  pass({ x: 136, z: 108 }, 10, TEX_ROCK) // the High Pass
+  pass({ x: 150, z: 262 }, 12, TEX_DIRT) // the road from Rohan down to Gondor
+  pass({ x: 283, z: 222 }, 10, TEX_ASH) // the Black Gate
+  pass({ x: 280, z: 284 }, 8, TEX_ASH) // Cirith Ungol
+  pass({ x: 150, z: 190 }, 14, TEX_ROCK) // Nan Curunír, Isengard's valley
 
   // ---- Mordor's floor ----------------------------------------------------
-  disc({ x: 220, z: 200 }, 42, (i) => {
+  disc({ x: 352, z: 278 }, 66, (i) => {
     if (blocked[i] === 1) return
     texture[i] = TEX_ASH
   })
@@ -1207,38 +1235,36 @@ export function generateMiddleEarth(seed: number): RtsMapDoc {
   // ---- the Anduin --------------------------------------------------------
   // From the north down to the sea, dividing east from west the whole way.
   const ANDUIN: Pt[] = [
-    { x: 170, z: 0 },
-    { x: 167, z: 55 },
-    { x: 162, z: 96 },
-    { x: 165, z: 135 },
-    { x: 171, z: 165 },
-    { x: 167, z: 212 },
-    { x: 163, z: 256 },
+    { x: 235, z: 0 },
+    { x: 239, z: 88 },
+    { x: 305, z: 150 },
+    { x: 310, z: 196 },
+    { x: 262, z: 256 },
+    { x: 250, z: 286 },
     // The mouth turns WEST and runs the width of the map. This is the water
     // Umbar's corsairs cross to reach Dol Amroth, and the reason Harad's west
     // end threatens Gondor's back rather than its front.
-    { x: 150, z: 278 },
-    { x: 112, z: 290 },
-    { x: 60, z: 296 },
-    { x: 8, z: 300 },
+    { x: 204, z: 317 },
+    { x: 117, z: 341 },
+    { x: 40, z: 352 },
   ]
-  water(ANDUIN, 4)
+  water(ANDUIN, 5)
 
   // Standing water: the Long Lake under Erebor, and the Sea of Núrnen.
-  disc({ x: 202, z: 78 }, 9, (i) => {
+  disc({ x: 306, z: 108 }, 12, (i) => {
     blocked[i] = 1
     texture[i] = TEX_WATER
   })
   // The Sea of Núrnen, pushed into Mordor's south-east corner. It used to lap
   // the Morgul vale, and a lake is drawn AFTER the clearings — so it took a
   // bite out of the fortress's own ground and stood one of its towers in water.
-  disc({ x: 230, z: 242 }, 12, (i) => {
+  disc({ x: 372, z: 330 }, 16, (i) => {
     blocked[i] = 1
     texture[i] = TEX_WATER
   })
   // The Dead Marshes, scattered in front of the Black Gate — you pick your way
   // to the Morannon rather than march at it.
-  disc({ x: 181, z: 158 }, 20, (i, d) => {
+  disc({ x: 276, z: 232 }, 26, (i, d) => {
     if (blocked[i] === 1) return
     const x = i % COLS
     const z = (i / COLS) | 0
@@ -1254,13 +1280,13 @@ export function generateMiddleEarth(seed: number): RtsMapDoc {
   // forest is cover on the approach, and a wood centred on a camp would just
   // be a clearing with a fringe.
   const WOODS: { at: Pt; r: number }[] = [
-    { at: { x: 150, z: 88 }, r: 19 }, // Lothlórien, around Caras Galadhon
-    { at: { x: 193, z: 74 }, r: 38 }, // Mirkwood, the great wood of the east
-    { at: { x: 122, z: 130 }, r: 19 }, // Fangorn, under the Mistys
-    { at: { x: 131, z: 56 }, r: 22 }, // the Trollshaws
-    { at: { x: 188, z: 176 }, r: 15 }, // Ithilien, north of the Osgiliath road
-    { at: { x: 163, z: 176 }, r: 13 }, // the Drúadan forest
-    { at: { x: 88, z: 168 }, r: 17 }, // the eaves of Dunland
+    { at: { x: 283, z: 157 }, r: 26 }, // Lothlórien, around Caras Galadhon
+    { at: { x: 300, z: 130 }, r: 52 }, // Mirkwood, the great wood of the east
+    { at: { x: 190, z: 212 }, r: 26 }, // Fangorn, under the Mistys
+    { at: { x: 118, z: 96 }, r: 30 }, // the Trollshaws
+    { at: { x: 272, z: 262 }, r: 22 }, // Ithilien, east of the Anduin
+    { at: { x: 216, z: 264 }, r: 18 }, // the Drúadan forest
+    { at: { x: 106, z: 244 }, r: 24 }, // the eaves of Dunland
   ]
   for (const w of WOODS) {
     disc(w.at, w.r, (i) => {
@@ -1268,14 +1294,14 @@ export function generateMiddleEarth(seed: number): RtsMapDoc {
       texture[i] = TEX_FOREST
     })
   }
-  paint({ x: 150, z: 218 }, 22, TEX_SAND) // the coast below Gondor
+  paint({ x: 190, z: 330 }, 30, TEX_SAND) // the coast below Gondor
   // Harad. Everything below the river mouth goes to sand, which is the one
   // stretch of this map that reads as somewhere else entirely — and the reason
   // Umbar and Near Harad look like one realm despite being 140 tiles apart.
   for (const dune of [
-    { at: { x: 110, z: 306 }, r: 62 },
-    { at: { x: 205, z: 292 }, r: 58 },
-    { at: { x: 248, z: 268 }, r: 34 },
+    { at: { x: 150, z: 362 }, r: 80 },
+    { at: { x: 300, z: 356 }, r: 74 },
+    { at: { x: 400, z: 336 }, r: 50 },
   ]) {
     disc(dune.at, dune.r, (i) => {
       if (blocked[i] === 1 || texture[i] === TEX_ASH) return
@@ -1285,29 +1311,36 @@ export function generateMiddleEarth(seed: number): RtsMapDoc {
   // The Pelennor: the field between Minas Tirith and Osgiliath, kept as open
   // grass end to end. It is the widest clear ground on the map, and it is where
   // the 1v1 is decided — a wood across it would break the fight into skirmishes.
-  disc({ x: 160, z: 202 }, 30, (i) => {
+  disc({ x: 228, z: 288 }, 40, (i) => {
     if (blocked[i] === 1 || texture[i] === TEX_ASH) return
     texture[i] = TEX_GRASS
   })
-  paint({ x: 132, z: 158 }, 26, TEX_GRASS) // the plains of Rohan, kept open
+  paint({ x: 176, z: 234 }, 38, TEX_GRASS) // the plains of Rohan, kept open
 
   // Three crossings, and only three. Cut LAST, after the marshes, the lakes
   // and the paint, so nothing can silently drown a ford and seal the two
   // halves of the map apart — and so their dirt keeps trees off the approach.
   for (const at of [
-    { x: 163, z: 96 }, // the Nimrodel ford
-    { x: 170, z: 165 }, // Cair Andros
-    { x: 168, z: 199 }, // the bridge of Osgiliath
+    { x: 292, z: 131 }, // the upper ford
+    { x: 308, z: 176 }, // Cair Andros
+    { x: 251, z: 282 }, // the bridge of Osgiliath
+    { x: 178, z: 322 }, // the lower crossing, above the Havens
   ]) {
-    disc(at, 7, (i) => {
+    disc(at, 9, (i) => {
       blocked[i] = 0
       texture[i] = TEX_DIRT
     })
   }
 
-  // The camp itself always stands on dry land, whatever the river just did.
+  // The camp itself always stands on dry land, whatever the river just did —
+  // and a FORTIFIED one needs its whole curtain on dry land, or the river
+  // pushes the pieces that land in it back toward the camp and leaves a hole
+  // in the ring an army walks through. A fortress on a riverbank has a dry
+  // apron; this is that apron.
+  const dryRadius = new Map<string, number>()
+  for (const { camp } of ALL_CAMPS) dryRadius.set(`${camp.at.x},${camp.at.z}`, camp.fort ? RING_R + 2 : 7)
   for (const c of clearings) {
-    disc(c, 7, (i) => {
+    disc(c, dryRadius.get(`${c.x},${c.z}`) ?? 7, (i) => {
       blocked[i] = 0
       if (texture[i] === TEX_WATER) texture[i] = TEX_DIRT
     })
@@ -1323,33 +1356,11 @@ export function generateMiddleEarth(seed: number): RtsMapDoc {
     texture[i] = TEX_ASH
   })
 
-  // ---- the Morgul shelf --------------------------------------------------
-  // Minas Morgul stands a tier above the vale. A raised disc is walled by its
-  // own rim everywhere deriveTerrain finds a lower neighbour, so the ONE ramp
-  // is the only way up — an attacker who breaks into the vale still has to
-  // climb, under the towers, on a front the width of the ramp.
-  const MORGUL: Pt = { x: 216, z: 216 }
-  // 13, not 15: the rim of a raised disc is unwalkable, so the shelf has to
-  // stop short of anything else's ground — at 15 it put Barad-dûr's own
-  // watchtower on a cliff edge.
-  disc(MORGUL, 13, (i) => {
-    if (blocked[i] === 1) return
-    cliffLevel[i] = 1
-  })
-  // The ramp faces Cirith Ungol — the way Gondor comes. Wide enough for a
-  // battalion in line and no wider.
-  band(
-    [
-      { x: MORGUL.x - 19, z: MORGUL.z },
-      { x: MORGUL.x - 9, z: MORGUL.z },
-    ],
-    4,
-    (i) => {
-      if (blocked[i] === 1) return
-      ramp[i] = 1
-      texture[i] = TEX_ASH
-    },
-  )
+  // The Morgul shelf is gone. It raised Minas Morgul a tier so that one ramp
+  // was the only way up — which was the right idea when the fortress was a
+  // camp with a broken arc of wall around it. Now that a fortified camp is a
+  // CLOSED ring with one great gate, the shelf did that job twice, and its
+  // unwalkable rim sat inside the curtain where it trapped the garrison.
 
   // ---- relief ------------------------------------------------------------
   for (let z = 0; z < ROWS; z++) {
@@ -1484,18 +1495,24 @@ export function generateMiddleEarth(seed: number): RtsMapDoc {
       // (MUSTER_R) and inside the clearing, so the fort never walls a camp off
       // from its own production.
       if (c.fort) {
-        const FRONT = MUSTER_R + 4 // the arc, clear of the musters
-        // The curtain, placed by rotating `facing` through a table of unit
-        // vectors. Written out rather than computed: trigonometry is banned in
-        // the sim (it is not bit-exact across engines), which is the same reason
-        // the muster diagonals are a hand-written constant.
-        for (const arc of ARC) {
-          for (const sgn of arc.s === 0 ? [1] : [1, -1]) {
-            const sn = arc.s * sgn
-            const dir = { x: face.x * arc.c - face.z * sn, z: face.x * sn + face.z * arc.c }
-            const at = nudge(c.at, { x: c.at.x + dir.x * FRONT, z: c.at.z + dir.z * FRONT })
-            placed.push({ def: arc.def, owner: r.slot, x: at.x, z: at.z, facing: dir })
+        // A closed curtain. Start dead ahead and walk the ring one rotation at
+        // a time, so every piece is 2.95 tiles from the last and the stones
+        // actually meet — the old arc left six-tile gaps between them.
+        let dx = face.x
+        let dz = face.z
+        for (let slot = 0; slot < RING_SLOTS; slot++) {
+          const piece = ringPiece(slot)
+          if (piece !== null) {
+            const dir = { x: dx, z: dz }
+            const at = nudge(c.at, { x: c.at.x + dx * RING_R, z: c.at.z + dz * RING_R })
+            placed.push({ def: piece, owner: r.slot, x: at.x, z: at.z, facing: dir })
           }
+          // Rotate by one slot. Repeated multiplication rather than a lookup:
+          // see RING_COS.
+          const nx = dx * RING_COS - dz * RING_SIN
+          const nz = dx * RING_SIN + dz * RING_COS
+          dx = nx
+          dz = nz
         }
         // Engines BEHIND the camp, not in front of it. A wall-catapult ranges 30
         // — enough to cover its own curtain (15 out) and the ground an attacker
@@ -1569,16 +1586,16 @@ export function generateMiddleEarth(seed: number): RtsMapDoc {
   // so a tower here is worth an army and taking one back costs one. Neutral:
   // whoever is standing there when they can afford it gets to build.
   for (const site of [
-    { x: 163, z: 96 }, // the Nimrodel ford
-    { x: 170, z: 165 }, // Cair Andros
-    { x: 168, z: 199 }, // the bridge of Osgiliath
-    { x: 193, z: 153 }, // the Black Gate
-    { x: 190, z: 200 }, // Cirith Ungol
-    { x: 118, z: 152 }, // the Gap of Rohan
-    { x: 128, z: 90 }, // Moria's east door
-    { x: 150, z: 174 }, // the road from Rohan down to Gondor
-    { x: 158, z: 268 }, // the Anduin mouth, above Umbar
-    { x: 96, z: 282 }, // the Belfalas shore, Dol Amroth's side
+    { x: 292, z: 131 }, // the upper ford
+    { x: 308, z: 176 }, // Cair Andros
+    { x: 251, z: 282 }, // the bridge of Osgiliath
+    { x: 178, z: 322 }, // the lower crossing
+    { x: 283, z: 222 }, // the Black Gate
+    { x: 280, z: 284 }, // Cirith Ungol
+    { x: 190, z: 244 }, // the Gap of Rohan
+    { x: 181, z: 148 }, // Moria's east door
+    { x: 150, z: 262 }, // the road from Rohan down to Gondor
+    { x: 132, z: 344 }, // the Belfalas shore, Dol Amroth's side
   ]) {
     // Two pads a site, set either side of the line of march, so holding a
     // crossing is a pair of towers rather than a single one that a catapult

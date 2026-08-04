@@ -54,8 +54,9 @@ WC3-style world editor, three.js rendering, Cloudflare Workers hosting.
   castle site per side to expand onto, and a captain hero. Mirrored across the diagonal, so
   both players get the same ground.
 - **The War of the Ring (starter map)**: the StarCraft-era LOTR scenario, on the BFME rules
-  layer. **Eight powers** on a 256 x 320 continent, each holding scattered ground rather than
-  one corner: Gondor (Minas Tirith, Osgiliath, Dol Amroth), Mordor (five camps, including Dol
+  layer. **Eight powers** on a 480 x 384 continent, each holding scattered ground rather than
+  one corner (laid out from a hand-drawn plan — two fortified camps need ~40 tiles between
+  them or their curtains interleave, which is what set the size): Gondor (Minas Tirith, Osgiliath, Dol Amroth), Mordor (five camps, including Dol
   Guldur four-fifths of the map north — the only power fighting two wars), Rohan, Isengard,
   the Elves (Rivendell, Lindon, Lothlórien, Thranduil's Halls), Harad (Umbar sits across the
   river mouth from Dol Amroth), the Dwarves (Erebor, the Iron Hills, Lake-town, and the Blue

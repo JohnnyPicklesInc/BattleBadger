@@ -121,9 +121,9 @@ describe('The War of the Ring — ground', () => {
     }
     // …and away from them the river is a wall. Walk each latitude across the
     // river's band; every one of these must hit water.
-    for (const z of [20, 40, 70, 120, 145, 220, 240]) {
+    for (const z of [40, 100, 160, 220, 260]) {
       let wet = false
-      for (let x = 150; x < 190; x++) if (!dry(x, z)) wet = true
+      for (let x = 200; x < 340; x++) if (!dry(x, z)) wet = true
       expect(wet, `the Anduin can be walked around at z=${z}`).toBe(true)
     }
   })
@@ -277,8 +277,11 @@ describe('The War of the Ring — the muster loop', () => {
       // Production stopped: a realm over its cap musters nothing more.
       expect(owned(slot), `slot ${slot} kept mustering past its cap`).toBe(atFiveMin[slot])
       // A camp's wave lands as a block, so a realm can sit one wave over — but
-      // not one ROUND over, which is what staggering the three camps buys.
-      expect(owned(slot), `slot ${slot} ran away past its cap`).toBeLessThan(160)
+      // not one ROUND over, which is what staggering the camps' clocks buys.
+      // Driven at a cap of 60, where a power's BUILDINGS alone already exceed
+      // it — a fortified camp's curtain is thirty pieces by itself — so the
+      // bound is generous and the assertion that matters is the one above.
+      expect(owned(slot), `slot ${slot} ran away past its cap`).toBeLessThan(360)
     }
   }, 60000)
 
@@ -294,6 +297,69 @@ describe('The War of the Ring — the muster loop', () => {
     const cap = [...caps][0]
     const biggestRound = 5 * 60 // Mordor's five camps, over a camp's Age-IV wave
     expect(8 * (cap + biggestRound)).toBeLessThan(MAX_UNITS)
+  })
+})
+
+describe('The War of the Ring — fortresses', () => {
+  // What a fortified camp's curtain must be: a closed ring with no gap wide
+  // enough to walk through. The version this replaces put seven pieces on a
+  // 15-tile arc — 9.4 tiles apart for a 3-tile wall — so it looked like a
+  // fortress and was two thirds holes.
+  const ringOf = (campDef: string): { x: number; z: number; def: string }[] => {
+    const camp = doc.placed!.find((p) => p.def === campDef)!
+    const WALLS = new Set(['wall', 'gate', 'wall-tower', 'sally-port'])
+    return doc
+      .placed!.filter((p) => WALLS.has(p.def))
+      .filter((p) => Math.sqrt((p.x - camp.x) ** 2 + (p.z - camp.z) ** 2) < 22)
+      .map((p) => ({ x: p.x, z: p.z, def: p.def }))
+  }
+
+  it('every fortified camp is ringed all the way round', () => {
+    const forts = ['muster-minas-tirith', 'muster-osgiliath', 'muster-barad-dur', 'muster-minas-morgul']
+    for (const f of forts) {
+      const ring = ringOf(f)
+      expect(ring.length, `${f} has barely any curtain`).toBeGreaterThanOrEqual(28)
+      const camp = doc.placed!.find((p) => p.def === f)!
+
+      // Sort the pieces by bearing and check consecutive gaps. Every neighbour
+      // must be close enough that the stones meet; one 6-tile hole is a door
+      // an army walks through and the whole feature is decorative.
+      const byBearing = ring
+        .map((p) => ({ ...p, a: Math.atan2(p.z - camp.z, p.x - camp.x) }))
+        .sort((u, v) => u.a - v.a)
+      let worst = 0
+      let worstAt = ''
+      for (let i = 0; i < byBearing.length; i++) {
+        const a = byBearing[i]
+        const b = byBearing[(i + 1) % byBearing.length]
+        const gap = Math.sqrt((a.x - b.x) ** 2 + (a.z - b.z) ** 2)
+        // The gate is 8.4 wide and legitimately spans its neighbours.
+        const allowed = a.def === 'gate' || b.def === 'gate' ? 7.5 : 3.6
+        if (gap - allowed > worst) {
+          worst = gap - allowed
+          worstAt = `${a.def}→${b.def} ${gap.toFixed(1)}`
+        }
+      }
+      expect(worst, `${f} has a hole in its curtain (${worstAt})`).toBeLessThanOrEqual(0)
+    }
+  })
+
+  it('a sealed fort still lets its own garrison out', () => {
+    const ring = ringOf('muster-osgiliath')
+    // A great gate that starts barred, and posterns that open by themselves.
+    expect(ring.filter((p) => p.def === 'gate').length).toBe(1)
+    expect(ring.filter((p) => p.def === 'sally-port').length).toBeGreaterThanOrEqual(2)
+    const port = MIDDLE_EARTH_DEF.entities.find((e) => e.id === 'sally-port')!
+    expect(port.gate!.manual, 'a sealed ring with only manual gates traps its garrison').not.toBe(true)
+  })
+
+  it('the curtain stands outside the musters and inside the cleared ground', () => {
+    const camp = doc.placed!.find((p) => p.def === 'muster-minas-tirith')!
+    for (const p of ringOf('muster-minas-tirith')) {
+      const d = Math.sqrt((p.x - camp.x) ** 2 + (p.z - camp.z) ** 2)
+      expect(d, 'the curtain is inside its own muster ground').toBeGreaterThan(12)
+      expect(d, 'the curtain is outside the ground carved for it').toBeLessThan(20)
+    }
   })
 })
 
