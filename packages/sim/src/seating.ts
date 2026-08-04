@@ -89,8 +89,18 @@ export function slotKeep(doc: RtsMapDoc, slot: number): string | null {
 /** Name of the faction a slot plays by default, for the "Map default" label. */
 export function defaultFactionName(doc: RtsMapDoc, slot: number, modules: RulesetModule[]): string | null {
   const keep = slotKeep(doc, slot)
-  if (!keep) return null
-  return modules.find((m) => m.keep === keep)?.name ?? null
+  if (keep) return modules.find((m) => m.keep === keep)?.name ?? null
+  // A map may tune a keep's expansion rings away — The Last Alliance builds its
+  // fortress out of wall pieces, so the keep plants no plot ring — and isKeep
+  // recognises a keep BY that ring. That changes what the building does, not
+  // whose it is. Fall back to asking the factions directly which building they
+  // call their keep, so the slot is still named rather than falling through to
+  // a bare "Map default" sitting next to the very race it means.
+  const named = new Map(modules.filter((m) => m.keep).map((m) => [m.keep!, m.name]))
+  for (const p of doc.placed ?? []) {
+    if (p.owner === slot && named.has(p.def)) return named.get(p.def)!
+  }
+  return null
 }
 
 /**
@@ -161,6 +171,9 @@ function applyStartOrder(doc: RtsMapDoc, order: number[]): RtsMapDoc {
   const out: RtsMapDoc = { ...doc, startLocations: bySlot(doc.startLocations, (pos) => doc.startLocations[pos])! }
   if (doc.slotTeams) out.slotTeams = bySlot(doc.slotTeams, (pos) => pos)
   if (doc.aiLevels) out.aiLevels = bySlot(doc.aiLevels, () => 0)
+  // The name belongs to the ground, so it travels with the position: a player
+  // who moves onto Mordor's start is playing Mordor.
+  if (doc.startNames) out.startNames = bySlot(doc.startNames, (pos) => `Start ${pos + 1}`)
   if (doc.placed) out.placed = doc.placed.map((p) => ({ ...p, owner: owner(p.owner) }))
   if (doc.triggers) {
     out.triggers = doc.triggers.map((t) => ({

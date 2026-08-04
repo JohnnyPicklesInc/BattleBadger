@@ -254,11 +254,23 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
       // set up the opponents you want.
       const mine = !inRoom || you || (mySlot === 0 && (Boolean(name) || computer))
       const mapRace = doc ? defaultFactionName(doc, pos, allFactions.map((f) => f.module)) : null
+      // The map's own race is not a THIRD race. Listing "Map default (Badgers)"
+      // beside "Badgers" made a two-race game look like a three-race one — so
+      // the default is folded into that race's own option, keeping the empty
+      // value that means "leave what the map placed". That distinction is
+      // load-bearing: picking a race explicitly re-musters the slot from the
+      // faction's start army, which is not always what the author laid out.
       const raceOpts = [
-        `<option value="">${mapRace ? `Map default (${esc(mapRace)})` : 'Map default'}</option>`,
-        ...races.map(
-          (f) => `<option value="${esc(f.id)}"${seat.faction === f.id ? ' selected' : ''}>${esc(f.name)}</option>`,
-        ),
+        ...(races.some((f) => f.name === mapRace)
+          ? []
+          : [`<option value="">${mapRace ? `Map default (${esc(mapRace)})` : 'Map default'}</option>`]),
+        ...races.map((f) => {
+          const isMapDefault = f.name === mapRace
+          const value = isMapDefault ? '' : f.id
+          const selected = isMapDefault ? !seat.faction || seat.faction === f.id : seat.faction === f.id
+          const label = isMapDefault ? `${f.name} (map default)` : f.name
+          return `<option value="${esc(value)}"${selected ? ' selected' : ''}>${esc(label)}</option>`
+        }),
       ].join('')
       const teamOpts = TEAM_NAMES.slice(0, Math.max(2, meta.slots))
         .map((t, k) => `<option value="${k}"${k === team ? ' selected' : ''}>${t}</option>`)
@@ -268,7 +280,11 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
       const startOpts = Array.from({ length: meta.slots }, (_, k) => {
         const held = order.findIndex((p) => p === k)
         const by = held >= 0 && held !== i && players[held] ? ` — ${esc(players[held])}` : ''
-        return `<option value="${k}"${k === pos ? ' selected' : ''}>Start ${k + 1}${by}</option>`
+        // An authored scenario names its ground, so the seat reads "Gondor"
+        // rather than "Start 1" — on a map whose realms are fixed, this IS the
+        // thing you are choosing.
+        const where = doc?.startNames?.[k] ?? `Start ${k + 1}`
+        return `<option value="${k}"${k === pos ? ' selected' : ''}>${esc(where)}${by}</option>`
       }).join('')
       const aiOpts = name
         ? '<option>Human</option>'
@@ -284,8 +300,15 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
         <span class="ptag">${you ? 'you' : computer ? 'AI' : i === 0 && name ? 'host' : ''}</span>
         <select class="pai" data-slot="${i}"${isHost() && !name && i < meta.slots ? '' : ' disabled'}
           title="Computer opponent">${aiOpts}</select>
-        <select class="prace" data-slot="${i}"${dis}${races.length === 0 ? ' data-fixed="1"' : ''}
-          title="${races.length === 0 ? 'this map’s rules seat no other factions' : 'Race'}">${raceOpts}</select>
+        ${
+          // A map that seats no factions has nothing to pick, and a disabled
+          // "Map default" dropdown only invites the question. Its realms are
+          // authored into the ground, so the start position carries the
+          // identity and the race control is simply not part of this game.
+          races.length === 0
+            ? ''
+            : `<select class="prace" data-slot="${i}"${dis} title="Race">${raceOpts}</select>`
+        }
         <select class="pteam" data-slot="${i}"${dis} title="Team">${teamOpts}</select>
         <select class="pstart" data-slot="${i}"${dis || (i >= meta.slots ? ' disabled' : '')}
           title="Start position — click the map to pick one">${startOpts}</select>

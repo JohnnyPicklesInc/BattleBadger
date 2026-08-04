@@ -1,4 +1,5 @@
 import { deriveTerrain, mapSlotCount, type RtsMapDoc } from '@battlebadger/sim'
+import { TERRAIN_PALETTE } from '../render/terrainMesh.ts'
 
 // Player slot colours — shared by the lobby list, the map preview markers and
 // anything else that has to agree about "who is blue".
@@ -13,13 +14,26 @@ export function terrainImage(doc: RtsMapDoc): HTMLCanvasElement {
   const ctx = c.getContext('2d')!
   const img = ctx.createImageData(doc.cols, doc.rows)
   const { walkable, heights } = deriveTerrain(doc)
+  // Paint from the map's own texture layer, in the same palette the world is
+  // rendered in — a preview that colours only by walkability turns a river,
+  // a forest and a ploughed field into the same green, which on a map whose
+  // point is recognisable geography is the whole picture missing.
   for (let i = 0; i < doc.cols * doc.rows; i++) {
     const walk = walkable[i] === 1
     const t = Math.min(1, Math.max(0, heights[i] / 4))
-    const [r, g, b] = walk ? [40 + t * 40, 84 + t * 40, 36 + t * 22] : [92 + t * 26, 82 + t * 22, 72 + t * 18]
-    img.data[i * 4] = r
-    img.data[i * 4 + 1] = g
-    img.data[i * 4 + 2] = b
+    const authorBlocked = doc.walkable?.[i] === 0
+    const tex = doc.texture?.[i] ?? 0
+    // Cliff faces read as rock, as they do in-world; ground the author blocked
+    // himself (water, bog) keeps its paint.
+    const idx = !walk && doc.cliffLevel && !authorBlocked ? 2 : tex
+    const pal = TERRAIN_PALETTE[idx] ?? TERRAIN_PALETTE[0]
+    // Height lifts the colour so ranges catch the light; unwalkable ground is
+    // darkened a touch so cliffs and water still read as barriers at a glance.
+    const lift = (1 + t * 0.35) * (walk ? 1 : 0.82)
+    const shade = (c: number): number => Math.max(0, Math.min(255, c * 255 * lift))
+    img.data[i * 4] = shade(pal[0])
+    img.data[i * 4 + 1] = shade(pal[1])
+    img.data[i * 4 + 2] = shade(pal[2])
     img.data[i * 4 + 3] = 255
   }
   ctx.putImageData(img, 0, 0)

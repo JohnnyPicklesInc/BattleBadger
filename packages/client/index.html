@@ -132,10 +132,18 @@
       #resbar .res i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
       #resbar .res b { color: #dfe6ee; min-width: 34px; text-align: right; }
 
-      .overlay { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center;
-        justify-content: center; background: rgba(8, 10, 14, 0.85); }
+      /* A dialog taller than the window has to stay reachable. `align-items:
+         center` pins the panel to the middle and then clips BOTH ends once it
+         outgrows the viewport — with html/body at overflow:hidden there is
+         nothing to scroll, so the bottom of the lobby (Start, room code) simply
+         could not be reached on a short screen. `margin: auto` centres the
+         panel exactly the same way when it fits, and yields to the scroll
+         container when it does not. */
+      .overlay { position: fixed; inset: 0; z-index: 10; display: flex;
+        background: rgba(8, 10, 14, 0.85); box-sizing: border-box; padding: 20px 16px;
+        overflow: auto; overscroll-behavior: contain; }
       .panel { background: #151a22; border: 1px solid #2a3342; border-radius: 12px; padding: 28px 32px;
-        width: 340px; box-shadow: 0 12px 40px #0009; }
+        width: 340px; max-width: 100%; margin: auto; box-shadow: 0 12px 40px #0009; }
       .panel h1 { margin: 0 0 4px; font-size: 26px; letter-spacing: 0.5px; }
       .panel h1 span { color: #ffb454; }
       .panel .sub { color: #74839a; font-size: 13px; margin-bottom: 18px; }

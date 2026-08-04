@@ -133,6 +133,13 @@ export interface RtsMapDoc {
   // in, not what the author put on the ground.
   races?: string[]
   startLocations: { x: number; z: number }[]
+  /**
+   * What to call each start position, parallel to `startLocations`. An
+   * authored scenario names its ground — a lobby seat reads "Gondor", not
+   * "Start 1" — which is also how a map with no swappable races still tells
+   * you what you are about to play. Absent = numbered.
+   */
+  startNames?: string[]
   // team id per player slot (index = slot). Absent = free-for-all (slot = team).
   // Alternating sides (e.g. [0,1,0,1]) keeps 2-player games 1v1 on team maps.
   slotTeams?: number[]

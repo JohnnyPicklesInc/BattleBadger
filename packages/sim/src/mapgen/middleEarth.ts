@@ -891,11 +891,16 @@ export function generateMiddleEarth(seed: number): RtsMapDoc {
     texture,
     heightJitter,
     fog: 'full',
-    // No `races`: the realms ARE the map. Seating swaps a faction by swapping
-    // a player's KEEP, and this map has none — Gondor is Gondor because of the
-    // camps, army and ground it was authored with, and a lobby race pick would
-    // leave its muster tables spawning the other side's battalions.
+    // An EMPTY roster, which is not the same as no roster: absent means "any
+    // faction whose rules fit", and this map must seat none at all. The realms
+    // are the map — Gondor is Gondor because of the camps, army and ground it
+    // was authored with, and its muster tables name that side's battalions by
+    // id, so swapping a race in would leave Gondor's camps spawning orcs.
+    // What you pick here is a realm, not a race; the lobby drops the race
+    // control entirely and names the start positions instead.
+    races: [],
     startLocations,
+    startNames: REALMS.map((r) => r.name),
     slotTeams,
     regions,
     triggers,
