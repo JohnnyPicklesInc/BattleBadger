@@ -53,9 +53,11 @@ describe('The War of the Ring — rules', () => {
   })
 
   it('defines one muster-camp entity per camp, so a death names which fell', () => {
+    // 25, not 24: seven realms of three, and Mordor's four. The black land is
+    // deliberately the one realm that out-camps everybody.
     const camps = MIDDLE_EARTH_DEF.entities.filter((e) => e.id.startsWith('muster-'))
-    expect(camps).toHaveLength(24)
-    expect(new Set(camps.map((c) => c.id)).size).toBe(24)
+    expect(camps).toHaveLength(25)
+    expect(new Set(camps.map((c) => c.id)).size).toBe(25)
     // Every camp def must be referenced by exactly one placed entity.
     for (const c of camps) {
       expect(doc.placed!.filter((p) => p.def === c.id)).toHaveLength(1)
@@ -121,13 +123,15 @@ describe('The War of the Ring — ground', () => {
 })
 
 describe('The War of the Ring — the muster loop', () => {
-  it('gives every realm three camps and an opening army', () => {
+  it('gives every realm its camps and an opening army', () => {
     const { s } = simOf()
     for (let slot = 0; slot < 8; slot++) {
       const mine = []
       for (let i = 0; i < s.count; i++) if (s.alive[i] && s.owner[i] === slot) mine.push(i)
       const camps = mine.filter((i) => s.def.entities[s.type[i]].id.startsWith('muster-'))
-      expect(camps, `slot ${slot} camps`).toHaveLength(3)
+      // Three each, and FOUR for Mordor — the asymmetry is the point, not a
+      // rounding error, so it is asserted per slot rather than averaged away.
+      expect(camps, `slot ${slot} camps`).toHaveLength(slot === 1 ? 4 : 3)
       const units = mine.filter((i) => s.kind[i] === Kind.Unit)
       expect(units.length, `slot ${slot} opening army`).toBeGreaterThan(30)
     }
