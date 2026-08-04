@@ -36,6 +36,9 @@ interface UnitPart {
  */
 const UNIT_CAP_START = 32
 
+/** How high a manned wall stands its garrison. Matches the wall models. */
+const WALL_TOP_HEIGHT = 2.4
+
 const RING_OWN = new THREE.Color(0x7ee787)
 const RING_ALLY = new THREE.Color(0xffe27a)
 const RING_ENEMY = new THREE.Color(0xff6a5a)
@@ -793,6 +796,9 @@ export class GameRenderer {
       this.growUnitParts(owner, ty, slot + 1)
       const parts = this.units[owner][ty]
       this.lerpPos(s, prevX, prevZ, i, alpha, pos)
+      // A man on a wall stands ON it. Without this he is drawn inside the
+      // masonry and the whole feature reads as a bug.
+      if (s.onWall[i] >= 0) pos.y += WALL_TOP_HEIGHT
       fwd.set(s.faceX[i], 0, s.faceZ[i]).normalize()
       if (fwd.lengthSq() < 0.5) fwd.set(0, 0, 1)
       right.set(fwd.z, 0, -fwd.x)
@@ -1054,8 +1060,13 @@ export class GameRenderer {
       } else if (ev.t === 'trample' && this.blastFx.length < 64) {
         // hooves kick up dust, not fire
         this.blastFx.push({ x: ev.x, z: ev.z, r: 1.1, age: 0, dust: true })
+        this.audio.emit('charge', ev.x, ev.z)
       } else if (ev.t === 'died') {
-        this.audio.emit('death', ev.x, ev.z)
+        // A camp coming down and a spearman going down are not the same event.
+        // The def index survives on the event, so the kind is still answerable
+        // after the entity itself has been despawned.
+        const dead = this.def.entities[ev.type]
+        this.audio.emit(dead?.kind === 'building' ? 'collapse' : 'death', ev.x, ev.z)
       } else if (ev.t === 'gateOpened' || ev.t === 'gateClosed') {
         this.audio.emit('gate', ev.x, ev.z)
       } else if (ev.t === 'upgradeDone' && ev.player === this.mySlot) {

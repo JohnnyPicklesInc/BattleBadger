@@ -269,6 +269,18 @@ export interface EntityDef {
   }
   extractorOn?: string // building must be placed on a node of this entity id
   abilities?: { ability: string; autocast?: boolean }[]
+  /** Leadership: a standing modifier on everything near this entity. */
+  aura?: AuraDef
+  /**
+   * This structure can be manned. Soldiers ordered onto it stand on its top:
+   * out of reach of anything swinging a sword from the ground, shooting
+   * further for the height, and dying with it if it comes down.
+   */
+  rampart?: {
+    slots: number
+    /** Extra attack range while up there. Elevation, in world units. */
+    rangeBonus?: number
+  }
 }
 
 export interface AbilityDef {
@@ -310,6 +322,31 @@ export interface AbilityDef {
  * deciding what happens to the wounded, and that is a design question rather
  * than an arithmetic one.
  */
+/**
+ * Leadership. A presence that changes the numbers of everything standing near
+ * it, for as long as it stands there — the mechanic a hero is FOR, as distinct
+ * from the nuke on its command card.
+ *
+ * Percentages read like upgrades: +25 damage means those affected deal 125%,
+ * +25 armor means they take 75%. A negative value is dread — point it at
+ * `enemies` and a Nazgûl makes the men in front of it worse at their jobs.
+ *
+ * Sources stack MULTIPLICATIVELY and the result is clamped, so two captains
+ * are better than one but eight are not eight times better. Clamping rather
+ * than best-wins because stacking different leaderships is half the fun of
+ * BFME's hero play, and an uncapped product is how that becomes the only play.
+ */
+export interface AuraDef {
+  radius: number
+  damagePct?: number
+  armorPct?: number
+  speedPct?: number
+  /** Default 'allies'. 'enemies' is dread. */
+  affects?: 'allies' | 'enemies'
+  /** Does the bearer get its own aura? Default false — leadership is for the men. */
+  self?: boolean
+}
+
 export interface UpgradeDef {
   id: string
   name: string

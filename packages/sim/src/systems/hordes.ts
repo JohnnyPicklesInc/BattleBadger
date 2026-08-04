@@ -134,27 +134,31 @@ export function addXp(s: SimState, horde: number, amount: number): void {
 
 // ---- combat modifiers ----
 
-// Damage a unit deals after its horde's level and formation, as a percentage.
+// Damage a unit deals after its horde's level, its formation and whatever
+// leadership is standing over it. Aura applies to loose units too — a hero
+// inspires everyone in reach, not only the battalions.
 export function outgoingPct(s: SimState, id: number): number {
+  const aura = s.auraDamagePct[id]
   const horde = s.hordeOf[id]
-  if (horde < 0) return 100
+  if (horde < 0) return aura
   const lvl = levelMods(s, horde)
   const f = activeFormation(s, horde)
-  return Math.floor((lvl.damagePct * (f ? f.damagePct : 100)) / 100)
+  return Math.floor((Math.floor((lvl.damagePct * (f ? f.damagePct : 100)) / 100) * aura) / 100)
 }
 
-// Damage a unit receives after its horde's level and formation, as a percentage.
+// Damage a unit receives after its horde's level, its formation and leadership.
 export function incomingPct(s: SimState, id: number): number {
+  const aura = s.auraTakenPct[id]
   const horde = s.hordeOf[id]
-  if (horde < 0) return 100
+  if (horde < 0) return aura
   const lvl = levelMods(s, horde)
   const f = activeFormation(s, horde)
-  return Math.floor((lvl.damageTakenPct * (f ? f.damageTakenPct : 100)) / 100)
+  return Math.floor((Math.floor((lvl.damageTakenPct * (f ? f.damageTakenPct : 100)) / 100) * aura) / 100)
 }
 
 // Movement speed after the formation's speed modifier (porcupine is slow).
 export function unitSpeed(s: SimState, id: number): number {
-  const base = (s.def.stats.speed[s.type[id]] * speedPct(s, id)) / 100
+  const base = (s.def.stats.speed[s.type[id]] * speedPct(s, id) * s.auraSpeedPct[id]) / 10000
   const horde = s.hordeOf[id]
   if (horde < 0) return base
   const f = activeFormation(s, horde)

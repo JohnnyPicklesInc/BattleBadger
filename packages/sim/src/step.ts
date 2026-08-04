@@ -13,6 +13,8 @@ import { harvest } from './systems/harvest.ts'
 import { construction, income, production, supplyPower } from './systems/economy.ts'
 import { triggers } from './systems/triggers.ts'
 import { gates, swoops } from './systems/gates.ts'
+import { auras } from './systems/auras.ts'
+import { ramparts } from './systems/ramparts.ts'
 
 // Scratch spatial hash — transient within one step, never part of hashed state.
 const hash = new SpatialHash()
@@ -31,6 +33,10 @@ export function step(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]): void {
   production(s, grid)
   construction(s)
   hash.build(s)
+  // Leadership before anything reads a modifier: movement reads speed below,
+  // combat reads damage further down, and both must see the same standing
+  // this tick rather than last tick's.
+  auras(s, hash)
   // Before pathing, so a path planned this tick meets the gate state the unit
   // will actually arrive at rather than last tick's.
   gates(s, grid, hash)
@@ -44,6 +50,10 @@ export function step(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]): void {
   integrate(s, grid)
   resolveOverlaps(s, grid, hash)
   updateStuck(s, grid)
+  // After motion has settled, so "has he reached the wall yet" is asked of
+  // this tick's position — and before combat, which needs to know who is
+  // standing where when it works out who can reach whom.
+  ramparts(s, grid)
   // momentum is read from the movement that just happened
   charges(s, grid)
   casts(s, hash)

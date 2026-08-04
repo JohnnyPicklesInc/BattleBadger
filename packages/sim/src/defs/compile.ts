@@ -113,7 +113,17 @@ export interface GameDefCompiled {
     isPlot: Uint8Array
     plotPlaced: Uint8Array // must be built on a plot
     untargetable: Uint8Array // plots + markers: no collision, no targeting
+    auraRadius: Float64Array // 0 = carries no aura
+    auraDamagePct: Int32Array // 100 = no change
+    auraTakenPct: Int32Array
+    auraSpeedPct: Int32Array
+    auraFoe: Uint8Array // 1 = dread: it lands on enemies, not allies
+    auraSelf: Uint8Array
+    rampartSlots: Int32Array // >0 = a wall top that can be manned
+    rampartRange: Float64Array
   }
+  /** Type indices that carry an aura — usually a handful of heroes. */
+  auraTypes: number[]
 }
 
 /** Crushable level given to buildings by default: nothing reaches it. */
@@ -284,7 +294,16 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
     isPlot: new Uint8Array(n),
     plotPlaced: new Uint8Array(n),
     untargetable: new Uint8Array(n),
+    auraRadius: new Float64Array(n),
+    auraDamagePct: new Int32Array(n).fill(100),
+    auraTakenPct: new Int32Array(n).fill(100),
+    auraSpeedPct: new Int32Array(n).fill(100),
+    auraFoe: new Uint8Array(n),
+    auraSelf: new Uint8Array(n),
+    rampartSlots: new Int32Array(n),
+    rampartRange: new Float64Array(n),
   }
+  const auraTypes: number[] = []
   def.entities.forEach((e, i) => {
     stats.radius[i] = e.radius
     stats.speed[i] = e.mover?.speed ?? 0
@@ -293,6 +312,22 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
     stats.isBuilding[i] = e.kind === 'building' ? 1 : 0
     stats.xpValue[i] = e.xpValue ?? 0
     stats.isPlot[i] = e.plot ? 1 : 0
+    if (e.rampart && e.rampart.slots > 0) {
+      stats.rampartSlots[i] = e.rampart.slots
+      stats.rampartRange[i] = e.rampart.rangeBonus ?? 0
+    }
+    if (e.aura && e.aura.radius > 0) {
+      auraTypes.push(i)
+      stats.auraRadius[i] = e.aura.radius
+      // Stored the way the combat loop wants them: a multiplier, not a delta.
+      // +25 damage is 125% dealt; +25 armor is 75% TAKEN, which is why the
+      // sign flips on that one and only that one.
+      stats.auraDamagePct[i] = 100 + (e.aura.damagePct ?? 0)
+      stats.auraTakenPct[i] = 100 - (e.aura.armorPct ?? 0)
+      stats.auraSpeedPct[i] = 100 + (e.aura.speedPct ?? 0)
+      stats.auraFoe[i] = e.aura.affects === 'enemies' ? 1 : 0
+      stats.auraSelf[i] = e.aura.self === true ? 1 : 0
+    }
     stats.plotPlaced[i] = e.placement === 'plot' ? 1 : 0
     // plots are pads, not structures: nothing collides with them or shoots them
     stats.untargetable[i] = e.untargetable === true || e.plot !== undefined ? 1 : 0
@@ -408,5 +443,6 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
     anyIncome,
     income,
     stats,
+    auraTypes,
   }
 }

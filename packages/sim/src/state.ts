@@ -202,6 +202,17 @@ export interface SimState {
   upgTakenPct: Int32Array
   upgRangePct: Int32Array
   upgSpeedPct: Int32Array
+  // Leadership, recomputed from scratch every tick in systems/auras.ts. Derived
+  // like the spatial hash — never hashed, because it is a pure function of
+  // positions and ownership that are.
+  auraDamagePct: Int32Array
+  auraTakenPct: Int32Array
+  auraSpeedPct: Int32Array
+  // Wall tops. `onWall` is the structure this soldier is standing on (-1 =
+  // the ground); `wantWall` is the one he has been ordered onto and is still
+  // walking to. Both hashed: who is on a wall decides who can be reached.
+  onWall: Int32Array
+  wantWall: Int32Array
   // Ticks left in a dive. While this is running the flyer counts as ground.
   swooping: Int32Array
   gateOpen: Uint8Array // gates only: 1 while the footprint is standing open
@@ -305,6 +316,11 @@ export function createSim(seed: number, def: GameDefCompiled): SimState {
     upgTakenPct: new Int32Array(8 * def.entities.length).fill(100),
     upgRangePct: new Int32Array(8 * def.entities.length).fill(100),
     upgSpeedPct: new Int32Array(8 * def.entities.length).fill(100),
+    onWall: new Int32Array(MAX_UNITS).fill(-1),
+    wantWall: new Int32Array(MAX_UNITS).fill(-1),
+    auraDamagePct: new Int32Array(MAX_UNITS).fill(100),
+    auraTakenPct: new Int32Array(MAX_UNITS).fill(100),
+    auraSpeedPct: new Int32Array(MAX_UNITS).fill(100),
     swooping: new Int32Array(MAX_UNITS),
     gateOpen: new Uint8Array(MAX_UNITS),
     gateMode: new Uint8Array(MAX_UNITS),
@@ -419,6 +435,8 @@ export function removeMember(s: SimState, id: number): void {
   const horde = s.hordeOf[id]
   if (horde < 0) return
   s.hordeOf[id] = -1
+  s.onWall[id] = -1
+  s.wantWall[id] = -1
   const members = s.hordes.members[horde]
   const at = members.indexOf(id)
   if (at >= 0) members.splice(at, 1)

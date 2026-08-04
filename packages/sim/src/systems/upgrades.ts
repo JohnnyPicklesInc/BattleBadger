@@ -1,4 +1,5 @@
 import type { SimState } from '../state.ts'
+import { rampartRangeBonus } from './ramparts.ts'
 
 // Upgrades: bought once, owned for the match, and felt by every unit the buyer
 // already has as well as every one they train afterwards.
@@ -102,7 +103,10 @@ export function attackDamage(s: SimState, id: number): number {
 
 export function attackRange(s: SimState, id: number): number {
   const t = s.type[id]
-  return (s.def.stats.atkRange[t] * s.upgRangePct[s.owner[id] * s.def.entities.length + t]) / 100
+  const base = (s.def.stats.atkRange[t] * s.upgRangePct[s.owner[id] * s.def.entities.length + t]) / 100
+  // Height. Added after the percentage rather than scaled by it: the wall is
+  // the same height whatever the archer has been drilled in.
+  return base + rampartRangeBonus(s, id)
 }
 
 /** Percentage of incoming damage this entity takes, from its owner's armour. */

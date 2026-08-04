@@ -43,6 +43,7 @@ export function shoveUnit(
 export function separation(s: SimState, hash: SpatialHash): void {
   const st = s.def.stats
   for (let i = 0; i < s.count; i++) {
+      if (s.onWall[i] >= 0) continue
     if (!s.alive[i] || s.kind[i] !== Kind.Unit || s.hidden[i]) continue
     const ri = st.radius[s.type[i]]
     const moving = s.velX[i] !== 0 || s.velZ[i] !== 0
@@ -78,6 +79,9 @@ export function separation(s: SimState, hash: SpatialHash): void {
 export function integrate(s: SimState, grid: WalkGrid): void {
   for (let i = 0; i < s.count; i++) {
     if (!s.alive[i] || s.kind[i] !== Kind.Unit || s.hidden[i]) continue
+    // A man on a wall holds his slot: he does not walk, and nothing on the
+    // ground jostles him off it.
+    if (s.onWall[i] >= 0) continue
     const x0 = s.posX[i]
     const z0 = s.posZ[i]
     let nx = x0 + s.velX[i]
@@ -113,6 +117,7 @@ export function integrate(s: SimState, grid: WalkGrid): void {
 export function resolveOverlaps(s: SimState, grid: WalkGrid, hash: SpatialHash): void {
   const st = s.def.stats
   for (let i = 0; i < s.count; i++) {
+      if (s.onWall[i] >= 0) continue
     if (!s.alive[i] || s.hidden[i] || st.untargetable[s.type[i]]) continue
     const ri = st.radius[s.type[i]]
     hash.forNeighbors(s.posX[i], s.posZ[i], ri + 1.0, (j) => {

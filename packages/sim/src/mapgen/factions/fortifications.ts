@@ -29,6 +29,10 @@ const ENTITIES: EntityDef[] = [
     armorType: WALL_ARMOR,
     xpValue: 10,
     crushableLevel: CRUSH_ENGINE + 1, // nothing rides through a curtain wall
+    // Manned. Four to a section, and the two tiles of height are worth more to
+    // an archer than any upgrade in the game — which is the whole reason to
+    // put a wall somewhere rather than just a tower.
+    rampart: { slots: 4, rangeBonus: 2.5 },
     visual: { model: 'gen:wall', tint: 'owner' },
   },
   {
@@ -71,6 +75,7 @@ const ENTITIES: EntityDef[] = [
     armorType: WALL_ARMOR,
     xpValue: 15,
     crushableLevel: CRUSH_ENGINE + 1,
+    rampart: { slots: 2, rangeBonus: 2.5 },
     gate: { openRadius: 4 },
     visual: { model: 'gen:sally-port', tint: 'owner' },
   },
@@ -86,6 +91,9 @@ const ENTITIES: EntityDef[] = [
     xpValue: 30,
     crushableLevel: CRUSH_ENGINE + 1,
     vision: 22,
+    // Higher than the curtain and holds fewer: a tower is a strongpoint on the
+    // line, not more of it.
+    rampart: { slots: 3, rangeBonus: 4 },
     visual: { model: 'gen:wall-tower', tint: 'owner' },
     combat: { damage: 34, range: 20, acquire: 20, periodTicks: 26, damageType: 'arrow', hits: 'both' },
   },

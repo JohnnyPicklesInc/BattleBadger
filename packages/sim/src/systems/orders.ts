@@ -1,4 +1,5 @@
 import type { PlayerCommand } from '../commands.ts'
+import { dismount } from './ramparts.ts'
 import {
   GateMode,
   Harv,
@@ -175,6 +176,40 @@ export function applyCommands(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]
 
     const ids = resolveUnits(s, c)
     if (ids.length === 0) continue
+
+    // Man a wall. The unit is not teleported up: it is given the wall as a
+    // destination and climbs when it arrives (systems/ramparts.ts), so the
+    // walk across open ground to reach it is a walk you can be caught on.
+    if (c.kind === 'garrison') {
+      const wall = c.target === undefined ? -1 : resolveHandle(s, c.target)
+      if (wall < 0 || !s.alive[wall]) continue
+      if (s.def.stats.rampartSlots[s.type[wall]] <= 0) continue
+      if (!allied(s, s.owner[wall], c.player)) continue
+      for (const id of ids) {
+        if (s.hidden[id] || s.kind[id] !== Kind.Unit) continue
+        releaseHarvest(s, id)
+        dismount(s, id, grid)
+        s.wantWall[id] = wall
+        s.order[id] = Order.Move
+        s.destX[id] = s.posX[wall]
+        s.destZ[id] = s.posZ[wall]
+        s.target[id] = -1
+        s.forced[id] = 0
+        s.paths[id] = planPath(grid, s.posX[id], s.posZ[id], s.posX[wall], s.posZ[wall])
+        s.progress[id] = 1000000
+      }
+      continue
+    }
+
+    // Any other order is a decision to be somewhere else: step off the wall
+    // and stop trying to reach one. Without this a garrisoned archer would
+    // accept a move order, refuse to move, and look broken.
+    if (c.kind !== 'formation' && c.kind !== 'rally') {
+      for (const id of ids) {
+        dismount(s, id, grid)
+        s.wantWall[id] = -1
+      }
+    }
 
     if (c.kind === 'stop') {
       for (const id of ids) {

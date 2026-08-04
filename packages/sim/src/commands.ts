@@ -15,6 +15,7 @@ export type CommandKind =
   | 'formation' // switch a horde's stance (index in `def`)
   | 'gate' // work a gate: open / shut / auto (GateMode in `def`)
   | 'research' // start an upgrade at a building (upgrade index in `def`)
+  | 'garrison' // man a wall top (structure handle in `target`)
 
 // What a client sends. `player` is never trusted from the payload — the relay
 // stamps it from the connection. `units`/`target` are entity HANDLES

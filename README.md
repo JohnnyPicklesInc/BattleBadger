@@ -23,6 +23,17 @@ WC3-style world editor, three.js rendering, Cloudflare Workers hosting.
 - **Maps (`RtsMapDoc` v2)**: WC3-style cliff tiers + ramps; walkability/heights derive from
   the doc via one shared function (`deriveTerrain`). Doodads (scenery + resource nodes),
   pre-placed entities, start locations, named regions, triggers, and embedded custom models.
+- **Leadership**: a hero's real weapon. `aura` on any entity puts a standing
+  damage/armour/speed modifier on everything within a radius, recomputed every tick and
+  folded into the same two functions that already carry veterancy and formation
+  (`outgoingPct`/`incomingPct`). Point it at `enemies` instead and it is dread — the Black
+  Captain does not make orcs better, he makes the men opposite them worse. Sources stack
+  multiplicatively and clamp, so two captains beat one and eight do not beat four.
+- **Wall tops**: soldiers stand ON a curtain wall — out of reach of anything swinging a
+  sword from the ground, shooting further for the height, and dying with the wall when it
+  is breached. Not a second walkability layer: units path to the wall on the ordinary grid
+  and *mount* it, which keeps the walk across open ground (and the chance to be caught on
+  it) as the tactical content. Walls hold four, gates two, towers three and higher.
 - **BFME rules layer**: everything a Battle for Middle-earth style game needs on top of the
   classic RTS economies, all as GameDef data — **passive building income** with BFME's
   farm-crowding penalty (no harvesters at all), a **damage type × armor type matrix**
@@ -43,20 +54,33 @@ WC3-style world editor, three.js rendering, Cloudflare Workers hosting.
   castle site per side to expand onto, and a captain hero. Mirrored across the diagonal, so
   both players get the same ground.
 - **The War of the Ring (starter map)**: the StarCraft-era LOTR scenario, on the BFME rules
-  layer. Eight realms on one 256² continent — Mordor behind its mountain walls in the
-  south-east, Gondor across the Anduin to its left, Rohan's open horse country above, then
-  Isengard, Moria, Lothlórien, Dol Guldur and Erebor up the north. Every realm owns **three
-  muster camps** that produce a battalion wave on their own clock, forever, for free; you win
-  by throwing down every camp the other team holds, and nothing else ends the match. A razed
-  camp is **gone for good** — the map's production only ever falls. **Ages** pass on a global
-  clock and thicken every wave at once (soldiers and archers → pikemen → horse → siege; the
-  Shadow gets numbers and ogres instead), so there is no build order and no research. A camp
-  holds its wave while its owner is at the **army cap** (700 entities), so a hoarded host
-  starves its own production — spend it or stop growing. Waves
-  are never ordered anywhere: they muster and wait, and the army is yours to command. Each
-  realm's table is its own — Rohan fields horse an age early, Erebor never fields it, Moria
-  swarms, Lothlórien is all Galadhrim archers. Slot order follows the fronts, so every lobby
-  size is a real matchup: 1v1 is Gondor vs Mordor, 2v2 adds Rohan vs Isengard, and so on.
+  layer. **Eight powers** on a 256 x 320 continent, each holding scattered ground rather than
+  one corner: Gondor (Minas Tirith, Osgiliath, Dol Amroth), Mordor (five camps, including Dol
+  Guldur four-fifths of the map north — the only power fighting two wars), Rohan, Isengard,
+  the Elves (Rivendell, Lindon, Lothlórien, Thranduil's Halls), Harad (Umbar sits across the
+  river mouth from Dol Amroth), the Dwarves (Erebor, the Iron Hills, Lake-town, and the Blue
+  Mountains alone at the west edge) and Moria. Four a side.
+  Every camp musters a battalion wave on its own clock, forever, for free — and **pays** its
+  owner for doing it, so a power's income IS its camps and the side losing ground is the side
+  that can least afford to take it back. You win by throwing down every camp the other team
+  holds; nothing else ends the match. A razed camp leaves its **ground**: camps and towers
+  stand on pads that survive them, so both can be bought back, and the map's few chokepoints
+  carry neutral pads anyone holding them may raise a tower on.
+  **Ages** pass on a global clock and thicken every wave at once (soldiers and archers →
+  pikemen → horse → siege; the Shadow gets numbers and ogres instead), so there is no build
+  order and no research. From the third age a capital musters its **hero**, and every power's
+  is a different kind of leadership: Gondor's banner, Rohan's speed over the widest radius on
+  the map, the Elves' small knot of quality, the Dwarves' armour, Moria's thin bonus over an
+  enormous crowd, Mordor's dread. **Claimable holds** out on the map raise three emplacements
+  and a militia nobody can recruit anywhere else — Woses, Dunlendings, Corsairs, Beornings.
+  A camp holds its wave while its owner is at the **army cap** (700 entities), so a hoarded
+  host starves its own production — but the tithe still pays, so you can always rebuild.
+  Waves are never ordered anywhere: they muster and wait, and the army is yours to command.
+  No two powers share a wave table — Rohan opens on horse and never builds an engine, the
+  Dwarves never field a rider, the Elves outrange everything, Isengard is the only roster
+  that musters men and orcs in the same line. Slot order follows the fronts, so every lobby
+  size is a real matchup: 1v1 is Gondor vs Mordor across the Anduin, 2v2 adds Rohan against
+  Isengard at the Gap, 4v4 the Dwarves against Moria.
 - **Cerebrate War (starter map)**: a full 3-lane MOBA built purely as map data — Cerebrates in
   opposite corners, three Bastion towers per lane, a Spire per lane whose fall swaps the
   enemy's creeps in that lane for elites (replace, not stack), tree-choked dead-end jungle

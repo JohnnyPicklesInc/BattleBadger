@@ -3,6 +3,7 @@ import { Kind, Order, allied, despawn, type SimState } from '../state.ts'
 import type { SpatialHash } from '../spatial.ts'
 import type { WalkGrid } from '../path/walkgrid.ts'
 import { targetReach } from './orders.ts'
+import { canReachRampart } from './ramparts.ts'
 import { addXp, incomingPct, outgoingPct } from './hordes.ts'
 import { launchProjectile } from './projectiles.ts'
 import { shoveUnit } from './motion.ts'
@@ -57,6 +58,9 @@ export function acquireTargets(s: SimState, hash: SpatialHash): void {
       if (mode === 2) {
         if (s.hp[j] >= st.maxHp[s.type[j]]) return
       } else if (!canHit(s, ty, j)) return // wrong layer
+      // A swordsman must not lock onto an archer standing on a wall: he would
+      // walk to the foot of it and stand there for the rest of the match.
+      else if (!canReachRampart(s, i, j)) return
       const dx = s.posX[j] - s.posX[i]
       const dz = s.posZ[j] - s.posZ[i]
       const dSq = dx * dx + dz * dz
@@ -185,6 +189,7 @@ export function combat(s: SimState, grid: WalkGrid): void {
     const dz = s.posZ[tgt] - s.posZ[i]
     const d = Math.sqrt(dx * dx + dz * dz)
     if (d > targetReach(s, i, tgt) + 0.15 || s.cooldown[i] !== 0) continue
+    if (!canReachRampart(s, i, tgt)) continue
 
     if (allied(s, s.owner[tgt], s.owner[i])) {
       // ally-target ability (heal-style)
@@ -229,6 +234,7 @@ export function combat(s: SimState, grid: WalkGrid): void {
           if (!canHit(s, ty, j)) continue
           const sx = s.posX[j] - s.posX[tgt]
           const sz = s.posZ[j] - s.posZ[tgt]
+          if (!canReachRampart(s, i, j)) continue
           const reach = splash + st.radius[s.type[j]]
           const dSq = sx * sx + sz * sz
           if (dSq > reach * reach) continue

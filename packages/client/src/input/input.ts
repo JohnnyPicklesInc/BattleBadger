@@ -713,6 +713,19 @@ export class InputController {
         this.renderer3d.flashMarker(this.sim.posX[id], this.sim.posZ[id], true)
         return
       }
+      // Your own wall, with troops selected: man it. Checked before the
+      // follow branch, because "follow that wall" is never what anybody meant.
+      if (this.sim.def.stats.rampartSlots[this.sim.type[id]] > 0) {
+        this.sendCmd({
+          kind: 'garrison',
+          units: this.handles(units),
+          x: this.sim.posX[id],
+          z: this.sim.posZ[id],
+          target: handleOf(this.sim, id),
+        })
+        this.renderer3d.flashMarker(this.sim.posX[id], this.sim.posZ[id], false)
+        return
+      }
       // clicking your own selected building sets its rally instead
       if (!(units.length === 1 && units[0] === id)) {
         this.sendCmd({
