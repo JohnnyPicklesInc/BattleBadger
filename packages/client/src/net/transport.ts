@@ -71,7 +71,10 @@ export interface WsCallbacks {
   onStart?: (seed: number, players: (string | null)[]) => void
   onDesync?: (tick: number) => void
   onForfeit?: (winner: number) => void
-  onError?: (message: string) => void
+  /** `fromRelay` separates the room's own explanation — a refused build,
+   * a lost room — from a socket that simply would not open. The first is
+   * worth quoting; the second means nothing to a player. */
+  onError?: (message: string, fromRelay: boolean) => void
   onClose?: () => void
   onMapDoc?: (json: string) => void // guest: fully reassembled custom map
   onMapAck?: (ok: boolean, slot: number) => void // host: a guest confirmed receipt
@@ -172,7 +175,7 @@ export class WsTransport implements Transport {
           this.cb.onForfeit?.(msg.winner)
           break
         case 'error':
-          this.cb.onError?.(msg.message)
+          this.cb.onError?.(msg.message, true)
           break
         case 'mapBegin':
           this.mapChunks = Array.from({ length: msg.chunks }, () => '')
@@ -223,7 +226,7 @@ export class WsTransport implements Transport {
       this.cb.onClose?.()
     }
     this.ws.onerror = () => {
-      if (this.closing || this.token === null) this.cb.onError?.('connection error')
+      if (this.closing || this.token === null) this.cb.onError?.('connection error', false)
     }
   }
 

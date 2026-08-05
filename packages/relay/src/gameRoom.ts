@@ -6,8 +6,8 @@ import type { PlayerCommand } from '@battlebadger/sim'
 interface Attachment {
   slot: number
   name: string
-  /** Client build, reported on connect. The relay never interprets it — it
-   * only hands it back so the lobby can spot a player on stale code. */
+  /** Client build, reported on connect. Handed back so the lobby can name who
+   * is on stale code, and compared on the way in — see `buildRefusal`. */
   ver?: string
 }
 
@@ -43,6 +43,8 @@ interface RoomState {
   /** By slot. Survives the socket, which is the whole point: a seat has to be
    * recognisable when its player comes back on a new connection. */
   seats: (Seat | null)[]
+  /** The build this room plays. Set by whoever opens it — see `buildRefusal`. */
+  build?: string
 }
 
 const STATE_KEY = 'room'
@@ -89,6 +91,9 @@ export class GameRoom extends DurableObject<unknown> {
   private missing: number[] = []
   private graceEndsAt = 0
   private seats: (Seat | null)[] = Array.from({ length: MAX_PLAYERS }, () => null)
+  /** The build every client in this room must be on. Empty until the first one
+   * that reports a build arrives; forgotten again when the lobby empties. */
+  private build = ''
   /** The match's orders by tick, sparse — see CMD_PREFIX. */
   private log = new Map<number, PlayerCommand[]>()
 
@@ -114,6 +119,7 @@ export class GameRoom extends DurableObject<unknown> {
     this.missing = saved.missing
     this.graceEndsAt = saved.graceEndsAt
     this.seats = saved.seats
+    this.build = saved.build ?? ''
     if (!this.started || this.ended) return
 
     // The order log has to come back too: it is what a returning player
@@ -175,6 +181,7 @@ export class GameRoom extends DurableObject<unknown> {
       missing: this.missing,
       graceEndsAt: this.graceEndsAt,
       seats: this.seats,
+      build: this.build,
     } satisfies RoomState)
   }
 
@@ -351,6 +358,15 @@ export class GameRoom extends DurableObject<unknown> {
     const claim = url.searchParams.get('token')
     const claimSlot = Number(url.searchParams.get('slot'))
 
+    // Everyone in a room must be running the same build. Different builds
+    // disagree about unit stats, pathing and the order the sim does things in,
+    // so they desync on the first tick with nothing on screen to explain it.
+    // The lobby's warning is the polite version; this is the one that cannot
+    // be played through. Applies to a rejoin too — reloading into a deploy
+    // that landed mid-match is exactly how somebody comes back on new code.
+    const refusal = this.buildRefusal(ver)
+    if (refusal !== null) return this.refuse(refusal)
+
     // A player coming back to a seat they already hold. Only their own token
     // opens it, and only while the match is still running.
     if (claim) {
@@ -375,7 +391,39 @@ export class GameRoom extends DurableObject<unknown> {
     return this.attach(slot, name, ver, false)
   }
 
+  /** Why this build cannot be seated here, or null if it can. A client that
+   * reports no build at all is let in: only a client old enough to predate the
+   * `ver` parameter does that, and there is nothing to compare it against. */
+  private buildRefusal(ver: string | undefined): string | null {
+    if (!ver || this.build === '' || ver === this.build) return null
+    return (
+      `Everyone in this room has to be on the same build: you are on ${ver} and ` +
+      `the room is on ${this.build}. Reload to pick up the newest one.`
+    )
+  }
+
+  /** Turn a connection away with an explanation it can actually show.
+   *
+   * The socket is accepted so the message can be sent down it — a refused
+   * upgrade reaches the client as a bare connection failure, and "the room
+   * refused the connection" is exactly the kind of dead end this check exists
+   * to replace. */
+  private refuse(message: string): Response {
+    const pair = new WebSocketPair()
+    pair[1].accept()
+    try {
+      pair[1].send(JSON.stringify({ t: 'error', message } satisfies ServerMsg))
+      pair[1].close(4001, 'build mismatch')
+    } catch {
+      // The client gave up first; there is nobody left to tell.
+    }
+    return new Response(null, { status: 101, webSocket: pair[0] })
+  }
+
   private attach(slot: number, name: string, ver: string | undefined, resumed: boolean): Response {
+    // The first client through the door decides what the room plays, and
+    // everyone after it is measured against that.
+    if (this.build === '' && ver) this.build = ver
     const pair = new WebSocketPair()
     this.ctx.acceptWebSocket(pair[1])
     pair[1].serializeAttachment({ slot, name, ver } satisfies Attachment)
@@ -578,6 +626,10 @@ export class GameRoom extends DurableObject<unknown> {
     if (!this.started) {
       // In the lobby a disconnect is just a disconnect — the seat opens up.
       this.seats[a.slot] = null
+      // Last one out forgets the build as well. An empty room is nobody's
+      // match, and holding yesterday's build against the next player to open
+      // the door would turn them away from a room with nothing in it.
+      if (this.sockets().filter((s) => s !== ws).length === 0) this.build = ''
       this.persist()
       this.broadcast({ t: 'lobby', players: this.lobbyPlayers(), versions: this.lobbyVersions() })
       return

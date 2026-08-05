@@ -1,4 +1,3 @@
-import { registerSW } from 'virtual:pwa-register'
 import { mapSlotCount, type RtsMapDoc } from '@battlebadger/sim'
 import { Game, type GameEndInfo } from './game/game.ts'
 import { LocalLoopback, WsTransport } from './net/transport.ts'
@@ -7,23 +6,35 @@ import { showLobby } from './ui/lobby.ts'
 import { roomFromUrl } from './ui/invite.ts'
 import { banner as showBanner } from './ui/diag.ts'
 import { clearStash, readStash, stashMatch, stashedDoc, type MatchStash } from './matchStash.ts'
-import { VERSION } from './version.ts'
-
-registerSW({ immediate: true })
+import { watchForUpdates, applyUpdate } from './sw.ts'
+import { VERSION_ID, VERSION_LABEL } from './version.ts'
 
 const app = document.getElementById('app')!
 const endscreen = document.getElementById('endscreen')!
+
+// Pick up a deploy without waiting for the browser to notice on its own — but
+// say so and let the player choose the moment. A deploy landing is not a good
+// enough reason to throw somebody out of a battle.
+const updateBtn = document.getElementById('b-update') as HTMLButtonElement
+watchForUpdates(() => {
+  updateBtn.style.display = 'flex'
+})
+updateBtn.onclick = () => {
+  updateBtn.disabled = true
+  updateBtn.innerHTML = '<b>Updating…</b><span>Fetching the newest build</span>'
+  void applyUpdate()
+}
 
 // Anything thrown outside the frame loop — an input handler, a HUD click, a
 // rejected asset load — leaves the game apparently frozen with the error
 // buried in a console nobody opened. Surface it instead.
 window.addEventListener('error', (e) => {
-  console.error(`[bb] uncaught error — v${VERSION}`, e.error ?? e.message)
-  showBanner(`Uncaught error: ${e.message} — see the console (F12). Build v${VERSION}.`)
+  console.error(`[bb] uncaught error — ${VERSION_LABEL}`, e.error ?? e.message)
+  showBanner(`Uncaught error: ${e.message} — see the console (F12). ${VERSION_LABEL}.`)
 })
 window.addEventListener('unhandledrejection', (e) => {
-  console.error(`[bb] unhandled rejection — v${VERSION}`, e.reason)
-  showBanner(`Unhandled error: ${String(e.reason)} — see the console (F12). Build v${VERSION}.`)
+  console.error(`[bb] unhandled rejection — ${VERSION_LABEL}`, e.reason)
+  showBanner(`Unhandled error: ${String(e.reason)} — see the console (F12). ${VERSION_LABEL}.`)
 })
 
 function showEnd(info: GameEndInfo): void {
@@ -37,7 +48,7 @@ function showEnd(info: GameEndInfo): void {
     sub.textContent = 'The simulations diverged — replay dumped to console.'
   } else if (info.reason === 'crash') {
     title.textContent = 'Client error'
-    sub.textContent = `This client hit a bug and stopped. The console (F12) has the error and the tick it happened on — v${VERSION}.`
+    sub.textContent = `This client hit a bug and stopped. The console (F12) has the error and the tick it happened on — ${VERSION_LABEL}.`
   } else {
     title.textContent = info.won ? 'Victory!' : 'Defeat'
     sub.textContent =
@@ -203,7 +214,7 @@ async function rejoin(stash: MatchStash): Promise<void> {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url =
       `${proto}//${location.host}/api/rooms/${stash.code}/ws` +
-      `?name=${encodeURIComponent(stash.players[stash.slot] ?? 'Badger')}&ver=${encodeURIComponent(VERSION)}` +
+      `?name=${encodeURIComponent(stash.players[stash.slot] ?? 'Badger')}&ver=${encodeURIComponent(VERSION_ID)}` +
       `&slot=${stash.slot}&token=${encodeURIComponent(stash.token)}`
     let game: Game | null = null
     const transport = new WsTransport(url, {

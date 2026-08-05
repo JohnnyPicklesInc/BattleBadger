@@ -253,6 +253,19 @@
         white-space: pre; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
         color: #cfe3ff; background: rgba(8, 12, 18, 0.82); border: 1px solid #2a3342;
         border-radius: 6px; padding: 7px 10px; }
+      /* A deploy landed while this tab was open. Stays out of the way until
+         there is genuinely something to say, and above the lobby overlay
+         (z-index 10) — otherwise the front screen dims the one thing on it
+         that wants attention. */
+      #b-update { position: fixed; top: 10px; right: 12px; z-index: 14; display: none;
+        flex-direction: column; align-items: flex-end; gap: 1px; padding: 7px 12px;
+        text-align: right; cursor: pointer; border-radius: 8px; font-family: inherit;
+        background: #7a5205ee; border: 1px solid #f5a020; color: #fff; }
+      #b-update b { font-size: 12px; font-weight: 700; }
+      #b-update span { font-size: 10px; opacity: 0.75; }
+      #b-update:hover { background: #916207ee; }
+      #b-update:disabled { opacity: 0.7; cursor: default; }
+
       #banner { position: fixed; top: 0; left: 0; right: 0; z-index: 12; display: none;
         background: #b03a2c; color: #fff; text-align: center; padding: 8px; font-size: 14px; }
       #endscreen { display: none; }
@@ -265,6 +278,9 @@
     <div id="boxsel"></div>
     <div id="mode">ATTACK MOVE — click a target location (Esc to cancel)</div>
     <div id="banner"></div>
+    <button id="b-update">
+      <b>Update available</b><span>Reload for the newest build</span>
+    </button>
     <div id="endscreen" class="overlay"><div class="panel"><h2 id="end-title"></h2>
       <div class="sub" id="end-sub"></div><button class="primary" onclick="location.reload()">Back to menu</button></div></div>
     <script type="module" src="/src/main.ts"></script>

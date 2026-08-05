@@ -12,7 +12,7 @@ import { WsTransport } from '../net/transport.ts'
 import { listLibrary, loadLibraryMap, saveToLibrary } from '../mapLibrary.ts'
 import { factionsFor, listFactions, type FactionChoice } from './factions.ts'
 import { inviteLink, roomFromUrl } from './invite.ts'
-import { VERSION } from '../version.ts'
+import { VERSION_ID, VERSION_LABEL } from '../version.ts'
 import { drawMapPreview, startLocationAt, SLOT_COLORS } from './mapPreview.ts'
 
 export interface MatchStart {
@@ -109,19 +109,20 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
   const previewEmpty = $('lb-preview-empty')
   const caption = $('lb-caption')
   const verWarn = $('lb-verwarn')
-  $('lb-version').textContent = `v${VERSION}`
+  $('lb-version').textContent = VERSION_LABEL
   nameInput.value = localStorage.getItem('bb-name') ?? `Badger${Math.floor(Math.random() * 900 + 100)}`
 
   // Lockstep only works if every client runs the same code. A player left on a
   // cached build desyncs minutes in with no clue why, so say it here — while
-  // reloading still costs nothing.
+  // reloading still costs nothing. Compared on the build-stamped id, not the
+  // version alone: two deploys of the same version disagree just as badly.
   const buildWarning = (versions: (string | null)[]): void => {
-    const odd = [...new Set(versions.filter((v): v is string => Boolean(v) && v !== VERSION))]
+    const odd = [...new Set(versions.filter((v): v is string => Boolean(v) && v !== VERSION_ID))]
     verWarn.style.display = odd.length > 0 ? 'block' : 'none'
     verWarn.textContent =
       odd.length > 0
-        ? `⚠ different builds in this room — you are on v${VERSION}, somebody is on ` +
-          `${odd.map((v) => `v${v}`).join(', ')}. Everyone should reload before starting.`
+        ? `⚠ different builds in this room — you are on ${VERSION_ID}, somebody is on ` +
+          `${odd.join(', ')}. Everyone should reload before starting.`
         : ''
   }
 
@@ -610,7 +611,7 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const url =
       `${proto}//${location.host}/api/rooms/${code}/ws` +
-      `?name=${encodeURIComponent(playerName())}&ver=${encodeURIComponent(VERSION)}`
+      `?name=${encodeURIComponent(playerName())}&ver=${encodeURIComponent(VERSION_ID)}`
     status.textContent = 'connecting…'
     transport = new WsTransport(url, {
       onJoined: (slot, players, versions) => {
@@ -676,13 +677,23 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
         seats = published
         renderPlayers()
       },
-      onError: (m) => {
+      onError: (m, fromRelay) => {
         // The relay refuses the upgrade for a full or already-started room, so
         // a dead invite link surfaces here as a plain socket error. Say what it
-        // actually means instead of "connection error".
-        status.textContent = inRoom
-          ? `error: ${m}`
-          : `could not join room ${code} — it may be full, already started, or the relay is down`
+        // actually means instead of "connection error". When the room did
+        // explain itself — a build it will not seat — that explanation is the
+        // whole point and is quoted as it stands.
+        status.textContent =
+          inRoom || fromRelay
+            ? `error: ${m}`
+            : `could not join room ${code} — it may be full, already started, or the relay is down`
+        // A build the room will not seat is the one refusal a player can
+        // actually do something about, so it goes where the other build
+        // warnings go rather than into the status line's small print.
+        if (fromRelay && !inRoom) {
+          verWarn.style.display = 'block'
+          verWarn.textContent = `⚠ ${m}`
+        }
         transport = null
       },
       onClose: () => {

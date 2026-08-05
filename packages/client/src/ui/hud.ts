@@ -11,7 +11,7 @@ import { PLAYER_COLORS, modelGeometry } from '../render/unitMeshes.ts'
 import { resolveModel } from '../render/assets.ts'
 import type { RtsCamera } from '../render/camera.ts'
 import { terrainImage } from './mapPreview.ts'
-import { VERSION } from '../version.ts'
+import { VERSION_LABEL } from '../version.ts'
 
 // WC3-style bottom HUD: menu + minimap on the left, unit portrait bottom
 // center, command card lower right. All buttons also work under pointer-lock
@@ -185,7 +185,7 @@ export class Hud {
         <button id="menu-resume" class="primary">Resume</button>
         <button id="menu-fullscreen">Toggle fullscreen</button>
         <button id="menu-surrender">Surrender &amp; leave</button>
-        <div class="sub" style="margin-top:10px">v${VERSION}</div>
+        <div class="sub" style="margin-top:10px">${VERSION_LABEL}</div>
       </div>`
     document.body.appendChild(this.menuOverlay)
 

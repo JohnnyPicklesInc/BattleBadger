@@ -1,4 +1,4 @@
-import { VERSION } from '../version.ts'
+import { VERSION_LABEL } from '../version.ts'
 
 // Why a match froze is otherwise unanswerable from the outside: every cause
 // looks identical from the sofa ("it just stopped"). These are the four, and
@@ -81,7 +81,7 @@ export class DiagOverlay {
     if (now - this.lastPaint < 250) return
     this.lastPaint = now
     this.el.textContent =
-      `v${VERSION} · slot ${s.slot + 1}\n` +
+      `${VERSION_LABEL} · slot ${s.slot + 1}\n` +
       `fps ${s.fps.toFixed(0)} · frame ${s.frameMs.toFixed(1)}ms · sim ${s.stepMs.toFixed(1)}ms\n` +
       `tick ${s.tick} · queue ${s.queue} · last bundle ${(s.bundleAgeMs / 1000).toFixed(1)}s ago\n` +
       `entities ${s.entities}` +

@@ -6,3 +6,19 @@
 // which for a lockstep sim is the difference between a match and a desync —
 // and a stale service worker is a failure with no other symptom.
 export const VERSION = '0.0.10'
+
+/**
+ * Distinguishes two deploys of the same version, which is what actually
+ * matters when two people are working out whether they are on the same code:
+ * the version only moves when someone remembers to bump it.
+ */
+/** The raw stamp, for comparing against what the origin is serving. */
+export const BUILD_ID = String(__BB_BUILD__)
+
+export const BUILD_TAG = Number(__BB_BUILD__).toString(36).slice(-4).toUpperCase()
+
+/** Shown in the lobby, the pause menu and the diagnostics overlay. */
+export const VERSION_LABEL = `v${VERSION} · build ${BUILD_TAG}`
+
+/** Sent on connect; the lobby warns when two of these disagree. */
+export const VERSION_ID = `${VERSION}+${BUILD_TAG}`

@@ -13,9 +13,9 @@ const jfetch = async (path, opts) => {
   return res.json()
 }
 
-const connect = (code, name, seat) =>
+const connect = (code, name, seat, ver) =>
   new Promise((resolve, reject) => {
-    const q = seat ? `&slot=${seat.slot}&token=${seat.token}` : ''
+    const q = (seat ? `&slot=${seat.slot}&token=${seat.token}` : '') + (ver ? `&ver=${encodeURIComponent(ver)}` : '')
     const ws = new WebSocket(`${BASE.replace('http', 'ws')}/api/rooms/${code}/ws?name=${name}${q}`)
     const client = { ws, name, slot: -1, token: null, bundles: [], msgs: [], started: null, catchup: null }
     ws.onmessage = (ev) => {
@@ -34,23 +34,29 @@ const connect = (code, name, seat) =>
     setTimeout(() => reject(new Error('join timeout')), 5000)
   })
 
-// True when the relay refuses the connection outright (bad token, closed seat).
+// Resolves to the refusal: `{ refused, message }`. A room turns a connection
+// away either by refusing the upgrade (bad token, closed seat) or by accepting
+// it just long enough to say why (a build it will not seat), so both count.
 // A plain fetch cannot ask: undici rejects an Upgrade header before it is sent.
-const refused = (code, name, seat) =>
+const refusal = (code, name, seat, ver) =>
   new Promise((resolve) => {
-    const q = seat ? `&slot=${seat.slot}&token=${seat.token}` : ''
+    const q = (seat ? `&slot=${seat.slot}&token=${seat.token}` : '') + (ver ? `&ver=${encodeURIComponent(ver)}` : '')
     const ws = new WebSocket(`${BASE.replace('http', 'ws')}/api/rooms/${code}/ws?name=${name}${q}`)
     let joined = false
+    let message = null
     ws.onmessage = (ev) => {
-      if (JSON.parse(ev.data).t === 'joined') {
+      const m = JSON.parse(ev.data)
+      if (m.t === 'joined') {
         joined = true
         ws.close()
-      }
+      } else if (m.t === 'error') message = m.message
     }
-    ws.onerror = () => resolve(true)
-    ws.onclose = () => resolve(!joined)
-    setTimeout(() => resolve(!joined), 2500)
+    ws.onerror = () => resolve({ refused: true, message })
+    ws.onclose = () => resolve({ refused: !joined, message })
+    setTimeout(() => resolve({ refused: !joined, message }), 2500)
   })
+
+const refused = async (code, name, seat) => (await refusal(code, name, seat)).refused
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const send = (c, m) => c.ws.send(JSON.stringify(m))
@@ -329,6 +335,53 @@ check(await refused(code7, 'Three', { slot: p3.slot, token: p3.token }), 'a kick
 p1.ws.close()
 p2b.ws.close()
 await sleep(300)
+
+// --- scenario 5: a room seats one build and only that build ---
+// Lockstep clients on different code desync on the first tick, so the room
+// turns the odd one away at the door rather than letting the match start and
+// fall apart. The refusal has to arrive as words: "connection failed" is the
+// dead end this whole check exists to replace.
+console.log('scenario 5: the room refuses a mismatched build')
+const { code: code8 } = await jfetch('/api/rooms', { method: 'POST' })
+const v1 = await connect(code8, 'Same', null, '0.1.0+AAAA')
+check(v1.slot === 0, 'first client in sets the room build')
+const same = await connect(code8, 'Alike', null, '0.1.0+AAAA')
+check(same.slot === 1, 'a matching build is seated')
+const odd = await refusal(code8, 'Stale', null, '0.1.0+ZZZZ')
+check(odd.refused, 'a different build is turned away')
+check(
+  typeof odd.message === 'string' && odd.message.includes('0.1.0+ZZZZ') && odd.message.includes('0.1.0+AAAA'),
+  `refusal names both builds (${odd.message})`,
+)
+// A client too old to report one at all predates the check; nothing to compare.
+const quiet = await connect(code8, 'Quiet')
+check(quiet.slot === 2, 'a client reporting no build is still seated')
+quiet.ws.close()
+
+// Reloading into a deploy that landed mid-match is the other way onto the
+// wrong code, and the seat token must not buy a way past it.
+send(v1, { t: 'startReq' })
+await sleep(300)
+same.ws.close()
+await sleep(400)
+const back = await refusal(code8, 'Alike', { slot: same.slot, token: same.token }, '0.1.0+ZZZZ')
+check(back.refused, 'a rejoin on a new build is refused too')
+const okBack = await connect(code8, 'Alike', { slot: same.slot, token: same.token }, '0.1.0+AAAA')
+check(okBack.slot === same.slot && okBack.resumed, 'the same build gets its seat back')
+v1.ws.close()
+okBack.ws.close()
+await sleep(300)
+
+// An emptied lobby is nobody's match: it forgets its build rather than holding
+// it against whoever opens the room next.
+const { code: code9 } = await jfetch('/api/rooms', { method: 'POST' })
+const first = await connect(code9, 'First', null, '0.1.0+AAAA')
+first.ws.close()
+await sleep(400)
+const next = await connect(code9, 'Next', null, '0.1.0+ZZZZ')
+check(next.slot === 0, 'an emptied lobby forgets the build it was holding')
+next.ws.close()
+await sleep(200)
 
 // --- static assets ---
 console.log('scenario 4: static assets served')

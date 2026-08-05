@@ -77,17 +77,48 @@ export function buildTerrainMesh(doc: RtsMapDoc): THREE.Mesh {
 //   explored, unseen → dimmed (you remember the ground, not who is on it)
 //   never explored   → near-black ('full' mode only)
 // 'units' mode marks everything explored, so terrain just stays lit.
+/**
+ * Re-shade the terrain for the fog, writing only what actually changed.
+ *
+ * This used to rewrite every vertex colour and re-upload the whole buffer on
+ * every fog revision — which is every tick. On a 160² map that was ~25k writes
+ * and a 300 KB upload; on 480 × 384 it is 184k cells, 553k float writes and a
+ * 2.2 MB upload, ten times a second. Twenty-two megabytes a second of buffer
+ * traffic to redraw a picture that barely moved.
+ *
+ * Fog changes at the EDGE of what an army can see, so a tick typically dirties
+ * a few hundred cells out of 184,000. Tracking the shade already applied per
+ * cell turns the write into "only the cells that changed", and the min/max of
+ * those indices bounds the upload to the slice that moved.
+ */
 export function shadeTerrainFog(mesh: THREE.Mesh, fog: FogState): void {
   if (!fog.enabled) return
   const attr = mesh.geometry.getAttribute('color') as THREE.BufferAttribute
   const base = mesh.userData.baseColors as Float32Array
   const arr = attr.array as Float32Array
-  for (let i = 0; i < fog.visible.length; i++) {
+  const n = fog.visible.length
+  let applied = mesh.userData.fogShade as Uint8Array | undefined
+  // 255 = "nothing applied yet", so the first pass writes every cell once.
+  if (!applied || applied.length !== n) {
+    applied = new Uint8Array(n).fill(255)
+    mesh.userData.fogShade = applied
+  }
+  let lo = -1
+  let hi = -1
+  for (let i = 0; i < n; i++) {
+    const level = fog.visible[i] === 1 ? 2 : fog.explored[i] === 1 ? 1 : 0
+    if (applied[i] === level) continue
+    applied[i] = level
+    const mul = level === 2 ? 1 : level === 1 ? 0.42 : 0.05
     const k = i * 3
-    const mul = fog.visible[i] === 1 ? 1 : fog.explored[i] === 1 ? 0.42 : 0.05
     arr[k] = base[k] * mul
     arr[k + 1] = base[k + 1] * mul
     arr[k + 2] = base[k + 2] * mul
+    if (lo < 0) lo = i
+    hi = i
   }
+  if (lo < 0) return // nothing moved: do not touch the GPU at all
+  attr.clearUpdateRanges()
+  attr.addUpdateRange(lo * 3, (hi - lo + 1) * 3)
   attr.needsUpdate = true
 }

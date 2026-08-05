@@ -20,7 +20,7 @@ import { MouseCursor } from '../input/cursor.ts'
 import { Hud } from '../ui/hud.ts'
 import { banner, DiagOverlay } from '../ui/diag.ts'
 import { HoldOverlay } from '../ui/hold.ts'
-import { VERSION } from '../version.ts'
+import { VERSION_ID, VERSION_LABEL } from '../version.ts'
 
 export interface GameEndInfo {
   won: boolean
@@ -211,7 +211,7 @@ export class Game {
       // The command log + seed IS a replay — dump it for offline debugging.
       // The build goes in it too: "the two clients were on different code" is
       // the first thing to rule out, and the log alone cannot say.
-      console.error('DESYNC — replay dump:', JSON.stringify({ version: VERSION, seed: this.seed, log: this.cmdLog }))
+      console.error('DESYNC — replay dump:', JSON.stringify({ version: VERSION_ID, seed: this.seed, log: this.cmdLog }))
     }
     this.transport.close()
     this.onEnd(info)
@@ -348,7 +348,7 @@ export class Game {
   private onFrameError(err: unknown): boolean {
     this.frameErrors++
     console.error(
-      `[bb] frame error #${this.frameErrors} — v${VERSION}, tick ${this.sim.tick}, ` +
+      `[bb] frame error #${this.frameErrors} — ${VERSION_LABEL}, tick ${this.sim.tick}, ` +
         `queue ${this.bundles.length}, entities ${this.sim.count}`,
       err,
     )
@@ -359,7 +359,7 @@ export class Game {
       this.diag.force(true)
       return true
     }
-    banner(`Client error at tick ${this.sim.tick} — see the console (F12). Build v${VERSION}.`, { sticky: true })
+    banner(`Client error at tick ${this.sim.tick} — see the console (F12). ${VERSION_LABEL}.`, { sticky: true })
     this.end({ won: false, reason: 'crash' })
     return false
   }
@@ -369,14 +369,22 @@ export class Game {
     this.frameMs = this.lastFrameAt === 0 ? 16 : now - this.lastFrameAt
     this.lastFrameAt = now
 
-    // Step when a bundle is due; fast-forward if we've fallen behind. While
-    // replaying a rejoin the whole point is to go as fast as the machine can,
-    // so the step cap becomes a time budget instead — enough to keep the
-    // progress bar painting, not so little that a long match takes minutes.
+    // Step when a bundle is due; fast-forward if we've fallen behind. Both
+    // paths are TIME-budgeted, and the normal one especially.
+    //
+    // It used to be capped at 30 steps instead. On a small map a step is a
+    // millisecond and thirty of them are free; on an eight-power battle a step
+    // is ~20 ms, so one frame could block for six hundred — and that is a
+    // spiral, because the frame that took 600 ms put six more bundles in the
+    // queue on the way. The symptom is not a low frame rate, it is a median of
+    // 60 fps with a 95th percentile three times worse, getting worse as the
+    // armies grow. Bounded by time, a machine that cannot keep up falls behind
+    // steadily and visibly (the watchdog says so) instead of seizing.
     const stepStart = performance.now()
     const replaying = this.catchupTo >= 0
+    const budgetMs = replaying ? 24 : 34
     let guard = 0
-    while (this.bundles.length > 0 && (replaying ? performance.now() - stepStart < 24 : guard < 30)) {
+    while (this.bundles.length > 0 && performance.now() - stepStart < budgetMs && (replaying || guard < 30)) {
       const behind = this.bundles.length > 2
       const due = now - this.lastStepAt >= TICK_MS - 4
       if (!replaying && !behind && !due) break
