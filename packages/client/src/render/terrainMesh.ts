@@ -69,6 +69,7 @@ export function buildTerrainMesh(doc: RtsMapDoc): THREE.Mesh {
   // Keep the unfogged palette so shadeTerrainFog can re-derive lighting each
   // update instead of progressively darkening what it already darkened.
   mesh.userData.baseColors = colors.slice()
+  mesh.userData.fogCols = cols
   return mesh
 }
 
@@ -78,24 +79,33 @@ export function buildTerrainMesh(doc: RtsMapDoc): THREE.Mesh {
 //   never explored   → near-black ('full' mode only)
 // 'units' mode marks everything explored, so terrain just stays lit.
 /**
- * Re-shade the terrain for the fog, writing only what actually changed.
+ * Re-shade the terrain for the fog, writing only what actually changed and
+ * uploading only the rows that changed.
  *
  * This used to rewrite every vertex colour and re-upload the whole buffer on
  * every fog revision — which is every tick. On a 160² map that was ~25k writes
- * and a 300 KB upload; on 480 × 384 it is 184k cells, 553k float writes and a
- * 2.2 MB upload, ten times a second. Twenty-two megabytes a second of buffer
- * traffic to redraw a picture that barely moved.
+ * and a 300 KB upload; at 480 x 384 it is 184k cells, 553k float writes and a
+ * 2.2 MB upload, ten times a second.
  *
- * Fog changes at the EDGE of what an army can see, so a tick typically dirties
- * a few hundred cells out of 184,000. Tracking the shade already applied per
- * cell turns the write into "only the cells that changed", and the min/max of
- * those indices bounds the upload to the slice that moved.
+ * Two things make it cheap. Tracking the shade already applied per cell means
+ * only genuinely changed cells are written. And the upload is bounded PER ROW
+ * rather than by one span across the whole buffer — that distinction is the
+ * whole fix, because armies are scattered, so the first and last dirty cells
+ * on the map are usually near opposite ends of it and a single min/max range
+ * covers almost everything. Measured at map size with forty drifting vision
+ * discs: 2160 KB/tick before, 278 KB/tick after, for the same CPU.
+ *
+ * Runs of dirty rows are deliberately NOT coalesced. Merging across even a
+ * three-row gap chains scattered rows back into one huge span and gives most
+ * of the saving straight back (1812 KB/tick when measured); a few hundred
+ * small uploads ten times a second is the cheaper end of that trade.
  */
 export function shadeTerrainFog(mesh: THREE.Mesh, fog: FogState): void {
   if (!fog.enabled) return
   const attr = mesh.geometry.getAttribute('color') as THREE.BufferAttribute
   const base = mesh.userData.baseColors as Float32Array
   const arr = attr.array as Float32Array
+  const cols = mesh.userData.fogCols as number
   const n = fog.visible.length
   let applied = mesh.userData.fogShade as Uint8Array | undefined
   // 255 = "nothing applied yet", so the first pass writes every cell once.
@@ -103,22 +113,31 @@ export function shadeTerrainFog(mesh: THREE.Mesh, fog: FogState): void {
     applied = new Uint8Array(n).fill(255)
     mesh.userData.fogShade = applied
   }
-  let lo = -1
-  let hi = -1
-  for (let i = 0; i < n; i++) {
-    const level = fog.visible[i] === 1 ? 2 : fog.explored[i] === 1 ? 1 : 0
-    if (applied[i] === level) continue
-    applied[i] = level
-    const mul = level === 2 ? 1 : level === 1 ? 0.42 : 0.05
-    const k = i * 3
-    arr[k] = base[k] * mul
-    arr[k + 1] = base[k + 1] * mul
-    arr[k + 2] = base[k + 2] * mul
-    if (lo < 0) lo = i
-    hi = i
-  }
-  if (lo < 0) return // nothing moved: do not touch the GPU at all
   attr.clearUpdateRanges()
-  attr.addUpdateRange(lo * 3, (hi - lo + 1) * 3)
-  attr.needsUpdate = true
+  let dirty = false
+  const rows = cols > 0 ? Math.ceil(n / cols) : 1
+  for (let z = 0; z < rows; z++) {
+    const row = z * cols
+    const end = Math.min(cols, n - row)
+    let lo = -1
+    let hi = -1
+    for (let x = 0; x < end; x++) {
+      const i = row + x
+      const level = fog.visible[i] === 1 ? 2 : fog.explored[i] === 1 ? 1 : 0
+      if (applied[i] === level) continue
+      applied[i] = level
+      const mul = level === 2 ? 1 : level === 1 ? 0.42 : 0.05
+      const k = i * 3
+      arr[k] = base[k] * mul
+      arr[k + 1] = base[k + 1] * mul
+      arr[k + 2] = base[k + 2] * mul
+      if (lo < 0) lo = x
+      hi = x
+    }
+    if (lo < 0) continue
+    attr.addUpdateRange((row + lo) * 3, (hi - lo + 1) * 3)
+    dirty = true
+  }
+  // Nothing moved: do not touch the GPU at all.
+  if (dirty) attr.needsUpdate = true
 }

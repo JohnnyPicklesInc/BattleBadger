@@ -3,6 +3,64 @@ import type { WalkGrid } from './walkgrid.ts'
 // Grid A*, 8-connected, integer costs 10/14, no diagonal corner cutting.
 // Tie-breaks: lower f, then lower h, then lower node index — fully stable.
 
+/**
+ * Scratch, reused across every search instead of allocated per call.
+ *
+ * This used to allocate six full-grid typed arrays inside findPath — g, f, h,
+ * parent, closed and the heap. On a 160² map that is ~410 KB a call and merely
+ * wasteful; at 480 x 384 it is ~3.9 MB, and the AI hands `applyCommands` one
+ * order containing every idle unit it owns, so a single tick could plan seven
+ * hundred paths and allocate nearly three gigabytes. That showed up as sim
+ * steps of 1.3 SECONDS against a 7 ms median, and frames of over two.
+ *
+ * `stamp` is what makes reuse safe without clearing 184k cells each call: a
+ * cell counts as unvisited unless it was stamped with the current generation,
+ * so the buffers never need zeroing and results are identical to the
+ * freshly-allocated version — same tie-breaks, same path, same everything.
+ */
+let cap = 0
+let g = new Int32Array(0)
+let f = new Int32Array(0)
+let h = new Int32Array(0)
+let parent = new Int32Array(0)
+let heap = new Int32Array(0)
+let seen = new Int32Array(0) // generation that last touched this cell
+let closedAt = new Int32Array(0) // generation this cell was closed in
+let gen = 0
+
+function reserve(n: number): void {
+  if (cap >= n) return
+  cap = n
+  g = new Int32Array(n)
+  f = new Int32Array(n)
+  h = new Int32Array(n)
+  parent = new Int32Array(n)
+  heap = new Int32Array(n + 1)
+  seen = new Int32Array(n)
+  closedAt = new Int32Array(n)
+  gen = 0 // fresh buffers: no stamp may alias a previous generation
+}
+
+/**
+ * Most nodes one search may expand before it gives up and returns the best it
+ * found. A fixed integer, so every client expands the same nodes and stops at
+ * the same one — bounded and still bit-identical across machines.
+ *
+ * Without it a single cross-map search on a 480 x 384 grid can expand tens of
+ * thousands of cells and cost milliseconds, and the systems that path are
+ * plural: a battalion order, a stuck-unit repath, an AI attack-move. Sixteen
+ * unbounded searches in one tick measured 53 ms on their own.
+ *
+ * Truncating is not a failure mode here — findPath already returns the closest
+ * cell it reached when a goal is unreachable, and the caller walks that way and
+ * asks again. A long march becomes a few hops rather than one perfect route.
+ *
+ * 24,000 is measured, not chosen: at 6,000 a battalion could no longer march
+ * the length of Dunhollow, and Last Alliance's citadel test failed with it.
+ * Both pass from 20,000 up, so this is that with margin.
+ */
+const MAX_EXPANSIONS = 24000
+
 const DX = [1, -1, 0, 0, 1, 1, -1, -1]
 const DY = [0, 0, 1, -1, 1, -1, 1, -1]
 const COST = [10, 10, 10, 10, 14, 14, 14, 14]
@@ -35,13 +93,17 @@ export function findPath(
   if (!grid.isWalkable(sx, sy) || !grid.isWalkable(tx, ty)) return null
   if (start === goal) return [start]
 
-  const g = new Int32Array(n).fill(-1)
-  const f = new Int32Array(n)
-  const h = new Int32Array(n)
-  const parent = new Int32Array(n).fill(-1)
-  const closed = new Uint8Array(n)
-
-  const heap = new Int32Array(n + 1)
+  reserve(n)
+  // A new generation invalidates every stamp at once. `seen` starts zeroed, so
+  // generation 0 would read as "already visited" — hence the pre-increment.
+  gen++
+  if (gen === 0x7fffffff) {
+    seen.fill(0)
+    closedAt.fill(0)
+    gen = 1
+  }
+  const visited = (id: number): boolean => seen[id] === gen
+  const isClosed = (id: number): boolean => closedAt[id] === gen
   let heapSize = 0
 
   const less = (a: number, b: number): boolean => {
@@ -89,6 +151,8 @@ export function findPath(
     return 10 * Math.max(adx, ady) + 4 * Math.min(adx, ady)
   }
 
+  seen[start] = gen
+  parent[start] = -1
   g[start] = 0
   h[start] = hOf(start)
   f[start] = h[start]
@@ -100,10 +164,12 @@ export function findPath(
   let nearest = start
   let nearestH = h[start]
 
+  let expanded = 0
   while (heapSize > 0) {
+    if (++expanded > MAX_EXPANSIONS) break
     const cur = pop()
-    if (closed[cur]) continue
-    closed[cur] = 1
+    if (isClosed(cur)) continue
+    closedAt[cur] = gen
     if (h[cur] < nearestH || (h[cur] === nearestH && (g[cur] < g[nearest] || (g[cur] === g[nearest] && cur < nearest)))) {
       nearest = cur
       nearestH = h[cur]
@@ -123,9 +189,10 @@ export function findPath(
       // no cutting corners diagonally past blocked cells
       if (k >= 4 && (!grid.isWalkable(cx + DX[k], cy) || !grid.isWalkable(cx, cy + DY[k]))) continue
       const nid = ny * cols + nx
-      if (closed[nid]) continue
+      if (isClosed(nid)) continue
       const ng = g[cur] + COST[k]
-      if (g[nid] === -1 || ng < g[nid]) {
+      if (!visited(nid) || ng < g[nid]) {
+        seen[nid] = gen
         g[nid] = ng
         h[nid] = hOf(nid)
         f[nid] = ng + h[nid]

@@ -1,5 +1,6 @@
-import { Kind, TICK_S, allied, type SimState } from '../state.ts'
+import { Kind, TICK_S, type SimState } from '../state.ts'
 import type { WalkGrid } from '../path/walkgrid.ts'
+import type { SpatialHash } from '../spatial.ts'
 import { applyDamageTable } from './combat.ts'
 import { addXp, crushableOf, incomingPct, outgoingPct } from './hordes.ts'
 import { shoveUnit } from './motion.ts'
@@ -17,10 +18,17 @@ import { shoveUnit } from './motion.ts'
 // Runs after integration so it reads the positions units actually reached this
 // tick, and before deaths() so anything ridden down is cleaned up on schedule.
 
+/**
+ * Query radius slack for the victim's own size. A wall gate is the widest thing
+ * anything can run into (radius 4.2), and a charge that connects with one is
+ * refused rather than ignored — so the search has to be able to see it.
+ */
+const MAX_VICTIM_RADIUS = 5
+
 /** Ticks at charge speed needed before an impact counts as a charge. */
 const RUN_UP_TICKS = 4
 
-export function charges(s: SimState, grid: WalkGrid): void {
+export function charges(s: SimState, grid: WalkGrid, hash: SpatialHash): void {
   const st = s.def.stats
   for (let i = 0; i < s.count; i++) {
     if (!s.alive[i] || s.hidden[i] || s.kind[i] !== Kind.Unit) continue
@@ -66,23 +74,31 @@ export function charges(s: SimState, grid: WalkGrid): void {
     let bestDSq = Infinity
     const ri = st.radius[ty]
     const crusher = st.crusherLevel[ty]
-    for (let j = 0; j < s.count; j++) {
-      if (j === i || !s.alive[j] || s.hidden[j]) continue
-      if (st.untargetable[s.type[j]]) continue
-      if (st.flying[s.type[j]] === 1) continue // you cannot ride down a flyer
-      if (allied(s, s.owner[j], s.owner[i])) continue
+    // Whatever a horse can physically touch is within a couple of tiles, so ask
+    // the grid rather than the whole army. This used to scan EVERY entity for
+    // every charging unit — O(n²), which at five thousand men marching was 29
+    // million iterations and a third of the tick.
+    //
+    // Ties are broken on lowest id explicitly. The old scan ran j ascending and
+    // got that for free; the grid visits teams then cells, so without this an
+    // exact distance tie could pick a different victim and two clients could
+    // disagree about who got ridden down.
+    hash.forEnemyNeighbors(s.playerTeam[s.owner[i]], s.posX[i], s.posZ[i], ri + MAX_VICTIM_RADIUS, (j) => {
+      if (j === i || !s.alive[j] || s.hidden[j]) return
+      if (st.untargetable[s.type[j]]) return
+      if (st.flying[s.type[j]] === 1) return // you cannot ride down a flyer
       const dx = s.posX[j] - s.posX[i]
       const dz = s.posZ[j] - s.posZ[i]
       const dSq = dx * dx + dz * dz
       const reach = ri + st.radius[s.type[j]] + 0.2
-      if (dSq > reach * reach) continue
+      if (dSq > reach * reach) return
       // must be riding INTO them, not merely passing by or breaking off
-      if (dx * dirX + dz * dirZ <= 0) continue
-      if (dSq < bestDSq) {
+      if (dx * dirX + dz * dirZ <= 0) return
+      if (dSq < bestDSq || (dSq === bestDSq && (victim === -1 || j < victim))) {
         bestDSq = dSq
         victim = j
       }
-    }
+    })
     if (victim < 0) continue
 
     // Refused: the thing in front is too heavy to bowl over — braced pikes,

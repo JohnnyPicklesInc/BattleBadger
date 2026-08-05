@@ -55,7 +55,7 @@ export function step(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]): void {
   // standing where when it works out who can reach whom.
   ramparts(s, grid)
   // momentum is read from the movement that just happened
-  charges(s, grid)
+  charges(s, grid, hash)
   casts(s, hash)
   projectiles(s, hash)
   combat(s, grid)

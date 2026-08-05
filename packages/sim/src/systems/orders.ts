@@ -487,7 +487,17 @@ export function applyCommands(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]
 
     // move / attackMove
     const order = c.kind === 'move' ? Order.Move : Order.AttackMove
-    const sendTo = (id: number, dx: number, dz: number): void => {
+    /**
+     * @param shared A route already found for this man's BATTALION, or null to
+     *   search for him alone. Nine men walking to nine adjacent slots do not
+     *   need nine searches of the same ground — they need one, and their own
+     *   place in the formation at the end of it.
+     *
+     *   The waypoint LIST is shared; the cursor into it is not. `UnitPath.i` is
+     *   mutable per-unit progress, so handing out the same object would have
+     *   every man in a battalion advancing one shared counter.
+     */
+    const sendTo = (id: number, dx: number, dz: number, shared: { p: UnitPath | null } | null = null): void => {
       releaseHarvest(s, id)
       let tx = dx
       let tz = dz
@@ -500,7 +510,12 @@ export function applyCommands(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]
       s.destZ[id] = tz
       s.homeX[id] = tx
       s.homeZ[id] = tz
-      s.paths[id] = planPath(grid, s.posX[id], s.posZ[id], tx, tz)
+      s.paths[id] =
+        shared === null
+          ? planPath(grid, s.posX[id], s.posZ[id], tx, tz)
+          : shared.p === null
+            ? null
+            : { pts: shared.p.pts, i: 0 }
       s.target[id] = -1
       s.forced[id] = 0
       s.followTarget[id] = -1
@@ -543,10 +558,15 @@ export function applyCommands(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]
       s.hordes.destZ[h] = aimZ
       const kind = activeFormation(s, h)?.kind ?? 0
       const spacing = hordeSpacing(s, h)
+      // ONE search for the battalion, from where it stands to where it is
+      // going. This is the difference between a thousand A* runs in a tick and
+      // a hundred: the AI hands this function every idle unit it owns in a
+      // single order, and a cross-map search costs milliseconds apiece.
+      const shared = { p: planPath(grid, cx, cz, aimX, aimZ) }
       members.forEach((id, slot) => {
         const [ox, oz] = formationSlot(kind, slot, members.length, spacing)
         const [wx, wz] = formationWorld(aimX, aimZ, fx, fz, ox, oz)
-        sendTo(id, wx, wz)
+        sendTo(id, wx, wz, shared)
       })
     })
 
@@ -757,7 +777,19 @@ export function updateOrders(s: SimState, grid: WalkGrid): void {
 
 // Stuck handling based on net progress toward the destination — tolerant of
 // slow shoving through crowds. A stuck unit repaths once, then settles.
+/**
+ * Units that have stopped making progress get one fresh path, then settle.
+ *
+ * The repaths are BUDGETED per tick. A crowd of five thousand marching men
+ * jams constantly, and without a bound this ran an A* for every jammed unit in
+ * the same tick — 48 ms of a single tick, more than half of it. Whoever misses
+ * out keeps its stuck counter and is served on a later tick, in ascending id,
+ * which costs a jammed man a tenth of a second nobody can see.
+ */
+const REPATHS_PER_TICK = 16
+
 export function updateStuck(s: SimState, grid: WalkGrid): void {
+  let repaths = 0
   for (let i = 0; i < s.count; i++) {
     if (!s.alive[i] || s.kind[i] !== Kind.Unit) continue
     // idle-without-a-path (or chasing) units aren't "stuck"; idle units walking
@@ -784,11 +816,14 @@ export function updateStuck(s: SimState, grid: WalkGrid): void {
         s.homeZ[i] = s.posZ[i]
         s.chased[i] = 0
         s.stuck[i] = 0
-      } else {
+      } else if (repaths < REPATHS_PER_TICK) {
+        repaths++
         s.paths[i] = planPath(grid, s.posX[i], s.posZ[i], s.destX[i], s.destZ[i])
         s.repathed[i] = 1
         s.stuck[i] = 0
       }
+      // else: out of budget this tick. Keep the counter so it is still stuck
+      // next tick and gets its turn then.
     }
   }
 }
