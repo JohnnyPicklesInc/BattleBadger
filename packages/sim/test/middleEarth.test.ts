@@ -359,6 +359,17 @@ describe('The War of the Ring — the muster loop', () => {
   })
 })
 
+const FD = 0.7071067811865476
+/** Which way each fortified camp looks — the same vectors the map authors. */
+const REALM_FACING: Record<string, { x: number; z: number }> = {
+  'muster-minas-tirith': { x: 1, z: 0 },
+  'muster-osgiliath': { x: 1, z: 0 },
+  'muster-barad-dur': { x: -1, z: 0 },
+  'muster-minas-morgul': { x: -1, z: 0 },
+  'muster-orthanc': { x: FD, z: FD },
+  'muster-nan-curunir': { x: FD, z: FD },
+}
+
 describe('The War of the Ring — fortresses', () => {
   // What a fortified camp's curtain must be: a closed ring with no gap wide
   // enough to walk through. The version this replaces put seven pieces on a
@@ -373,43 +384,55 @@ describe('The War of the Ring — fortresses', () => {
       .map((p) => ({ x: p.x, z: p.z, def: p.def }))
   }
 
-  it('every fortified camp is ringed all the way round', () => {
+  it('walls its front with no gaps, and leaves its back open', () => {
     const forts = ['muster-minas-tirith', 'muster-osgiliath', 'muster-barad-dur', 'muster-minas-morgul']
     for (const f of forts) {
       const ring = ringOf(f)
-      expect(ring.length, `${f} has barely any curtain`).toBeGreaterThanOrEqual(28)
+      expect(ring.length, `${f} has barely any curtain`).toBeGreaterThanOrEqual(14)
       const camp = doc.placed!.find((p) => p.def === f)!
+      const realm = REALM_FACING[f]
 
-      // Sort the pieces by bearing and check consecutive gaps. Every neighbour
-      // must be close enough that the stones meet; one 6-tile hole is a door
-      // an army walks through and the whole feature is decorative.
-      const byBearing = ring
-        .map((p) => ({ ...p, a: Math.atan2(p.z - camp.z, p.x - camp.x) }))
-        .sort((u, v) => u.a - v.a)
+      // Bearing of each piece relative to the way the camp faces, signed and
+      // folded to ±180.
+      const bearings = ring
+        .map((p) => {
+          const a = Math.atan2(p.z - camp.z, p.x - camp.x)
+          const face = Math.atan2(realm.z, realm.x)
+          let d = ((a - face) * 180) / Math.PI
+          while (d > 180) d -= 360
+          while (d < -180) d += 360
+          return { ...p, d }
+        })
+        .sort((u, v) => u.d - v.d)
+
+      // Everything built is on the FRONT arc — nothing wraps round the back.
+      for (const p of bearings) {
+        expect(Math.abs(p.d), `${f} built a wall behind itself at ${p.d.toFixed(0)}°`).toBeLessThanOrEqual(115)
+      }
+
+      // …and across that arc there is no hole an army walks through. This is
+      // the regression that started all of it: seven pieces on a 15-tile arc,
+      // 9.4 apart, for a wall three tiles wide.
       let worst = 0
       let worstAt = ''
-      for (let i = 0; i < byBearing.length; i++) {
-        const a = byBearing[i]
-        const b = byBearing[(i + 1) % byBearing.length]
+      for (let i = 0; i + 1 < bearings.length; i++) {
+        const a = bearings[i]
+        const b = bearings[i + 1]
         const gap = Math.sqrt((a.x - b.x) ** 2 + (a.z - b.z) ** 2)
-        // The gate is 8.4 wide and legitimately spans its neighbours.
         const allowed = a.def === 'gate' || b.def === 'gate' ? 7.5 : 3.6
         if (gap - allowed > worst) {
           worst = gap - allowed
-          worstAt = `${a.def}→${b.def} ${gap.toFixed(1)}`
+          worstAt = `${a.def}(${a.d.toFixed(0)}°)→${b.def}(${b.d.toFixed(0)}°) ${gap.toFixed(1)}`
         }
       }
       expect(worst, `${f} has a hole in its curtain (${worstAt})`).toBeLessThanOrEqual(0)
-    }
-  })
 
-  it('a sealed fort still lets its own garrison out', () => {
-    const ring = ringOf('muster-osgiliath')
-    // A great gate that starts barred, and posterns that open by themselves.
-    expect(ring.filter((p) => p.def === 'gate').length).toBe(1)
-    expect(ring.filter((p) => p.def === 'sally-port').length).toBeGreaterThanOrEqual(2)
-    const port = MIDDLE_EARTH_DEF.entities.find((e) => e.id === 'sally-port')!
-    expect(port.gate!.manual, 'a sealed ring with only manual gates traps its garrison').not.toBe(true)
+      // The back really is open. Reinforcements from the rest of the realm walk
+      // straight in; a closed ring shut its own side out and needed posterns to
+      // undo a problem it had created.
+      const behind = bearings.filter((p) => Math.abs(p.d) > 125)
+      expect(behind, `${f} is walled in behind`).toHaveLength(0)
+    }
   })
 
   it('the curtain stands outside the musters and inside the cleared ground', () => {

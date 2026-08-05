@@ -3,6 +3,7 @@ import type { WalkGrid } from '../path/walkgrid.ts'
 import { Harv, Kind, Order, handleOf, type SimState } from '../state.ts'
 import { plotClaimable, requiresMet, supplyRoom, validPlacement } from './economy.ts'
 import { hasUpgrade, upgradeInProgress, upgradeRequiresMet } from './upgrades.ts'
+import { WALL_REACH } from './ramparts.ts'
 
 // Computer opponents.
 //
@@ -53,6 +54,7 @@ interface Caps {
   plotHosts: boolean // any def is placed on a plot
   supplyDefs: number[] // defs that add supply
   incomeDefs: number[] // defs that pay passively
+  ramparts: boolean // any structure can be manned
 }
 
 function caps(s: SimState): Caps {
@@ -62,6 +64,7 @@ function caps(s: SimState): Caps {
   const supplyDefs: number[] = []
   const incomeDefs: number[] = []
   let plotHosts = false
+  let ramparts = false
   for (let i = 0; i < ents.length; i++) {
     const e = ents[i]
     if (e.harvester) harvesters.push(i)
@@ -69,8 +72,9 @@ function caps(s: SimState): Caps {
     if (e.placement === 'plot') plotHosts = true
     if ((e.supplyProvided ?? 0) > 0) supplyDefs.push(i)
     if (e.income) incomeDefs.push(i)
+    if ((e.rampart?.slots ?? 0) > 0) ramparts = true
   }
-  return { harvesters, trainers, plotHosts, supplyDefs, incomeDefs }
+  return { harvesters, trainers, plotHosts, supplyDefs, incomeDefs, ramparts }
 }
 
 // ---- shared helpers (all id-ordered, so every client agrees) ----
@@ -558,31 +562,312 @@ function jobResearch(s: SimState, slot: number, reserve: Reserve, out: PlayerCom
   out.push({ kind: 'research', player: slot, units: [handleOf(s, bestB)], x: 0, z: 0, def: bestUp })
 }
 
-function jobArmy(s: SimState, slot: number, level: number, out: PlayerCommand[]): void {
+/**
+ * How far apart two soldiers can be and still count as one army. Bucketed, so
+ * this is the coarse grid the clustering below works on.
+ */
+const GROUP_CELL = 34
+/** A group this size or larger is worth committing; smaller ones go and join up. */
+const COMMIT_AT = [0, 26, 20, 14]
+/** An enemy this close to something you own is an attack, not a passer-by. */
+const DEFEND_R = 30
+
+/**
+ * Split a player's idle soldiers into armies.
+ *
+ * The old job took every idle unit a player owned, averaged their positions
+ * into ONE centroid, and sent the lot at whatever was nearest to it. That is
+ * fine on a map where a player holds one corner. It is useless here: Mordor
+ * fights at the Black Gate and at Dol Guldur, two hundred tiles apart, so the
+ * midpoint of its army is empty country and the "nearest enemy" to that point
+ * may be on neither front. The Elves and the Dwarves hold opposite corners of
+ * the map and had the same problem.
+ *
+ * Clustering is by coarse bucket, then a union of buckets that touch — cheap,
+ * and more importantly DETERMINISTIC: buckets are merged in sorted key order,
+ * so every client computes the same armies from the same positions. Anything
+ * order-dependent here would desync.
+ */
+function armyGroups(s: SimState, units: number[]): number[][] {
+  const bucketOf = new Map<number, number[]>()
+  for (const id of units) {
+    // +4096 so negative coordinates stay positive; the map never approaches it.
+    const bx = Math.floor(s.posX[id] / GROUP_CELL) + 4096
+    const bz = Math.floor(s.posZ[id] / GROUP_CELL) + 4096
+    const key = bz * 16384 + bx
+    const at = bucketOf.get(key)
+    if (at) at.push(id)
+    else bucketOf.set(key, [id])
+  }
+  const keys = [...bucketOf.keys()].sort((a, b) => a - b)
+  const index = new Map(keys.map((k, i) => [k, i]))
+  const parent = keys.map((_, i) => i)
+  const find = (i: number): number => {
+    let r = i
+    while (parent[r] !== r) r = parent[r]
+    while (parent[i] !== r) {
+      const next = parent[i]
+      parent[i] = r
+      i = next
+    }
+    return r
+  }
+  // Merge each bucket with its eight neighbours. Walking `keys` in sorted order
+  // and always parenting to the lower root keeps this reproducible.
+  for (let i = 0; i < keys.length; i++) {
+    const k = keys[i]
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        if (dx === 0 && dz === 0) continue
+        const j = index.get(k + dz * 16384 + dx)
+        if (j === undefined) continue
+        const a = find(i)
+        const b = find(j)
+        if (a !== b) parent[Math.max(a, b)] = Math.min(a, b)
+      }
+    }
+  }
+  const byRoot = new Map<number, number[]>()
+  for (let i = 0; i < keys.length; i++) {
+    const r = find(i)
+    const at = byRoot.get(r)
+    const members = bucketOf.get(keys[i])!
+    if (at) at.push(...members)
+    else byRoot.set(r, [...members])
+  }
+  // Sorted by root, and each group's ids ascending, so the command stream is
+  // identical on every client.
+  return [...byRoot.keys()].sort((a, b) => a - b).map((r) => byRoot.get(r)!.sort((a, b) => a - b))
+}
+
+/** Something of mine that has enemies on it right now, or null. */
+function underAttack(s: SimState, slot: number): { x: number; z: number } | null {
+  let best = -1
+  let bestD = Infinity
+  for (let b = 0; b < s.count; b++) {
+    if (!s.alive[b] || s.owner[b] !== slot || s.kind[b] !== Kind.Building) continue
+    if (s.def.stats.untargetable[s.type[b]]) continue // a bare pad is not a loss
+    for (let i = 0; i < s.count; i++) {
+      if (!s.alive[i] || s.hidden[i] || s.kind[i] !== Kind.Unit) continue
+      if (!isEnemy(s, slot, i)) continue
+      if (s.def.stats.damage[s.type[i]] <= 0) continue
+      const dx = s.posX[i] - s.posX[b]
+      const dz = s.posZ[i] - s.posZ[b]
+      const d = dx * dx + dz * dz
+      if (d > DEFEND_R * DEFEND_R) continue
+      if (d < bestD) {
+        bestD = d
+        best = b
+      }
+      break // this building is threatened; no need to count how badly
+    }
+  }
+  return best < 0 ? null : { x: s.posX[best], z: s.posZ[best] }
+}
+
+/** An enemy this close to a wall means man it now, not after they arrive. */
+const GARRISON_ALERT = 70
+/** How far a soldier will walk to take a place on a wall. */
+const GARRISON_FROM = 45
+/**
+ * Most men a player will have on walls at once.
+ *
+ * The forts on The War of the Ring have well over six hundred slots between
+ * them — twenty-four wall sections at four apiece, per fort, times six forts.
+ * Filling them is not "defending", it is disbanding your army into masonry.
+ * This is a garrison, and the rest of the archers stay in the field.
+ */
+const GARRISON_CAP = 24
+
+/**
+ * Man the walls — but only walls that are about to matter, and only with
+ * archers.
+ *
+ * Two rules keep this from being a trap. It waits for an enemy within
+ * GARRISON_ALERT, because a bowman standing on a curtain in peacetime is a
+ * bowman not marching with the army. And it takes only units that can actually
+ * shoot: a swordsman on a wall is safe from everything and threatens nothing,
+ * which is a worse deal than it sounds.
+ */
+function jobGarrison(s: SimState, slot: number, c: Caps, out: PlayerCommand[]): Set<number> {
+  const claimed = new Set<number>()
+  if (!c.ramparts) return claimed
+  const st = s.def.stats
+
+  // Who is already up there, or on the way. Also the running total against the
+  // cap — a garrison is a detachment, not a redeployment.
+  const taken = new Map<number, number>()
+  let committed = 0
+  for (let i = 0; i < s.count; i++) {
+    if (!s.alive[i] || s.owner[i] !== slot) continue
+    const w = s.onWall[i] >= 0 ? s.onWall[i] : s.wantWall[i]
+    if (w < 0) continue
+    taken.set(w, (taken.get(w) ?? 0) + 1)
+    committed++
+  }
+  if (committed >= GARRISON_CAP) return claimed
+
+  // Idle archers, ascending id.
+  const free: number[] = []
+  for (let i = 0; i < s.count; i++) {
+    if (!s.alive[i] || s.hidden[i] || s.owner[i] !== slot) continue
+    if (s.kind[i] !== Kind.Unit) continue
+    if (s.onWall[i] >= 0 || s.wantWall[i] >= 0) continue
+    if (s.order[i] !== Order.Idle || s.target[i] >= 0) continue
+    if (st.atkRange[s.type[i]] < WALL_REACH) continue // a sword up there does nothing
+    free.push(i)
+  }
+  if (free.length === 0) return claimed
+
+  // Walls worth manning: ours, standing, with room, and with an enemy coming.
+  // Highest perch first — a tower is worth more than a curtain section.
+  const posts: { id: number; room: number; rank: number }[] = []
+  for (let w = 0; w < s.count; w++) {
+    if (!s.alive[w] || s.owner[w] !== slot) continue
+    const slots = st.rampartSlots[s.type[w]]
+    if (slots <= 0) continue
+    if (s.buildTicks[w] > 0) continue
+    const room = slots - (taken.get(w) ?? 0)
+    if (room <= 0) continue
+    let threatened = false
+    for (let i = 0; i < s.count && !threatened; i++) {
+      if (!s.alive[i] || s.hidden[i] || s.kind[i] !== Kind.Unit) continue
+      if (!isEnemy(s, slot, i)) continue
+      if (st.damage[s.type[i]] <= 0) continue
+      const dx = s.posX[i] - s.posX[w]
+      const dz = s.posZ[i] - s.posZ[w]
+      if (dx * dx + dz * dz <= GARRISON_ALERT * GARRISON_ALERT) threatened = true
+    }
+    if (!threatened) continue
+    posts.push({ id: w, room, rank: st.rampartRange[s.type[w]] })
+  }
+  if (posts.length === 0) return claimed
+  // Rank descending, then id ascending — a total order, so every client fills
+  // the same stones in the same sequence.
+  posts.sort((a, b) => (b.rank !== a.rank ? b.rank - a.rank : a.id - b.id))
+
+  const used = new Set<number>()
+  for (const post of posts) {
+    if (committed >= GARRISON_CAP) break
+    const picked: number[] = []
+    for (const u of free) {
+      if (picked.length >= post.room || committed + picked.length >= GARRISON_CAP) break
+      if (used.has(u)) continue
+      const dx = s.posX[u] - s.posX[post.id]
+      const dz = s.posZ[u] - s.posZ[post.id]
+      if (dx * dx + dz * dz > GARRISON_FROM * GARRISON_FROM) continue
+      picked.push(u)
+    }
+    if (picked.length === 0) continue
+    for (const u of picked) {
+      used.add(u)
+      claimed.add(u)
+    }
+    committed += picked.length
+    out.push({
+      kind: 'garrison',
+      player: slot,
+      units: picked.map((i) => handleOf(s, i)),
+      x: s.posX[post.id],
+      z: s.posZ[post.id],
+      target: handleOf(s, post.id),
+    })
+  }
+  return claimed
+}
+
+function jobArmy(s: SimState, slot: number, level: number, out: PlayerCommand[], onWalls: Set<number>): void {
   const st = s.def.stats
   const idle: number[] = []
-  let cx = 0
-  let cz = 0
   for (let i = 0; i < s.count; i++) {
     if (!s.alive[i] || s.hidden[i] || s.owner[i] !== slot) continue
     if (s.kind[i] !== Kind.Unit || st.damage[s.type[i]] <= 0) continue
     if (s.harvState[i] !== Harv.None) continue // workers keep working
     if (s.order[i] !== Order.Idle) continue // already marching
     if (s.target[i] >= 0) continue // already fighting
+    // Posted to a wall this same tick. The garrison order is already in `out`
+    // and has not been applied yet, so he still looks idle from here — march
+    // him and the attackMove lands second and cancels the garrison outright.
+    if (onWalls.has(i)) continue
     idle.push(i)
-    cx += s.posX[i]
-    cz += s.posZ[i]
   }
-  if (idle.length < ATTACK_AT[level]) return
-  cx /= idle.length
-  cz /= idle.length
-  const target = nearestEnemy(s, slot, cx, cz)
-  if (target < 0) return
-  out.push({
-    kind: 'attackMove', player: slot,
-    units: idle.map((i) => handleOf(s, i)),
-    x: s.posX[target], z: s.posZ[target],
-  })
+  if (idle.length === 0) return
+
+  const groups = armyGroups(s, idle)
+  // Biggest group is where stragglers go. Ties on the lower first id, which is
+  // stable because armyGroups sorted them.
+  let rallyAt = 0
+  for (let i = 1; i < groups.length; i++) if (groups[i].length > groups[rallyAt].length) rallyAt = i
+  const defend = underAttack(s, slot)
+  const commit = COMMIT_AT[Math.min(level, COMMIT_AT.length - 1)]
+
+  // Centroids once, not once per pair: the defence check below compares every
+  // group against every other, and recomputing them inside that loop is O(n²)
+  // over the whole army for no reason.
+  const cxs: number[] = []
+  const czs: number[] = []
+  for (const g of groups) {
+    let x = 0
+    let z = 0
+    for (const id of g) {
+      x += s.posX[id]
+      z += s.posZ[id]
+    }
+    cxs.push(x / g.length)
+    czs.push(z / g.length)
+  }
+
+  for (let gi = 0; gi < groups.length; gi++) {
+    const g = groups[gi]
+    const cx = cxs[gi]
+    const cz = czs[gi]
+
+    // Something of ours is being attacked and this army is the closest thing
+    // to it: go. Defence outranks massing — a camp lost while its garrison was
+    // walking somewhere else to form up is the whole game lost slowly.
+    if (defend !== null) {
+      const dx = defend.x - cx
+      const dz = defend.z - cz
+      const mine = dx * dx + dz * dz
+      let nearer = false
+      for (let oi = 0; oi < groups.length && !nearer; oi++) {
+        if (oi === gi) continue
+        const ox = cxs[oi] - defend.x
+        const oz = czs[oi] - defend.z
+        if (ox * ox + oz * oz < mine) nearer = true
+      }
+      if (!nearer) {
+        out.push({ kind: 'attackMove', player: slot, units: g.map((i) => handleOf(s, i)), x: defend.x, z: defend.z })
+        continue
+      }
+    }
+
+    // Too few to be an army. Go and find the main body rather than feeding
+    // yourself to the enemy piecemeal — which is exactly what the old job did
+    // on this map, because free reinforcements meant the idle count was over
+    // the attack threshold permanently and it attacked with every trickle.
+    if (g.length < commit && gi !== rallyAt) {
+      out.push({
+        kind: 'attackMove',
+        player: slot,
+        units: g.map((i) => handleOf(s, i)),
+        x: cxs[rallyAt],
+        z: czs[rallyAt],
+      })
+      continue
+    }
+    if (g.length < commit) continue // the main body is still gathering
+
+    const target = nearestEnemy(s, slot, cx, cz)
+    if (target < 0) continue
+    out.push({
+      kind: 'attackMove',
+      player: slot,
+      units: g.map((i) => handleOf(s, i)),
+      x: s.posX[target],
+      z: s.posZ[target],
+    })
+  }
 }
 
 /**
@@ -609,7 +894,10 @@ export function aiCommands(s: SimState, grid: WalkGrid): PlayerCommand[] {
     jobBuildFree(s, grid, slot, reserve, out)
     jobProduce(s, slot, c, reserve, out)
     jobResearch(s, slot, reserve, out)
-    jobArmy(s, slot, lvl, out)
+    // Before the army job, so a man taken for the wall is not also marched off
+    // with the field army in the same tick.
+    const onWalls = jobGarrison(s, slot, c, out)
+    jobArmy(s, slot, lvl, out, onWalls)
   }
   return out
 }

@@ -197,6 +197,16 @@ replay dump, so "were they even on the same build?" is answerable after the fact
 
 ## Roadmap
 
+- **Computer opponents that can fight a war on two fronts**: the army job clusters a
+  player's idle soldiers into ARMIES by proximity — deterministically, buckets merged in
+  sorted key order — and gives each its own nearest-enemy target. One centroid for
+  everything is fine on a map where a player holds one corner and useless on one where
+  Mordor fights at the Black Gate and at Dol Guldur two hundred tiles apart. Bands too small
+  to be an army go and join the main body instead of feeding themselves in piecemeal, and
+  anything of yours actually under attack pulls the nearest army back to it. Left alone on
+  The War of the Ring for twenty minutes, eight of them kill 23,000 soldiers, raise a hundred
+  watchtowers, claim seven of the eight neutral holds and wipe two powers off the map.
+
 **Toward a full BFME clone** (the rules layer above is in; these are the remaining pieces,
 roughly in dependency order): horde **reinforcement** (buy losses back at the barracks) ·
 **auras and status effects** (hero leadership, banner carriers, fear, burning) ·

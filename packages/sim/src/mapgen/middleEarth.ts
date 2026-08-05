@@ -160,17 +160,32 @@ const RING_SIN = 0.19509032201612825 // sin(2π/32)
  */
 const RING_R = 15
 
-/** What stands in each slot of the ring, by index from dead ahead. */
-function ringPiece(slot: number): string | null {
-  if (slot === 0) return 'gate'
+/**
+ * How far round from dead ahead the curtain runs, in slots. Nine of thirty-two
+ * is a hair over a hundred degrees each way — a solid front and two wings that
+ * wrap just past the flanks, and an open back.
+ *
+ * The back is open ON PURPOSE. A wall is for the side the enemy comes from;
+ * ringing a camp completely walls its own side out of it too, and Osgiliath's
+ * reinforcements come from the rest of Gondor behind it. A closed ring also
+ * needed posterns to let its own garrison out, which is a lot of machinery to
+ * undo a problem it created.
+ */
+const FRONT_SLOTS = 9
+
+/**
+ * What stands at a given bearing, as slots either side of dead ahead, or null
+ * for open ground. Symmetric: `slot` is signed and only its magnitude matters.
+ */
+function frontPiece(slot: number): string | null {
+  const k = Math.abs(slot)
+  if (k > FRONT_SLOTS) return null // the open rear
+  if (k === 0) return 'gate'
   // The gate is 8.4 wide and swallows its neighbours; anything placed there
-  // would be inside the gatehouse.
-  if (slot === 1 || slot === RING_SLOTS - 1) return null
-  // Towers on both flanks and at the back.
-  if (slot === 8 || slot === 16 || slot === 24) return 'wall-tower'
-  // Two automatic posterns at the rear quarters. Without them a sealed ring
-  // traps its own garrison behind a great gate that starts barred.
-  if (slot === 12 || slot === 20) return 'sally-port'
+  // would be standing inside the gatehouse.
+  if (k === 1) return null
+  // Towers on the shoulders and at the ends of the wings.
+  if (k === 5 || k === FRONT_SLOTS) return 'wall-tower'
   return 'wall'
 }
 
@@ -1583,13 +1598,17 @@ export function generateMiddleEarth(seed: number): RtsMapDoc {
       // (MUSTER_R) and inside the clearing, so the fort never walls a camp off
       // from its own production.
       if (c.fort) {
-        // A closed curtain. Start dead ahead and walk the ring one rotation at
-        // a time, so every piece is 2.95 tiles from the last and the stones
-        // actually meet — the old arc left six-tile gaps between them.
+        // The curtain: a solid arc across the front, open behind. Walk one
+        // rotation at a time so every piece is 2.95 tiles from the last and the
+        // stones actually meet — the arc this replaces placed seven pieces at
+        // 9.4-tile spacing and was two thirds holes.
         let dx = face.x
         let dz = face.z
         for (let slot = 0; slot < RING_SLOTS; slot++) {
-          const piece = ringPiece(slot)
+          // Walk the whole circle but build only the front: slots past halfway
+          // read as negative bearings, so the arc is symmetric about facing.
+          const bearing = slot <= RING_SLOTS / 2 ? slot : slot - RING_SLOTS
+          const piece = frontPiece(bearing)
           if (piece !== null) {
             const dir = { x: dx, z: dz }
             const at = nudge(c.at, { x: c.at.x + dx * RING_R, z: c.at.z + dz * RING_R })
