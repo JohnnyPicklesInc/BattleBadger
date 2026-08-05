@@ -5,4 +5,4 @@
 // It is the only thing that tells two clients they are running the SAME code,
 // which for a lockstep sim is the difference between a match and a desync —
 // and a stale service worker is a failure with no other symptom.
-export const VERSION = '0.0.9'
+export const VERSION = '0.0.10'

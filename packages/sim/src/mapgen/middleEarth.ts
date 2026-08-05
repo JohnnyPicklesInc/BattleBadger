@@ -259,14 +259,19 @@ const REALMS: Realm[] = [
     // The tower of the west: the siege realm. Catapults an age early, and two.
     // Horse from the second age — Gondor's answer to a shadow that simply
     // out-bodies it, and the reason Mordor techs into pikes at the same age.
+    // Fifteen battalions a cycle by the last age — a hair under Mordor, and
+    // the shape is the argument: Gondor answers a horde with RANKS. Swords in
+    // front, pikes for the horse and the trolls, and more bows than anybody
+    // except the Elves. The Dúnedain arrive at the third age: six men who hold
+    // where sixty of the levy do not.
     waves: [
-      ['h-swordsmen', 'h-archers'],
-      ['h-swordsmen', 'h-spearmen', 'h-riders'],
-      ['h-catapult'],
-      ['h-swordsmen', 'h-archers', 'h-riders', 'h-catapult'],
+      ['h-swordsmen', 'h-swordsmen', 'h-archers'],
+      ['h-swordsmen', 'h-spearmen', 'h-spearmen', 'h-archers'],
+      ['h-dunedain', 'h-riders', 'h-archers'],
+      ['h-swordsmen', 'h-swordsmen', 'h-spearmen', 'h-archers', 'h-catapult'],
     ],
     heroes: ['h-gondor-captain'],
-    army: ['h-swordsmen', 'h-spearmen', 'h-archers', 'h-archers', 'h-riders', 'h-gondor-captain'],
+    army: ['h-swordsmen', 'h-swordsmen', 'h-spearmen', 'h-archers', 'h-archers', 'h-gondor-captain'],
   },
   {
     slot: 1, name: 'Mordor', team: 1, side: 'shadow',
@@ -299,17 +304,18 @@ const REALMS: Realm[] = [
     // no bows to go with them — an orc horde wins by reaching you. Pikes at the
     // second age are the answer to Gondor's horse, and the trolls come at the
     // third, which is the age this realm is actually waiting for.
+    // The largest army on the map, and a troll in the FIRST wave — Mordor does
+    // not tech up to its monsters, it opens with them. Sixteen battalions a
+    // cycle by the last age against Gondor's fifteen, and where Gondor's are
+    // ranks of men these are simply more.
     waves: [
-      ['h-orcs', 'h-orcs'],
-      // ONE battalion of bows, and not before the second age. The shadow shoots
-      // because it has to, not because it is good at it — everything else on
-      // this line is a body walking at you.
-      ['h-orcs', 'h-orcs', 'h-orc-pikemen', 'h-orc-archers'],
-      ['h-orcs', 'h-ogre'],
       ['h-orcs', 'h-orcs', 'h-orc-archers', 'h-ogre'],
+      ['h-orcs', 'h-orcs', 'h-orc-pikemen', 'h-orc-archers'],
+      ['h-orcs', 'h-orcs', 'h-ogre'],
+      ['h-orcs', 'h-orcs', 'h-orc-pikemen', 'h-orc-archers', 'h-ogre'],
     ],
     heroes: ['h-black-captain'],
-    army: ['h-orcs', 'h-orcs', 'h-orc-pikemen', 'h-orc-archers', 'h-orc-archers', 'h-black-captain'],
+    army: ['h-orcs', 'h-orcs', 'h-orcs', 'h-orc-pikemen', 'h-orc-archers', 'h-ogre', 'h-black-captain'],
   },
   {
     slot: 2, name: 'Rohan', team: 0, side: 'free',
@@ -322,14 +328,16 @@ const REALMS: Realm[] = [
     // Horse from the first minute and horse forever. No siege, thin infantry,
     // and the only realm whose opening wave can already run something down —
     // Rohan is fast or it is nothing.
+    // Nine battalions of horse a cycle and almost nothing else. Rohan does not
+    // hold ground and cannot besiege anything; what it does is arrive.
     waves: [
+      ['h-riders', 'h-riders', 'h-riders'],
+      ['h-riders', 'h-riders', 'h-archers'],
       ['h-riders', 'h-riders'],
-      ['h-riders', 'h-archers'],
-      ['h-riders'],
       ['h-riders', 'h-riders', 'h-swordsmen'],
     ],
     heroes: ['h-mark-marshal'],
-    army: ['h-riders', 'h-riders', 'h-riders', 'h-archers', 'h-swordsmen', 'h-mark-marshal'],
+    army: ['h-riders', 'h-riders', 'h-riders', 'h-riders', 'h-archers', 'h-mark-marshal'],
   },
   {
     slot: 3, name: 'Isengard', team: 1, side: 'shadow',
@@ -344,15 +352,19 @@ const REALMS: Realm[] = [
     // The only roster on the map that fields BOTH: men and orcs in the same
     // battle line, swords and pikes beside orc bows, horse and engines. Saruman
     // has no tradition to keep — he took what worked from everybody.
+    // Men and orcs in the same line, and the thing nobody else has: berserkers.
+    // Four to a battalion, a swing that knocks a whole rank flat, and a
+    // cooldown slow enough that they are a hammer rather than a blender — the
+    // answer to a shield wall that swords alone would grind against.
     waves: [
       ['h-orcs', 'h-swordsmen'],
-      ['h-orc-archers', 'h-spearmen'],
-      ['h-riders'],
-      ['h-orcs', 'h-swordsmen', 'h-catapult'],
+      ['h-berserkers', 'h-orc-archers', 'h-spearmen'],
+      ['h-berserkers', 'h-riders'],
+      ['h-orcs', 'h-swordsmen', 'h-berserkers', 'h-catapult'],
     ],
     // Both kinds of hero, for the same reason.
     heroes: ['h-uruk-captain', 'h-warg-rider'],
-    army: ['h-orcs', 'h-swordsmen', 'h-spearmen', 'h-orc-archers', 'h-riders', 'h-uruk-captain'],
+    army: ['h-orcs', 'h-swordsmen', 'h-spearmen', 'h-orc-archers', 'h-berserkers', 'h-uruk-captain'],
   },
   {
     slot: 4, name: 'The Elves', team: 0, side: 'free',
@@ -369,10 +381,14 @@ const REALMS: Realm[] = [
     // Archers, and archers, and then some archers. Seventeen tiles of range
     // against everyone else's thirteen: an elven line that is allowed to stand
     // still wins on its own, and every other realm's job is to not allow it.
+    // Nine battalions of Galadhrim a cycle — ninety bows at seventeen tiles,
+    // four more than anything else on the field. An elven line that is allowed
+    // to stand still wins on its own; every other power's job is to not allow
+    // it, and the two battalions of foot are all that buys them time.
     waves: [
+      ['h-elf-archers', 'h-elf-archers', 'h-elf-archers'],
+      ['h-elf-archers', 'h-elf-archers', 'h-elf-swordsmen'],
       ['h-elf-archers', 'h-elf-archers'],
-      ['h-elf-archers', 'h-elf-swordsmen'],
-      ['h-elf-archers'],
       ['h-elf-archers', 'h-elf-archers', 'h-elf-spearmen'],
     ],
     heroes: ['h-elf-lord'],
@@ -391,14 +407,17 @@ const REALMS: Realm[] = [
     ],
     // Men of the south: the same trades Gondor makes, in a different order.
     // Bows first rather than second, and no engines until the last age.
+    // Bows and horse from the first wave, which is what makes Harad a raider
+    // rather than a poor man's Gondor — and the Black Númenóreans from the
+    // third, which is what stops it being one at the end.
     waves: [
-      ['h-swordsmen', 'h-archers'],
-      ['h-archers', 'h-spearmen'],
-      ['h-riders'],
-      ['h-swordsmen', 'h-archers', 'h-catapult'],
+      ['h-archers', 'h-archers', 'h-riders'],
+      ['h-archers', 'h-riders', 'h-spearmen'],
+      ['h-black-numenoreans', 'h-riders'],
+      ['h-archers', 'h-black-numenoreans', 'h-catapult'],
     ],
     heroes: ['h-serpent-lord'],
-    army: ['h-swordsmen', 'h-swordsmen', 'h-archers', 'h-archers', 'h-spearmen', 'h-serpent-lord'],
+    army: ['h-archers', 'h-archers', 'h-riders', 'h-riders', 'h-black-numenoreans', 'h-serpent-lord'],
   },
   {
     slot: 6, name: 'The Dwarves', team: 0, side: 'free',
@@ -415,10 +434,14 @@ const REALMS: Realm[] = [
     // Heavy foot that arrives late and cannot be moved once it is somewhere.
     // Two hundred and forty hit points a man against a Gondorian's hundred and
     // thirty, at two thirds the speed and six bowmen to a battalion.
+    // The fewest battalions on the map and the only infantry cavalry cannot
+    // ride over at all — a charge flattens what is strictly below its crush
+    // level, and a dwarf is not. Rohan and Harad have to dismount and FIGHT
+    // them, which is the entire trade for being this slow.
     waves: [
       ['h-dwarf-warriors', 'h-dwarf-warriors'],
       ['h-dwarf-warriors', 'h-iron-guard'],
-      ['h-dwarf-warriors'],
+      ['h-dwarf-warriors', 'h-iron-guard'],
       ['h-dwarf-warriors', 'h-dwarf-bowmen', 'h-catapult'],
     ],
     heroes: ['h-dwarf-lord'],
@@ -440,16 +463,20 @@ const REALMS: Realm[] = [
     // The swarm: the most bodies on the map and the worst of them. No engines,
     // no horse, nothing clever — goblins arrive in numbers or not at all, and
     // the cave-troll at the last age is the only thing here that hits hard.
+    // Three things and a great deal of each: goblins, cave-trolls and wargs.
+    // No bows worth the name, no engines and no plan — the wargs are at your
+    // archers while the goblins are still walking, and the trolls arrive to
+    // find whatever is left.
     waves: [
-      ['h-orcs', 'h-orcs'],
-      ['h-orcs', 'h-orc-archers'],
-      ['h-orcs', 'h-orc-pikemen'],
-      ['h-orcs', 'h-orcs', 'h-ogre'],
+      ['h-orcs', 'h-orcs', 'h-wargs'],
+      ['h-orcs', 'h-orcs', 'h-wargs', 'h-ogre'],
+      ['h-orcs', 'h-ogre'],
+      ['h-orcs', 'h-orcs', 'h-wargs', 'h-ogre'],
     ],
     // The Marksman rather than Mordor's Warg Chieftain: the two shadow powers
     // that share a roster do not share a hero.
     heroes: ['h-goblin-king'],
-    army: ['h-orcs', 'h-orcs', 'h-orcs', 'h-orc-archers', 'h-orc-pikemen', 'h-goblin-king'],
+    army: ['h-orcs', 'h-orcs', 'h-orcs', 'h-wargs', 'h-ogre', 'h-goblin-king'],
   },
 ]
 
@@ -619,14 +646,17 @@ const DWARVES: EntityDef[] = [
     count: 9, hp: 240, speed: 4.0, armorType: 'infantry', xpValue: 20, radius: 0.42,
     visual: { model: 'gen:badger-sword', tint: 'owner', scale: 0.85 },
     combat: { damage: 26, range: 0.6, acquire: 8, periodTicks: 13, damageType: 'sword' },
-    crushable: 1,
+    // A charge flattens only what is STRICTLY below its crusher level, and
+    // cavalry crushes at 2 — so a dwarf at 2 is not ridden down at all. That
+    // is the whole of "much harder to run over": horse has to fight them.
+    crushable: 2,
   }),
   ...battalion({
     id: 'dwarf-guard', ticket: 'h-iron-guard', name: 'Iron Guard', unitName: 'Iron Guard',
     count: 8, hp: 210, speed: 3.9, armorType: 'infantry', xpValue: 18, radius: 0.42,
     visual: { model: 'gen:badger-spear', tint: 'owner', scale: 0.85 },
     combat: { damage: 18, range: 1.1, acquire: 8, periodTicks: 14, damageType: 'spear' },
-    crushable: 1, chargeGuard: 30,
+    crushable: 2, chargeGuard: 30,
   }),
   // Six to a battalion where everyone else fields eight or ten: dwarves shoot
   // because the wall needs covering, not because they intend to win that way.
@@ -635,6 +665,63 @@ const DWARVES: EntityDef[] = [
     count: 6, hp: 110, speed: 4.0, armorType: 'archer', xpValue: 14, radius: 0.42,
     visual: { model: 'gen:badger-bow', tint: 'owner', scale: 0.85 },
     combat: { damage: 13, range: 12, acquire: 13, periodTicks: 17, damageType: 'arrow', hits: 'both' },
+  }),
+]
+
+// ---- the elites -----------------------------------------------------------
+// One unit apiece that only one power fields, and that says what that power IS
+// in a way a wave table alone cannot. Small battalions: an elite you get six of
+// reads as elite; twelve of them is just better line infantry.
+
+const ELITES: EntityDef[] = [
+  // Gondor. The old blood — a rank of these holds where a rank of the levy
+  // does not, and there are never many.
+  ...battalion({
+    id: 'dunedain', ticket: 'h-dunedain', name: 'Dúnedain', unitName: 'Dúnadan',
+    count: 6, hp: 280, speed: 5.0, armorType: 'infantry', xpValue: 26,
+    visual: { model: 'gen:badger-sword', tint: 'owner', scale: 1.15 },
+    combat: { damage: 36, range: 0.7, acquire: 9, periodTicks: 12, damageType: 'sword' },
+    // Rangers of the north do not go down under a horse the way a militiaman
+    // does — but they are not dwarves either.
+    crushable: 2,
+  }),
+  // Isengard. Not a hero: no aura, no command card, and it dies like a man.
+  // What it does is hit EVERYONE in front of it and put them on the ground —
+  // which is what breaks a shield wall that swords alone would grind against.
+  ...battalion({
+    id: 'berserker', ticket: 'h-berserkers', name: 'Uruk Berserkers', unitName: 'Uruk Berserker',
+    count: 4, hp: 320, speed: 5.4, armorType: 'infantry', xpValue: 40, radius: 0.5,
+    visual: { model: 'gen:orc-sword', tint: 'owner', scale: 1.45 },
+    combat: {
+      damage: 46, range: 0.9, acquire: 9, periodTicks: 18, damageType: 'sword',
+      // The swing, not the man: a wide arc that knocks a whole rank flat.
+      // Slow (18 ticks) so it is a hammer and not a blender.
+      splashRadius: 2.8,
+      splashEdgePct: 65,
+      knockback: 2.4,
+      knockdownTicks: 9,
+    },
+    crushable: 2,
+  }),
+  // Harad. The Black Númenóreans — men of the old enemy, better armed than
+  // anything else the south fields and the reason Harad is not simply Gondor
+  // with fewer camps.
+  ...battalion({
+    id: 'black-numenorean', ticket: 'h-black-numenoreans',
+    name: 'Black Númenóreans', unitName: 'Black Númenórean',
+    count: 6, hp: 265, speed: 5.1, armorType: 'infantry', xpValue: 26,
+    visual: { model: 'gen:orc-sword', tint: 'owner', scale: 1.2 },
+    combat: { damage: 34, range: 0.7, acquire: 9, periodTicks: 12, damageType: 'sword' },
+    crushable: 2,
+  }),
+  // Moria. Fast, fragile, and there are a great many — wargs get to your
+  // archers while the goblins are still walking.
+  ...battalion({
+    id: 'warg', ticket: 'h-wargs', name: 'Warg Pack', unitName: 'Warg',
+    count: 10, hp: 105, speed: 7.6, armorType: 'cavalry', xpValue: 16, radius: 0.5,
+    visual: { model: 'gen:gnasher', tint: 'owner', scale: 1.15 },
+    combat: { damage: 17, range: 0.6, acquire: 9, periodTicks: 10, damageType: 'sword' },
+    crushable: 1,
   }),
 ]
 
@@ -959,6 +1046,7 @@ const WAR_MODULE: RulesetModule = {
     ...SCENERY,
     ...ELVES,
     ...DWARVES,
+    ...ELITES,
     ...LORDS,
     TOWER_SITE,
     GARRISON_SITE,

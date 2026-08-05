@@ -141,8 +141,12 @@ describe('The War of the Ring — the muster loop', () => {
       // per power rather than averaged away.
       const want = [4, 5, 3, 3, 4, 3, 4, 3][slot]
       expect(camps, `slot ${slot} camps`).toHaveLength(want)
-      const units = mine.filter((i) => s.kind[i] === Kind.Unit)
-      expect(units.length, `slot ${slot} opening army`).toBeGreaterThan(30)
+      // Counted in BATTALIONS, not men. A rider battalion is five and an orc
+      // battalion is fifteen, so Rohan's horse-heavy opening is fewer bodies
+      // than Moria's and that is the design rather than a shortfall.
+      const bands = new Set<number>()
+      for (const i of mine) if (s.kind[i] === Kind.Unit && s.hordeOf[i] >= 0) bands.add(s.hordeOf[i])
+      expect(bands.size, `slot ${slot} opening army`).toBeGreaterThanOrEqual(6)
     }
   })
 
@@ -159,6 +163,8 @@ describe('The War of the Ring — the muster loop', () => {
       }
       return out
     }
+    const capitalOf = (slot: number): string =>
+      doc.placed!.filter((p) => p.def.startsWith('muster-') && p.owner === slot)[0].def
     const gondor = ticketsOf(0)
     const rohan = ticketsOf(2)
     const isengard = ticketsOf(3)
@@ -182,13 +188,66 @@ describe('The War of the Ring — the muster loop', () => {
 
     // The elven archer outranges every other bow on the map, which is the
     // entire faction — assert the number, not just that the unit exists.
-    const bow = (id: string): number => MIDDLE_EARTH_DEF.entities.find((e) => e.id === id)!.combat!.range
+    const ent = (id: string) => MIDDLE_EARTH_DEF.entities.find((e) => e.id === id)!
+    const bow = (id: string): number => ent(id).combat!.range
     expect(bow('elf-archer')).toBeGreaterThan(bow('archer'))
     expect(bow('elf-archer')).toBeGreaterThan(bow('orc-archer'))
     // …and the dwarf out-bodies every other footman.
-    const hp = (id: string): number => MIDDLE_EARTH_DEF.entities.find((e) => e.id === id)!.hp
-    expect(hp('dwarf-warrior')).toBeGreaterThan(hp('swordsman'))
-    expect(hp('dwarf-warrior')).toBeGreaterThan(hp('orc'))
+    expect(ent('dwarf-warrior').hp).toBeGreaterThan(ent('swordsman').hp)
+    expect(ent('dwarf-warrior').hp).toBeGreaterThan(ent('orc').hp)
+
+    // Each power's ONE unit, and nobody else's.
+    const owns = (slot: number, ticket: string): boolean => ticketsOf(slot).has(ticket)
+    const sole = (ticket: string, slot: number): void => {
+      expect(owns(slot, ticket), `slot ${slot} should field ${ticket}`).toBe(true)
+      for (let other = 0; other < 8; other++) {
+        if (other === slot) continue
+        expect(owns(other, ticket), `${ticket} leaked to slot ${other}`).toBe(false)
+      }
+    }
+    sole('h-dunedain', 0) // Gondor
+    sole('h-berserkers', 3) // Isengard
+    sole('h-black-numenoreans', 5) // Harad
+    sole('h-wargs', 7) // Moria
+
+    // Mordor opens WITH trolls; nobody else has them in a first-age wave.
+    const firstAge = (slot: number): Set<string> => {
+      const out = new Set<string>()
+      for (const t of doc.triggers!) {
+        if (!t.id.startsWith('wave-') || !t.id.endsWith('-a0')) continue
+        for (const a of t.actions) if (a.type === 'spawnUnits' && a.owner === slot) out.add(a.def)
+      }
+      return out
+    }
+    expect(firstAge(1).has('h-ogre'), 'Mordor should open with a troll').toBe(true)
+    expect(firstAge(2).has('h-riders'), 'Rohan should open on horse').toBe(true)
+    expect(firstAge(5).has('h-archers') && firstAge(5).has('h-riders'), 'Harad opens with bows and horse').toBe(true)
+
+    // Mordor fields the most, Gondor close behind, the Dwarves the fewest.
+    const perCycle = (slot: number): number => {
+      let n = 0
+      for (const t of doc.triggers!) {
+        if (!t.id.startsWith('wave-') || !t.id.startsWith(`wave-${capitalOf(slot)}`)) continue
+        for (const a of t.actions) if (a.type === 'spawnUnits') n++
+      }
+      return n
+    }
+    expect(perCycle(1), 'Mordor should field the most').toBeGreaterThan(perCycle(0))
+    expect(perCycle(0), 'Gondor should be close behind Mordor').toBeGreaterThan(perCycle(1) - 4)
+    expect(perCycle(6), 'the Dwarves should field the fewest').toBeLessThan(perCycle(0))
+
+    // The berserker is the only thing on the map whose SWING knocks a rank
+    // down — that, not its damage, is what Isengard is buying.
+    const zerk = ent('berserker').combat!
+    expect(zerk.splashRadius).toBeGreaterThan(0)
+    expect(zerk.knockback).toBeGreaterThan(0)
+    expect(zerk.knockdownTicks).toBeGreaterThan(0)
+    expect(ent('berserker').aura, 'a berserker is not a hero').toBeUndefined()
+
+    // Dwarves cannot be ridden down: a charge flattens only what is strictly
+    // below its crusher level, and cavalry crushes at 2.
+    expect(ent('dwarf-warrior').crushableLevel).toBeGreaterThanOrEqual(2)
+    expect(ent('swordsman').crushableLevel ?? 1).toBeLessThan(2)
   })
 
   it('heroes ride out at the third age, from the capital only', () => {
