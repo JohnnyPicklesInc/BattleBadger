@@ -190,8 +190,16 @@ describe('The War of the Ring — the muster loop', () => {
     expect(dwarves.has('h-dwarf-warriors')).toBe(true)
     expect(dwarves.has('h-riders'), 'Dwarves field no horse').toBe(false)
 
-    // Isengard is the only power that musters men AND orcs.
-    expect(isengard.has('h-swordsmen') && isengard.has('h-orcs')).toBe(true)
+    // Isengard is the only power that musters men AND orcs. Asserted as the
+    // PROPERTY rather than by naming h-swordsmen: Isengard's foot moved to
+    // berserkers and riders, which is still men beside orcs, and the old
+    // assertion failed a roster that had not stopped being Isengard's.
+    const MEN = ['h-swordsmen', 'h-spearmen', 'h-archers', 'h-riders', 'h-berserkers']
+    const bothArms = (t: Set<string>): boolean => t.has('h-orcs') && MEN.some((m) => t.has(m))
+    expect(bothArms(isengard), 'Isengard fields men and orcs in one line').toBe(true)
+    for (const slot of [0, 1, 2, 4, 5, 6, 7]) {
+      expect(bothArms(ticketsOf(slot)), `slot ${slot} should not field both men and orcs`).toBe(false)
+    }
     expect(gondor.has('h-orcs'), 'Gondor fields no orcs').toBe(false)
 
     // The elven archer outranges every other bow on the map, which is the
@@ -664,6 +672,130 @@ describe('The War of the Ring — how every camp is held', () => {
         )
       }
     }
+  })
+})
+
+describe('The War of the Ring — engines and sappers', () => {
+  const ticketsOf = (slot: number): Set<string> => {
+    const out = new Set<string>()
+    for (const t of doc.triggers!) {
+      for (const a of t.actions) if (a.type === 'spawnUnits' && a.owner === slot) out.add(a.def)
+    }
+    return out
+  }
+  const ent = (id: string): (typeof MIDDLE_EARTH_DEF.entities)[number] =>
+    MIDDLE_EARTH_DEF.entities.find((e) => e.id === id)!
+
+  it('opens with its monsters and its horse, not with a wall of swordsmen', () => {
+    // What the first wave IS, is what the realm is. A shadow power that spends
+    // its opening age on plain infantry and techs into trolls afterwards plays
+    // like everybody else for five minutes.
+    const ageOne = (slot: number): string[] => {
+      const camp = doc.placed!.filter((p) => p.def.startsWith('muster-') && p.owner === slot)[0].def
+      const t = doc.triggers!.find((k) => k.id === `wave-${camp}-a0`)!
+      return t.actions.filter((a) => a.type === 'spawnUnits').map((a) => a.def)
+    }
+    // Mordor and Moria both field a monster in the first wave.
+    expect(ageOne(1).filter((d) => d === 'h-ogre').length, 'Mordor opens without its trolls').toBeGreaterThanOrEqual(2)
+    expect(ageOne(7), 'Moria opens without a troll').toContain('h-ogre')
+    expect(ageOne(7), 'Moria opens without wargs').toContain('h-wargs')
+    // Gondor rides from the first age now, and Rohan does nothing else.
+    expect(ageOne(0), 'Gondor opens without horse').toContain('h-riders')
+    expect(new Set(ageOne(2)), 'Rohan opens with something other than horse').toEqual(new Set(['h-riders']))
+    // Isengard's berserkers are an opening unit, not a tech.
+    expect(ageOne(3), 'Isengard opens without berserkers').toContain('h-berserkers')
+  })
+
+  it('gives the shadow sappers and the free peoples none', () => {
+    const SAPPERS = ['h-sappers', 'h-mine-bearers']
+    for (const slot of [1, 3, 5, 7]) {
+      const t = ticketsOf(slot)
+      expect(SAPPERS.some((k) => t.has(k)), `shadow slot ${slot} has no sappers`).toBe(true)
+    }
+    for (const slot of [0, 2, 4, 6]) {
+      const t = ticketsOf(slot)
+      expect(SAPPERS.some((k) => t.has(k)), `free slot ${slot} should not field sappers`).toBe(false)
+    }
+  })
+
+  it('makes a sapper worth its life against stone and nothing else', () => {
+    // The whole design in one assertion: the blast is siege-typed, so the
+    // armour table multiplies it 400% into a wall and 35% into the men who
+    // probably did the killing. A sapper spent on infantry is a sapper wasted.
+    for (const id of ['sapper', 'mine-bearer']) {
+      const e = ent(id)
+      expect(e.deathBlast, `${id} does not go off`).toBeDefined()
+      expect(e.combat!.damageType, `${id}'s blast is typed by its weapon`).toBe('siege')
+      expect(e.combat!.damage, `${id} should be no good in a fight`).toBeLessThan(15)
+    }
+    const wall = MIDDLE_EARTH_DEF.entities.find((e) => e.id === 'gate')!
+    expect(wall.armorType).toBe('structure')
+  })
+
+  it('is one man to a battalion, like a catapult or a hero', () => {
+    // Six to a battalion at 1.2 spacing sat inside their own blast radius,
+    // which decided the friendly-fire question by accident rather than design.
+    for (const id of ['h-sappers', 'h-mine-bearers']) {
+      const ticket = MIDDLE_EARTH_DEF.entities.find((e) => e.id === id)!
+      expect(ticket.horde?.count, `${id} should be a horde of one`).toBe(1)
+    }
+  })
+
+  it('is worth twenty-five times as much against stone as against a man', () => {
+    const { s, grid } = simOf()
+    const gate = doc.placed!.find((p) => p.def === 'gate' && p.owner === 0)!
+    const before = { gate: 0, man: 0 }
+
+    // A gate and a man of Gondor's, and one of Mordor's sappers on top of both.
+    const g = spawnBuilding(s, grid, s.def.entIndex.get('gate')!, 0, gate.x + 60, gate.z + 60, false)
+    const man = spawnUnit(s, s.def.entIndex.get('swordsman')!, 0, gate.x + 62, gate.z + 60)
+    const sap = spawnUnit(s, s.def.entIndex.get('sapper')!, 1, gate.x + 60.5, gate.z + 60.5)
+    before.gate = s.hp[g]
+    before.man = s.hp[man]
+
+    // Kill the sapper where it stands.
+    s.hp[sap] = 0
+    step(s, grid, [])
+
+    const toGate = before.gate - s.hp[g]
+    const toMan = before.man - s.hp[man]
+    // Half a great gate from one man. Two sappers open it; one mine-bearer
+    // very nearly does on his own.
+    expect(toGate, 'the charge did nothing to the gate').toBeGreaterThan(2500)
+    // It is not harmless to infantry — 35% of eight hundred still kills the
+    // swordsman it lands on. What it is not is a way to clear a field: the
+    // armour table is worth more than an order of magnitude here, so a sapper
+    // spent on men is a sapper thrown away.
+    expect(toGate / toMan, 'the charge is as good against men as against stone').toBeGreaterThan(10)
+  })
+
+  it('brings a ram that opens gates and cannot fight', () => {
+    const ram = ent('battering-ram')
+    expect(ram.combat!.damageType).toBe('siege')
+    expect(ram.armorType).toBe('engine')
+    // Slower than every soldier on the map: a ram is escorted or it is lost.
+    const foot = ent('swordsman').mover!.speed
+    expect(ram.mover!.speed, 'a ram should not outrun the men guarding it').toBeLessThan(foot)
+    // And six of the eight powers can field one.
+    const withRam = [0, 1, 2, 3, 4, 5, 6, 7].filter((slot) => ticketsOf(slot).has('h-ram'))
+    expect(withRam.length, 'hardly anybody can open a gate').toBeGreaterThanOrEqual(5)
+  })
+
+  it('puts more engines on the field than it used to, and none in Rohan', () => {
+    const engines = (slot: number): number => {
+      let n = 0
+      for (const t of doc.triggers!) {
+        for (const a of t.actions) {
+          if (a.type === 'spawnUnits' && a.owner === slot && (a.def === 'h-catapult' || a.def === 'h-ram')) n++
+        }
+      }
+      return n
+    }
+    // Counted over every camp's every age: this is the ask, so assert it.
+    const total = [0, 1, 2, 3, 4, 5, 6, 7].reduce((a, slot) => a + engines(slot), 0)
+    expect(total, 'the map fields barely any siege').toBeGreaterThan(40)
+    // Rohan is the exception, and stays one. It arrives; it does not besiege.
+    expect(engines(2), 'Rohan built an engine').toBe(0)
   })
 })
 

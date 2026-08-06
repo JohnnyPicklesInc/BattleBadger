@@ -5,6 +5,7 @@ import { composeDef } from './factions/compose.ts'
 import { FACTION as BADGERS } from './factions/badgers.ts'
 import { FACTION as HORDE } from './factions/horde.ts'
 import { FORTIFICATIONS } from './factions/fortifications.ts'
+import { CRUSH_ENGINE } from './factions/shared.ts'
 
 // "The War of the Ring" — the StarCraft-era LOTR scenario map, rebuilt on the
 // BFME rules layer. EIGHT powers on one continent, each holding scattered
@@ -388,13 +389,13 @@ const REALMS: Realm[] = [
     // except the Elves. The Dúnedain arrive at the third age: six men who hold
     // where sixty of the levy do not.
     waves: [
-      ['h-swordsmen', 'h-swordsmen', 'h-archers'],
-      ['h-swordsmen', 'h-spearmen', 'h-spearmen', 'h-archers'],
-      ['h-dunedain', 'h-riders', 'h-archers'],
-      ['h-swordsmen', 'h-swordsmen', 'h-spearmen', 'h-archers', 'h-catapult'],
+      ['h-swordsmen', 'h-archers', 'h-riders'],
+      ['h-dunedain', 'h-archers', 'h-spearmen', 'h-catapult'],
+      ['h-riders', 'h-riders', 'h-ram'],
+      ['h-swordsmen', 'h-archers', 'h-catapult', 'h-catapult', 'h-ram'],
     ],
     heroes: ['h-gondor-captain'],
-    army: ['h-swordsmen', 'h-swordsmen', 'h-spearmen', 'h-archers', 'h-archers', 'h-gondor-captain'],
+    army: ['h-swordsmen', 'h-spearmen', 'h-archers', 'h-archers', 'h-riders', 'h-gondor-captain'],
   },
   {
     slot: 1, name: 'Mordor', team: 1, side: 'shadow',
@@ -447,13 +448,13 @@ const REALMS: Realm[] = [
     // cycle by the last age against Gondor's fifteen, and where Gondor's are
     // ranks of men these are simply more.
     waves: [
-      ['h-orcs', 'h-orcs', 'h-orc-archers', 'h-ogre'],
-      ['h-orcs', 'h-orcs', 'h-orc-pikemen', 'h-orc-archers'],
-      ['h-orcs', 'h-orcs', 'h-ogre'],
-      ['h-orcs', 'h-orcs', 'h-orc-pikemen', 'h-orc-archers', 'h-ogre'],
+      ['h-orcs', 'h-orc-archers', 'h-ogre', 'h-ogre'],
+      ['h-orcs', 'h-orc-pikemen', 'h-orc-archers', 'h-sappers'],
+      ['h-ogre', 'h-ogre', 'h-ram'],
+      ['h-orcs', 'h-orc-pikemen', 'h-ogre', 'h-catapult', 'h-sappers'],
     ],
     heroes: ['h-black-captain'],
-    army: ['h-orcs', 'h-orcs', 'h-orcs', 'h-orc-pikemen', 'h-orc-archers', 'h-ogre', 'h-black-captain'],
+    army: ['h-orcs', 'h-orcs', 'h-orc-pikemen', 'h-orc-archers', 'h-ogre', 'h-ogre', 'h-black-captain'],
   },
   {
     slot: 2, name: 'Rohan', team: 0, side: 'free',
@@ -481,13 +482,13 @@ const REALMS: Realm[] = [
     // Nine battalions of horse a cycle and almost nothing else. Rohan does not
     // hold ground and cannot besiege anything; what it does is arrive.
     waves: [
-      ['h-riders', 'h-riders', 'h-riders'],
+      ['h-riders', 'h-riders', 'h-riders', 'h-riders'],
       ['h-riders', 'h-riders', 'h-archers'],
-      ['h-riders', 'h-riders'],
-      ['h-riders', 'h-riders', 'h-swordsmen'],
+      ['h-riders', 'h-riders', 'h-riders'],
+      ['h-riders', 'h-riders', 'h-riders', 'h-archers'],
     ],
     heroes: ['h-mark-marshal'],
-    army: ['h-riders', 'h-riders', 'h-riders', 'h-riders', 'h-archers', 'h-mark-marshal'],
+    army: ['h-riders', 'h-riders', 'h-riders', 'h-riders', 'h-riders', 'h-archers', 'h-mark-marshal'],
   },
   {
     slot: 3, name: 'Isengard', team: 1, side: 'shadow',
@@ -517,14 +518,14 @@ const REALMS: Realm[] = [
     // cooldown slow enough that they are a hammer rather than a blender — the
     // answer to a shield wall that swords alone would grind against.
     waves: [
-      ['h-orcs', 'h-swordsmen'],
-      ['h-berserkers', 'h-orc-archers', 'h-spearmen'],
-      ['h-berserkers', 'h-riders'],
-      ['h-orcs', 'h-swordsmen', 'h-berserkers', 'h-catapult'],
+      ['h-orcs', 'h-berserkers'],
+      ['h-berserkers', 'h-orc-archers', 'h-riders', 'h-ram'],
+      ['h-berserkers', 'h-riders', 'h-catapult', 'h-mine-bearers'],
+      ['h-orcs', 'h-berserkers', 'h-catapult', 'h-ram', 'h-mine-bearers'],
     ],
     // Both kinds of hero, for the same reason.
     heroes: ['h-uruk-captain', 'h-warg-rider'],
-    army: ['h-orcs', 'h-swordsmen', 'h-spearmen', 'h-orc-archers', 'h-berserkers', 'h-uruk-captain'],
+    army: ['h-orcs', 'h-spearmen', 'h-orc-archers', 'h-berserkers', 'h-berserkers', 'h-uruk-captain'],
   },
   {
     slot: 4, name: 'The Elves', team: 0, side: 'free',
@@ -556,9 +557,9 @@ const REALMS: Realm[] = [
     // it, and the two battalions of foot are all that buys them time.
     waves: [
       ['h-elf-archers', 'h-elf-archers', 'h-elf-archers'],
-      ['h-elf-archers', 'h-elf-archers', 'h-elf-swordsmen'],
-      ['h-elf-archers', 'h-elf-archers'],
       ['h-elf-archers', 'h-elf-archers', 'h-elf-spearmen'],
+      ['h-elf-archers', 'h-elf-archers', 'h-ram'],
+      ['h-elf-archers', 'h-elf-archers', 'h-elf-archers', 'h-catapult'],
     ],
     heroes: ['h-elf-lord'],
     army: ['h-elf-archers', 'h-elf-archers', 'h-elf-archers', 'h-elf-swordsmen', 'h-elf-spearmen', 'h-elf-lord'],
@@ -584,13 +585,13 @@ const REALMS: Realm[] = [
     // rather than a poor man's Gondor — and the Black Númenóreans from the
     // third, which is what stops it being one at the end.
     waves: [
-      ['h-archers', 'h-archers', 'h-riders'],
-      ['h-archers', 'h-riders', 'h-spearmen'],
-      ['h-black-numenoreans', 'h-riders'],
-      ['h-archers', 'h-black-numenoreans', 'h-catapult'],
+      ['h-archers', 'h-riders', 'h-riders'],
+      ['h-black-numenoreans', 'h-riders', 'h-archers', 'h-catapult'],
+      ['h-riders', 'h-riders', 'h-sappers', 'h-ram'],
+      ['h-archers', 'h-black-numenoreans', 'h-catapult', 'h-catapult', 'h-sappers'],
     ],
     heroes: ['h-serpent-lord'],
-    army: ['h-archers', 'h-archers', 'h-riders', 'h-riders', 'h-black-numenoreans', 'h-serpent-lord'],
+    army: ['h-archers', 'h-riders', 'h-riders', 'h-riders', 'h-black-numenoreans', 'h-serpent-lord'],
   },
   {
     slot: 6, name: 'The Dwarves', team: 0, side: 'free',
@@ -626,13 +627,13 @@ const REALMS: Realm[] = [
     // level, and a dwarf is not. Rohan and Harad have to dismount and FIGHT
     // them, which is the entire trade for being this slow.
     waves: [
-      ['h-dwarf-warriors', 'h-dwarf-warriors'],
       ['h-dwarf-warriors', 'h-iron-guard'],
-      ['h-dwarf-warriors', 'h-iron-guard'],
-      ['h-dwarf-warriors', 'h-dwarf-bowmen', 'h-catapult'],
+      ['h-iron-guard', 'h-dwarf-bowmen', 'h-catapult'],
+      ['h-iron-guard', 'h-iron-guard', 'h-ram'],
+      ['h-iron-guard', 'h-dwarf-bowmen', 'h-catapult', 'h-catapult'],
     ],
     heroes: ['h-dwarf-lord'],
-    army: ['h-dwarf-warriors', 'h-dwarf-warriors', 'h-iron-guard', 'h-dwarf-bowmen', 'h-dwarf-warriors', 'h-dwarf-lord'],
+    army: ['h-dwarf-warriors', 'h-iron-guard', 'h-iron-guard', 'h-dwarf-bowmen', 'h-dwarf-warriors', 'h-dwarf-lord'],
   },
   {
     slot: 7, name: 'Moria', team: 1, side: 'shadow',
@@ -667,15 +668,15 @@ const REALMS: Realm[] = [
     // archers while the goblins are still walking, and the trolls arrive to
     // find whatever is left.
     waves: [
-      ['h-orcs', 'h-orcs', 'h-wargs'],
-      ['h-orcs', 'h-orcs', 'h-wargs', 'h-ogre'],
-      ['h-orcs', 'h-ogre'],
-      ['h-orcs', 'h-orcs', 'h-wargs', 'h-ogre'],
+      ['h-orcs', 'h-wargs', 'h-ogre'],
+      ['h-wargs', 'h-wargs', 'h-ogre', 'h-sappers'],
+      ['h-ogre', 'h-ogre', 'h-wargs'],
+      ['h-orcs', 'h-wargs', 'h-ogre', 'h-ogre', 'h-sappers'],
     ],
     // The Marksman rather than Mordor's Warg Chieftain: the two shadow powers
     // that share a roster do not share a hero.
     heroes: ['h-goblin-king'],
-    army: ['h-orcs', 'h-orcs', 'h-orcs', 'h-wargs', 'h-ogre', 'h-goblin-king'],
+    army: ['h-orcs', 'h-orcs', 'h-wargs', 'h-wargs', 'h-ogre', 'h-ogre', 'h-goblin-king'],
   },
 ]
 
@@ -894,6 +895,7 @@ function battalion(opts: {
   xpValue?: number
   aura?: EntityDef['aura']
   abilities?: EntityDef['abilities']
+  deathBlast?: EntityDef['deathBlast']
 }): EntityDef[] {
   const unit: EntityDef = {
     id: opts.id,
@@ -911,6 +913,7 @@ function battalion(opts: {
     chargeGuard: opts.chargeGuard,
     aura: opts.aura,
     abilities: opts.abilities,
+    deathBlast: opts.deathBlast,
   }
   const ticket: EntityDef = {
     id: opts.ticket,
@@ -1035,6 +1038,82 @@ const ELITES: EntityDef[] = [
     visual: { model: 'gen:gnasher', tint: 'owner', scale: 1.15 },
     combat: { damage: 17, range: 0.6, acquire: 9, periodTicks: 10, damageType: 'sword' },
     crushable: 1,
+  }),
+]
+
+// ---- engines and sappers --------------------------------------------------
+// Two ways to take a wall down, and they are not the same decision.
+//
+// A catapult stands off and works at the stone for a minute; a ram walks up to
+// the gate and hits it. The ram is the one that closes the distance, so it is
+// the one that gets shot at — 1400 hit points of engine that dies to almost
+// nothing except time, and cannot fight men at all.
+const ENGINES: EntityDef[] = [
+  {
+    id: 'battering-ram', name: 'Battering Ram', kind: 'unit', radius: 1.2, hp: 1400,
+    armorType: 'engine', xpValue: 40,
+    crushableLevel: CRUSH_ENGINE + 1, // a ram is not ridden over
+    visual: { model: 'gen:catapult', scale: 1.25, tint: 'owner' },
+    mover: { speed: 2.6 },
+    combat: {
+      // Enormous against masonry (400% to structure) and useless against
+      // anything that moves (35% to infantry, off a slow swing). A ram beside
+      // a shield wall is a ram doing nothing, which is the trade for the fact
+      // that nothing else in the game opens a gate this fast.
+      damage: 260, range: 2.4, acquire: 6, periodTicks: 45, damageType: 'siege',
+    },
+  },
+  {
+    id: 'h-ram', name: 'Battering Ram', kind: 'unit', radius: 0.7, hp: 0,
+    supplyCost: 10, buildTimeTicks: 150,
+    cost: [{ resource: 'res', amount: 520 }],
+    visual: { model: 'placeholder:box', tint: 'owner' },
+    horde: { unit: 'battering-ram', count: 1, spacing: 2 },
+  },
+]
+
+// The shadow's answer to a gate it has not got an engine in front of yet: a man
+// carrying a charge, worth nothing at all until he is standing against masonry
+// and then worth more than anything else on the field.
+//
+// His weapon is siege-typed, so the blast that follows him is too: 400% against
+// structure, 35% against the infantry that is probably what killed him. Spend
+// him on a gate or waste him.
+//
+// ONE to a battalion — a horde of one, the same shape as a catapult or a hero.
+// Six of them at 1.2 spacing sat well inside their own blast, which made the
+// whole friend-or-foe question moot in the worst way: friendly fire was not an
+// option to weigh, it was a rule that would have deleted the battalion the
+// moment an archer picked off the man on the end. Alone, the charge is a thing
+// you place. The hit points and the charge below are scaled up to match, so a
+// wave ticket is still worth what it was — one man who arrives, rather than six
+// who might.
+const SAPPERS: EntityDef[] = [
+  ...battalion({
+    id: 'sapper', ticket: 'h-sappers', name: 'Sapper', unitName: 'Sapper',
+    count: 1, hp: 340, speed: 5.6, armorType: 'infantry', xpValue: 60, radius: 0.42,
+    visual: { model: 'gen:orc-sword', tint: 'owner', scale: 0.95 },
+    // Barely a weapon. What he is for is walking.
+    combat: { damage: 8, range: 0.7, acquire: 8, periodTicks: 26, damageType: 'siege' },
+    deathBlast: { damage: 850, radius: 5, edgePct: 40 },
+    crushable: 1,
+  }),
+  // Saruman's blasting-fire, and the reason Helm's Deep has a culvert in it.
+  // Tougher and a far bigger charge: an Isengard mine-bearer who reaches a wall
+  // takes a section of it with him.
+  ...battalion({
+    id: 'mine-bearer', ticket: 'h-mine-bearers',
+    name: 'Uruk Mine-bearer', unitName: 'Uruk Mine-bearer',
+    count: 1, hp: 620, speed: 5.2, armorType: 'infantry', xpValue: 95, radius: 0.46,
+    visual: { model: 'gen:orc-sword', tint: 'owner', scale: 1.1 },
+    combat: { damage: 10, range: 0.7, acquire: 8, periodTicks: 26, damageType: 'siege' },
+    // 1600 × 400% is 6400 against a 6500-point great gate: it takes the gate to
+    // a sliver and a 4000-point wall section clean out. Deliberately a hair
+    // short of the gate — at 2200 one mine-bearer who arrived simply deleted
+    // the front of a fortress, and a door that can be removed by one man is a
+    // door nobody defends.
+    deathBlast: { damage: 1600, radius: 6.5, edgePct: 35 },
+    crushable: 2,
   }),
 ]
 
@@ -1360,6 +1439,8 @@ const WAR_MODULE: RulesetModule = {
     ...ELVES,
     ...DWARVES,
     ...ELITES,
+    ...ENGINES,
+    ...SAPPERS,
     ...LORDS,
     TOWER_SITE,
     GARRISON_SITE,

@@ -249,11 +249,61 @@ export function combat(s: SimState, grid: WalkGrid): void {
 
 // Deaths cascade through build plots: a razed fortress takes its expansion
 // slots with it, and a slot takes whatever stands on it. Repeat until settled.
-export function deaths(s: SimState, grid: WalkGrid): void {
+/**
+ * A sapper going off. Typed by the dying unit's own weapon, so the same blast
+ * is devastating to a gate and nearly harmless to the men beside it — which is
+ * the entire design of the thing: you spend it on masonry or you waste it.
+ *
+ * Enemies only. Taking its own side with it would be truer to life and would
+ * also mean a column of sappers detonating each other the moment an archer
+ * picks off the first one.
+ *
+ * Victims are collected before any damage lands, so a blast cannot chain
+ * through a second sapper within the same pass and recurse.
+ */
+function blast(s: SimState, hash: SpatialHash, i: number): void {
+  const st = s.def.stats
+  const radius = st.blastRadius[s.type[i]]
+  if (radius <= 0) return
+  const base = st.blastDamage[s.type[i]]
+  const edge = st.blastEdge[s.type[i]]
+  const cx = s.posX[i]
+  const cz = s.posZ[i]
+
+  // Collected first and applied in id order: spatial-hash bucket order is not
+  // id-stable, and two clients must agree on who died.
+  const victims: number[] = []
+  const shares: number[] = []
+  hash.forNeighbors(cx, cz, radius, (j) => {
+    if (j === i || !s.alive[j] || s.hidden[j] || st.untargetable[s.type[j]]) return
+    if (allied(s, s.owner[j], s.owner[i])) return
+    if (!canHit(s, s.type[i], j)) return
+    const dx = s.posX[j] - cx
+    const dz = s.posZ[j] - cz
+    const d = Math.sqrt(dx * dx + dz * dz) - st.radius[s.type[j]]
+    if (d > radius) return
+    // Full damage at the centre, `edge` percent at the rim.
+    const f = d <= 0 ? 0 : d / radius
+    victims.push(j)
+    shares.push(100 - ((100 - edge) * f))
+  })
+  for (let k = 0; k < victims.length; k++) {
+    const j = victims[k]
+    let dmg = applyDamageTable(s, s.type[i], s.type[j], Math.floor((base * shares[k]) / 100))
+    dmg = Math.floor((dmg * incomingPct(s, j)) / 100)
+    if (dmg < 1) dmg = 1
+    const wasAlive = s.hp[j] > 0
+    s.hp[j] -= dmg
+    if (wasAlive && s.hp[j] <= 0) addXp(s, s.hordeOf[i], st.xpValue[s.type[j]])
+  }
+}
+
+export function deaths(s: SimState, grid: WalkGrid, hash: SpatialHash): void {
   for (;;) {
     let died = false
     for (let i = 0; i < s.count; i++) {
       if (!s.alive[i] || s.hp[i] > 0) continue
+      if (s.def.stats.blastDamage[s.type[i]] > 0) blast(s, hash, i)
       const plot = s.plotOf[i]
       if (plot >= 0 && s.alive[plot]) s.plotHost[plot] = -1
       const host = s.plotHost[i]

@@ -229,6 +229,26 @@ export interface EntityDef {
       recoilPct?: number
     }
   }
+  /**
+   * What this entity does to the ground around it when it DIES.
+   *
+   * The whole mechanic behind a sapper: a unit whose worth is not what it hits
+   * but where it is standing when it stops. It needs no targeting mode and no
+   * order — walk it at a gate and the moment anything kills it, it goes off —
+   * which is also why it is dangerous to its owner. The blast is typed by the
+   * unit's own weapon, so a sapper carrying siege damage tears a gate apart
+   * (400% against structure) and merely singes the men beside it (35%).
+   *
+   * Enemies only. A bomb that took its own side with it would be truer to
+   * life, and would also mean a horde of them walking shoulder to shoulder
+   * kills itself the moment the first one falls to an arrow.
+   */
+  deathBlast?: {
+    damage: number
+    radius: number
+    /** Damage at the rim, 0..100; absent = 50. */
+    edgePct?: number
+  }
   // A gate: a wall section that stands open for its owners and barred to
   // everyone else. There is no team-aware pathing here and there does not need
   // to be — the gate simply unblocks its own footprint while friends are close
@@ -463,6 +483,10 @@ export function validateGameDef(def: GameDef): string[] {
     if (e.flying && !e.mover) push(`${where}: a flyer needs a mover`)
     if (e.combat?.knockback !== undefined && e.combat.knockback < 0)
       push(`${where}: combat knockback must be >= 0`)
+    if (e.deathBlast && (e.deathBlast.damage <= 0 || e.deathBlast.radius <= 0))
+      push(`${where}: deathBlast needs a positive damage and radius`)
+    if (e.deathBlast && !e.combat)
+      push(`${where}: deathBlast is typed by the unit's own weapon, so it needs one`)
     if (e.combat?.splashRadius !== undefined && e.combat.splashRadius < 0)
       push(`${where}: combat splashRadius must be >= 0`)
     if (

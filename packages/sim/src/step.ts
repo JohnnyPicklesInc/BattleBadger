@@ -59,7 +59,7 @@ export function step(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]): void {
   casts(s, hash)
   projectiles(s, hash)
   combat(s, grid)
-  deaths(s, grid)
+  deaths(s, grid, hash)
   supplyPower(s)
   triggers(s, grid)
   victory(s)

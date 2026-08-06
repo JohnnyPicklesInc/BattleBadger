@@ -84,6 +84,9 @@ export interface GameDefCompiled {
     atkKnockdown: Int32Array
     atkSplash: Float64Array
     atkSplashEdge: Int32Array
+    blastDamage: Float64Array
+    blastRadius: Float64Array
+    blastEdge: Int32Array
     projSpeed: Float64Array // 0 = hitscan
     projSplash: Float64Array
     projEdgePct: Int32Array
@@ -266,6 +269,9 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
     atkKnockdown: new Int32Array(n),
     atkSplash: new Float64Array(n),
     atkSplashEdge: new Int32Array(n).fill(50),
+    blastDamage: new Float64Array(n),
+    blastRadius: new Float64Array(n),
+    blastEdge: new Int32Array(n).fill(50),
     projSpeed: new Float64Array(n),
     projSplash: new Float64Array(n),
     projEdgePct: new Int32Array(n).fill(50),
@@ -327,6 +333,11 @@ export function compileGameDef(def: GameDef): GameDefCompiled {
       stats.auraSpeedPct[i] = 100 + (e.aura.speedPct ?? 0)
       stats.auraFoe[i] = e.aura.affects === 'enemies' ? 1 : 0
       stats.auraSelf[i] = e.aura.self === true ? 1 : 0
+    }
+    if (e.deathBlast) {
+      stats.blastDamage[i] = e.deathBlast.damage
+      stats.blastRadius[i] = e.deathBlast.radius
+      stats.blastEdge[i] = e.deathBlast.edgePct ?? 50
     }
     stats.plotPlaced[i] = e.placement === 'plot' ? 1 : 0
     // plots are pads, not structures: nothing collides with them or shoots them
