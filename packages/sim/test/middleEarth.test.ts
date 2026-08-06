@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { generateMiddleEarth, MIDDLE_EARTH_DEF } from '../src/mapgen/middleEarth.ts'
+import {
+  ANDUIN,
+  CRAG_GEOMETRY,
+  FORDS,
+  generateMiddleEarth,
+  MIDDLE_EARTH_CAMPS,
+  MIDDLE_EARTH_DEF,
+  RIVER_SPARE,
+  SPARED_GROUND,
+} from '../src/mapgen/middleEarth.ts'
 import { deriveTerrain } from '../src/mapdoc.ts'
 import { validateGameDef } from '../src/defs/schema.ts'
 import { walkGridFromDoc } from '../src/path/walkgrid.ts'
@@ -108,15 +117,14 @@ describe('The War of the Ring — ground', () => {
     }
   })
 
-  it('the Anduin is a real barrier, crossed only at its three fords', () => {
+  it('the Anduin is a real barrier, crossed only at its fords', () => {
     const { walkable } = deriveTerrain(doc)
     const dry = (x: number, z: number): boolean => walkable[Math.floor(z) * doc.cols + Math.floor(x)] === 1
-    // The three fords are open…
-    for (const ford of [
-      { x: 163, z: 96 },
-      { x: 170, z: 165 },
-      { x: 168, z: 199 },
-    ]) {
+    // Every crossing the map declares is open. Read from the map rather than
+    // copied into the test: the three points this used to check were not on the
+    // Anduin at all — they were spots in the Misty Mountains, and they passed
+    // for as long as they did because a camp's clearing happened to cover them.
+    for (const ford of FORDS) {
       expect(dry(ford.x, ford.z), `ford at ${ford.x},${ford.z} is under water`).toBe(true)
     }
     // …and away from them the river is a wall. Walk each latitude across the
@@ -359,88 +367,302 @@ describe('The War of the Ring — the muster loop', () => {
   })
 })
 
-const FD = 0.7071067811865476
-/** Which way each fortified camp looks — the same vectors the map authors. */
-const REALM_FACING: Record<string, { x: number; z: number }> = {
-  'muster-minas-tirith': { x: 1, z: 0 },
-  'muster-osgiliath': { x: 1, z: 0 },
-  'muster-barad-dur': { x: -1, z: 0 },
-  'muster-minas-morgul': { x: -1, z: 0 },
-  'muster-orthanc': { x: FD, z: FD },
-  'muster-nan-curunir': { x: FD, z: FD },
-}
+describe('The War of the Ring — how every camp is held', () => {
+  // One rule, applied twenty-nine times: a camp is SHUT on the side the enemy
+  // comes from and OPEN behind it. Osgiliath's reinforcements come from the
+  // rest of Gondor; a wall that rings a camp walls its own realm out as surely
+  // as the enemy, and then needs posterns to undo the problem it made.
+  //
+  // Two ways to shut a side. Masonry — a stockade's fence or a curtain's
+  // fortress wall — and rock, which is better, because nothing in the game can
+  // break a mountain.
+  const MASONRY = new Set(['wall', 'gate', 'wall-tower'])
 
-describe('The War of the Ring — fortresses', () => {
-  // What a fortified camp's curtain must be: a closed ring with no gap wide
-  // enough to walk through. The version this replaces put seven pieces on a
-  // 15-tile arc — 9.4 tiles apart for a 3-tile wall — so it looked like a
-  // fortress and was two thirds holes.
-  const ringOf = (campDef: string): { x: number; z: number; def: string }[] => {
-    const camp = doc.placed!.find((p) => p.def === campDef)!
-    const WALLS = new Set(['wall', 'gate', 'wall-tower', 'sally-port'])
+  /**
+   * The camp a piece of stone belongs to: the one whose ring it best sits on.
+   * Not the nearest camp — a wall-tower on the Iron Hills' gate stands 28 tiles
+   * from the Iron Hills and 18 from Erebor, so "nearest" hands Erebor a piece
+   * of somebody else's fortress and then fails Erebor for building it.
+   */
+  const off = (p: { x: number; z: number; def?: string }, c: (typeof MIDDLE_EARTH_CAMPS)[number]): number => {
+    const d = Math.sqrt((c.at.x - p.x) ** 2 + (c.at.z - p.z) ** 2)
+    // Which ring the piece could belong to depends on what it IS. Offering
+    // every band to every camp put Nan Curunír's watchtowers on Orthanc's books
+    // because they happened to stand 28 tiles out — and Orthanc, having a
+    // curtain, has no gate at 28 to put anything on.
+    if (p.def === 'watchtower' || p.def === 'tower-plot') return Math.abs(d - CRAG_GEOMETRY.towerRadius)
+    let best = Math.abs(d - CRAG_GEOMETRY.wallRadius)
+    if (c.crag && c.hold !== 'curtain') best = Math.min(best, Math.abs(d - CRAG_GEOMETRY.gateRadius))
+    return best
+  }
+  const ringOwner = (p: { x: number; z: number; def?: string }): (typeof MIDDLE_EARTH_CAMPS)[number] =>
+    MIDDLE_EARTH_CAMPS.reduce((best, c) => (off(p, c) < off(p, best) ? c : best))
+
+  /** Everything a camp built, as signed bearings off the way it looks. */
+  const arcOf = (plan: (typeof MIDDLE_EARTH_CAMPS)[number]): { x: number; z: number; def: string; d: number }[] => {
+    const face = Math.atan2(plan.face.z, plan.face.x)
     return doc
-      .placed!.filter((p) => WALLS.has(p.def))
-      .filter((p) => Math.sqrt((p.x - camp.x) ** 2 + (p.z - camp.z) ** 2) < 22)
-      .map((p) => ({ x: p.x, z: p.z, def: p.def }))
+      .placed!.filter((p) => MASONRY.has(p.def) && p.owner === plan.slot)
+      .filter((p) => Math.sqrt((p.x - plan.at.x) ** 2 + (p.z - plan.at.z) ** 2) < 20)
+      .filter((p) => ringOwner(p).id === plan.id)
+      .map((p) => {
+        let d = ((Math.atan2(p.z - plan.at.z, p.x - plan.at.x) - face) * 180) / Math.PI
+        while (d > 180) d -= 360
+        while (d < -180) d += 360
+        return { x: p.x, z: p.z, def: p.def, d }
+      })
+      .sort((u, v) => u.d - v.d)
   }
 
-  it('walls its front with no gaps, and leaves its back open', () => {
-    const forts = ['muster-minas-tirith', 'muster-osgiliath', 'muster-barad-dur', 'muster-minas-morgul']
-    for (const f of forts) {
-      const ring = ringOf(f)
-      expect(ring.length, `${f} has barely any curtain`).toBeGreaterThanOrEqual(14)
-      const camp = doc.placed!.find((p) => p.def === f)!
-      const realm = REALM_FACING[f]
+  it('holds every camp on the map, and none of them by hope alone', () => {
+    for (const plan of MIDDLE_EARTH_CAMPS) {
+      const held = plan.hold !== undefined || plan.crag !== undefined
+      expect(held, `${plan.name} stands in the open`).toBe(true)
+      // …and a door. Somewhere within reach of every camp there is a gate an
+      // attacker has to break, whether it stands in a wall or in a throat of
+      // rock. Sixty tiles because a crag's gate sits out at the mountain.
+      const gate = doc.placed!.some(
+        (p) =>
+          p.def === 'gate' &&
+          p.owner === plan.slot &&
+          Math.sqrt((p.x - plan.at.x) ** 2 + (p.z - plan.at.z) ** 2) < 60,
+      )
+      expect(gate, `${plan.name} has no gate`).toBe(true)
+    }
+  })
 
-      // Bearing of each piece relative to the way the camp faces, signed and
-      // folded to ±180.
-      const bearings = ring
-        .map((p) => {
-          const a = Math.atan2(p.z - camp.z, p.x - camp.x)
-          const face = Math.atan2(realm.z, realm.x)
-          let d = ((a - face) * 180) / Math.PI
-          while (d > 180) d -= 360
-          while (d < -180) d += 360
-          return { ...p, d }
-        })
-        .sort((u, v) => u.d - v.d)
-
-      // Everything built is on the FRONT arc — nothing wraps round the back.
-      for (const p of bearings) {
-        expect(Math.abs(p.d), `${f} built a wall behind itself at ${p.d.toFixed(0)}°`).toBeLessThanOrEqual(115)
+  it('builds its wall across the front and nothing behind it', () => {
+    // 11.25° a slot: a stockade runs five slots either side of dead ahead and a
+    // curtain nine, plus a slot of slack for the gate's own width.
+    const REACH = { stockade: 5 * 11.25 + 12, curtain: 9 * 11.25 + 12 }
+    for (const plan of MIDDLE_EARTH_CAMPS) {
+      if (!plan.hold) continue
+      const arc = arcOf(plan)
+      expect(arc.length, `${plan.name} has barely any wall`).toBeGreaterThanOrEqual(plan.hold === 'curtain' ? 14 : 8)
+      for (const p of arc) {
+        expect(
+          Math.abs(p.d),
+          `${plan.name} built a ${p.def} behind itself at ${p.d.toFixed(0)}°`,
+        ).toBeLessThanOrEqual(REACH[plan.hold])
       }
+    }
+  })
 
-      // …and across that arc there is no hole an army walks through. This is
-      // the regression that started all of it: seven pieces on a 15-tile arc,
-      // 9.4 apart, for a wall three tiles wide.
+  it('leaves no hole in that wall an army walks through', () => {
+    // The regression that started all of this: seven pieces on a 15-tile arc,
+    // 9.4 tiles apart, for a wall three tiles wide. It read as a fortress in a
+    // screenshot and an army walked between the stones without touching them.
+    for (const plan of MIDDLE_EARTH_CAMPS) {
+      if (!plan.hold) continue
+      const arc = arcOf(plan)
       let worst = 0
-      let worstAt = ''
-      for (let i = 0; i + 1 < bearings.length; i++) {
-        const a = bearings[i]
-        const b = bearings[i + 1]
+      let where = ''
+      for (let i = 0; i + 1 < arc.length; i++) {
+        const a = arc[i]
+        const b = arc[i + 1]
         const gap = Math.sqrt((a.x - b.x) ** 2 + (a.z - b.z) ** 2)
         const allowed = a.def === 'gate' || b.def === 'gate' ? 7.5 : 3.6
         if (gap - allowed > worst) {
           worst = gap - allowed
-          worstAt = `${a.def}(${a.d.toFixed(0)}°)→${b.def}(${b.d.toFixed(0)}°) ${gap.toFixed(1)}`
+          where = `${a.def}(${a.d.toFixed(0)}°)→${b.def}(${b.d.toFixed(0)}°) ${gap.toFixed(1)} apart`
         }
       }
-      expect(worst, `${f} has a hole in its curtain (${worstAt})`).toBeLessThanOrEqual(0)
-
-      // The back really is open. Reinforcements from the rest of the realm walk
-      // straight in; a closed ring shut its own side out and needed posterns to
-      // undo a problem it had created.
-      const behind = bearings.filter((p) => Math.abs(p.d) > 125)
-      expect(behind, `${f} is walled in behind`).toHaveLength(0)
+      expect(worst, `${plan.name} has a hole in its wall: ${where}`).toBeLessThanOrEqual(0)
     }
   })
 
-  it('the curtain stands outside the musters and inside the cleared ground', () => {
-    const camp = doc.placed!.find((p) => p.def === 'muster-minas-tirith')!
-    for (const p of ringOf('muster-minas-tirith')) {
-      const d = Math.sqrt((p.x - camp.x) ** 2 + (p.z - camp.z) ** 2)
-      expect(d, 'the curtain is inside its own muster ground').toBeGreaterThan(12)
-      expect(d, 'the curtain is outside the ground carved for it').toBeLessThan(20)
+  it('stands its wall outside the muster ground and inside the cleared ground', () => {
+    for (const plan of MIDDLE_EARTH_CAMPS) {
+      if (!plan.hold) continue
+      for (const p of arcOf(plan)) {
+        const d = Math.sqrt((p.x - plan.at.x) ** 2 + (p.z - plan.at.z) ** 2)
+        expect(d, `${plan.name} walled across its own muster ground`).toBeGreaterThan(12)
+        expect(d, `${plan.name} built outside the ground carved for it`).toBeLessThan(plan.clearing)
+      }
+    }
+  })
+
+  it('rings a crag in rock, and cuts the ways through it where it meant to', () => {
+    const { walkable } = deriveTerrain(doc)
+    const mid = (CRAG_GEOMETRY.inner + CRAG_GEOMETRY.outer) / 2
+    /** Is this point inside a corridor cut out of ANY camp's ring? */
+    const inSomeMouth = (x: number, z: number): boolean =>
+      MIDDLE_EARTH_CAMPS.some((c) =>
+        (c.crag ?? []).some((m) => {
+          const ox = x - c.at.x
+          const oz = z - c.at.z
+          const along = ox * m.x + oz * m.z
+          return along > 0 && along <= CRAG_GEOMETRY.mouthOut && Math.abs(ox * -m.z + oz * m.x) <= CRAG_GEOMETRY.mouthHalf
+        }),
+      )
+    /** Ground the map spares from rock on purpose: any camp's cleared disc, and
+     *  the Anduin's banks — a ring of stone dropped on the river bank plugs the
+     *  road that runs along it, which is how the north-east fell off the map. */
+    const spared = (x: number, z: number): boolean => {
+      if (SPARED_GROUND.some((c) => Math.sqrt((c.at.x - x) ** 2 + (c.at.z - z) ** 2) < c.r + 1)) return true
+      for (let k = 0; k + 1 < ANDUIN.length; k++) {
+        const a = ANDUIN[k]
+        const b = ANDUIN[k + 1]
+        const vx = b.x - a.x
+        const vz = b.z - a.z
+        const t = Math.max(0, Math.min(1, ((x - a.x) * vx + (z - a.z) * vz) / (vx * vx + vz * vz)))
+        if (Math.sqrt((x - a.x - vx * t) ** 2 + (z - a.z - vz * t) ** 2) < RIVER_SPARE + 1) return true
+      }
+      return false
+    }
+
+    for (const plan of MIDDLE_EARTH_CAMPS) {
+      if (!plan.crag) continue
+      let rock = 0
+      let hole = 0
+      let firstHole = ''
+      for (let k = 0; k < 360; k++) {
+        const a = (k * Math.PI) / 180
+        const x = plan.at.x + Math.cos(a) * mid
+        const z = plan.at.z + Math.sin(a) * mid
+        const i = Math.floor(z) * doc.cols + Math.floor(x)
+        // Water and a neighbour's cleared ground are spared from the rock by
+        // design, and a corridor — this camp's or the camp next door's — is
+        // supposed to be open. What is left has to be mountain.
+        // A ramp is a carved road like a mouth is — Edoras's way down off its
+        // hill clips the outer edge of Orthanc's ring on its way past.
+        if (doc.texture![i] === 6 || doc.ramp![i] === 1 || spared(x, z) || inSomeMouth(x, z)) continue
+        if (walkable[i] === 1) {
+          hole++
+          firstHole ||= `${k}°`
+        } else rock++
+      }
+      // Of the 360 bearings round the ring, everything that is not a mouth, not
+      // water and not ground the map spares on purpose has to be mountain. Two
+      // stray degrees of slack for where a spared disc's edge lands between
+      // sample points; the rings themselves come out at 0 or 1.
+      expect(hole, `${plan.name}'s ring is open ground at ${firstHole} where it should be rock`).toBeLessThanOrEqual(2)
+      // Minas Tirith is the thinnest ring on the map at 115° of rock — its
+      // circle is mostly river bank and Pelennor, both spared — and even that
+      // closes the two flanks the White Mountains and the Anduin do not.
+      expect(rock, `${plan.name} has no ring worth the name`).toBeGreaterThanOrEqual(100)
+    }
+  })
+
+  it('cuts a way OUT of every crag, not just a hole in the ring', () => {
+    // A mouth that stops inside the mountain is not a mouth. Walk each one from
+    // the camp out through the far edge of the ring band.
+    const { walkable } = deriveTerrain(doc)
+    for (const plan of MIDDLE_EARTH_CAMPS) {
+      if (!plan.crag) continue
+      for (const [n, m] of plan.crag.entries()) {
+        let stopped = -1
+        for (let r = 2; r < CRAG_GEOMETRY.outer; r++) {
+          const x = Math.floor(plan.at.x + m.x * r)
+          const z = Math.floor(plan.at.z + m.z * r)
+          if (walkable[z * doc.cols + x] !== 1) {
+            stopped = r
+            break
+          }
+        }
+        expect(stopped, `${plan.name}'s mouth ${n} is stopped ${stopped} tiles out`).toBe(-1)
+      }
+    }
+  })
+
+  it('makes every wall a wall you can SEE', () => {
+    // An invisible wall is the worst thing a map can have: open grass an army
+    // bounces off. The plains of Rohan are painted with a 38-tile brush and it
+    // went straight over the Misty Mountains' skirt — two thousand cells of
+    // field that stopped you dead, and the same for Harad's sand.
+    const { walkable } = deriveTerrain(doc)
+    const READS_AS_WALL = new Set([2, 4, 6]) // rock, snow, water
+    const bad = new Map<string, number>()
+    let first = ''
+    for (let z = 0; z < doc.rows; z++) {
+      for (let x = 0; x < doc.cols; x++) {
+        const i = z * doc.cols + x
+        if (walkable[i] === 1 || READS_AS_WALL.has(doc.texture![i])) continue
+        const k = String(doc.texture![i])
+        bad.set(k, (bad.get(k) ?? 0) + 1)
+        first ||= `${x},${z}`
+      }
+    }
+    expect([...bad.values()].reduce((a, b) => a + b, 0), `ground you cannot walk on and cannot see, from ${first}`).toBe(0)
+  })
+
+  it('gives a hill exactly one way up, and it goes all the way', () => {
+    // A mesa closes its own rim; the ramp is the only break in it. Edoras's had
+    // four tiles of Fangorn's skirt sitting in the middle of it, because the
+    // ramp skipped blocked ground instead of carving it — so the hall on the
+    // hill was a hall nothing could walk to, and every test still passed until
+    // an unrelated dyke two camps away shut the back way in.
+    const { walkable } = deriveTerrain(doc)
+    for (const plan of MIDDLE_EARTH_CAMPS) {
+      if (!plan.mesa) continue
+      const clearing = plan.clearing
+      for (let r = 2; r <= clearing + 9; r++) {
+        const x = Math.floor(plan.at.x + plan.mesa.x * r)
+        const z = Math.floor(plan.at.z + plan.mesa.z * r)
+        expect(walkable[z * doc.cols + x], `${plan.name}'s ramp is broken ${r} tiles up`).toBe(1)
+      }
+      // …and the rim really is a rim: walk round it and most of it must stop
+      // you, or the hill is decoration.
+      let rim = 0
+      for (let k = 0; k < 360; k += 3) {
+        const a = (k * Math.PI) / 180
+        const x = Math.floor(plan.at.x + Math.cos(a) * (clearing + 5))
+        const z = Math.floor(plan.at.z + Math.sin(a) * (clearing + 5))
+        if (walkable[z * doc.cols + x] !== 1) rim++
+      }
+      expect(rim, `${plan.name} is a hill you can walk up anywhere`).toBeGreaterThan(70)
+    }
+  })
+
+  it('leaves the road in from behind clear at every camp', () => {
+    // The rear is where a realm's own reinforcements arrive. Nothing the map
+    // places may stand in it — not a wall, not an engine, not a tower. Osgiliath
+    // had its two wall-catapults astride the road from Minas Tirith and a
+    // watchtower eight tiles due west of the camp, in the middle of it.
+    const MINE = new Set(['wall', 'gate', 'wall-tower', 'wall-catapult', 'watchtower', 'tower-plot'])
+    for (const plan of MIDDLE_EARTH_CAMPS) {
+      for (const p of doc.placed!) {
+        if (!MINE.has(p.def) || p.owner !== plan.slot) continue
+        const dx = p.x - plan.at.x
+        const dz = p.z - plan.at.z
+        const d = Math.sqrt(dx * dx + dz * dz)
+        if (d < 4 || d > 34) continue
+        // Its own, not a neighbour's. Khazad-dûm's gate tower stands twelve
+        // tiles from the East-gate and twenty-eight from Khazad-dûm, so
+        // "nearest" blames the wrong camp; the ring it sits on does not.
+        if (ringOwner(p).id !== plan.id) continue
+        const back = (dx * plan.face.x + dz * plan.face.z) / d
+        if (back > -0.25) continue // not behind
+        const across = Math.abs(dx * -plan.face.z + dz * plan.face.x)
+        expect(across, `${plan.name} put a ${p.def} in its own back road`).toBeGreaterThanOrEqual(6)
+      }
+    }
+  })
+
+  it('never walls a camp off from the rest of the map', () => {
+    // The failure this exists for: Dol Guldur's ring reached the Anduin, and
+    // the bank it plugged was the only road south. Erebor, the Iron Hills and
+    // Dol Guldur went with it — forty thousand cells and three camps that no
+    // army could walk to or out of, and nothing else in the suite noticed.
+    const seen = reachable(MIDDLE_EARTH_CAMPS[0].at)
+    for (const plan of MIDDLE_EARTH_CAMPS) {
+      const k = Math.floor(plan.at.z) * doc.cols + Math.floor(plan.at.x)
+      expect(seen[k], `${plan.name} cannot be walked to from Minas Tirith`).toBe(1)
+    }
+  })
+
+  it('gives no two realms the same piece of ground', () => {
+    // Helm's Deep stood ten tiles from Dunland and Dimrill Dale ten from
+    // Orthanc: enemy camps sharing one cleared disc, one set of towers and one
+    // set of muster points, with a mountain range nominally between them.
+    for (const a of MIDDLE_EARTH_CAMPS) {
+      for (const b of MIDDLE_EARTH_CAMPS) {
+        if (a.slot >= b.slot) continue
+        const d = Math.sqrt((a.at.x - b.at.x) ** 2 + (a.at.z - b.at.z) ** 2)
+        expect(d, `${a.name} and ${b.name} are different realms sharing ground`).toBeGreaterThan(
+          a.clearing + b.clearing,
+        )
+      }
     }
   })
 })

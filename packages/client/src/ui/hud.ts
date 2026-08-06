@@ -11,11 +11,18 @@ import { PLAYER_COLORS, modelGeometry } from '../render/unitMeshes.ts'
 import { resolveModel } from '../render/assets.ts'
 import type { RtsCamera } from '../render/camera.ts'
 import { terrainImage } from './mapPreview.ts'
+import { assignHotkeys } from './hotkeys.ts'
 import { VERSION_LABEL } from '../version.ts'
 
 // WC3-style bottom HUD: menu + minimap on the left, unit portrait bottom
 // center, command card lower right. All buttons also work under pointer-lock
 // capture via Hud.virtualClick (hit-testing the software cursor).
+//
+// The card also owns the keyboard: every button on it — fixed command or
+// dynamic ability/build/train/research/stance — carries a letter, and pressing
+// that letter presses the button, visibly. Keys are assigned here rather than
+// scattered through the input controller precisely so that the card and the
+// keyboard can never disagree about what a key does.
 
 export interface HudActions {
   armAttack(): void
@@ -50,6 +57,8 @@ export interface HudActions {
   abilityCooldown(abIdx: number): number
   // jump the camera to a unit (portrait click)
   centerOn(id: number): void
+  // drop the last item from the selected building's production queue
+  cancelQueued(queueIndex: number): void
 }
 
 interface CardButton {
@@ -60,7 +69,13 @@ interface CardButton {
   title: string
   onClick: () => void
   disabled?: boolean
+  /** The key the GameDef asked for; honoured when it is still free. */
+  hotkey?: string
 }
+
+// How long a button stays visibly pressed after its key is struck. Long enough
+// to see on a 60 Hz screen, short enough not to lag a build order.
+const PRESS_MS = 160
 
 const MM_SIZE = 176
 // Yaw the portrait models sit at, in radians. Purely cosmetic.
@@ -109,6 +124,15 @@ export class Hud {
   private groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0)
   private onMenuOpenChange: (open: boolean) => void
   private ownerColors: THREE.Color[]
+  // letter → the card button it presses. Rebuilt with the card.
+  private hotkeyButtons = new Map<string, HTMLButtonElement>()
+  // The button showing as pressed, by CardButton key, so the highlight
+  // survives the card being repainted a frame later (cooldowns repaint it
+  // constantly) rather than blinking out mid-press.
+  private pressedKey = ''
+  private pressTimer = 0
+  // Authored hotkeys we had to move, warned about once each.
+  private warnedKeys = new Set<string>()
 
   constructor(
     doc: RtsMapDoc,
@@ -146,11 +170,11 @@ export class Hud {
         <div id="sel-group"></div>
       </div>
       <div id="bhud-right">
-        <button class="cmd" id="cmd-move">Move<span>M</span></button>
-        <button class="cmd" id="cmd-stop">Stop<span>S</span></button>
-        <button class="cmd" id="cmd-attack">Attack<span>A</span></button>
-        <button class="cmd" id="cmd-hold">Hold<span>H</span></button>
-        <button class="cmd" id="cmd-patrol">Patrol<span>P</span></button>
+        <button class="cmd" id="cmd-move" title="Move here (M)"><i class="hk">M</i>Move</button>
+        <button class="cmd" id="cmd-stop" title="Stop (S)"><i class="hk">S</i>Stop</button>
+        <button class="cmd" id="cmd-attack" title="Attack-move (A)"><i class="hk">A</i>Attack</button>
+        <button class="cmd" id="cmd-hold" title="Hold position (H)"><i class="hk">H</i>Hold</button>
+        <button class="cmd" id="cmd-patrol" title="Patrol (P)"><i class="hk">P</i>Patrol</button>
       </div>`
     document.body.appendChild(this.root)
     // Battle sound is synthesised, so muting is a gain of zero rather than a
@@ -176,7 +200,9 @@ export class Hud {
       <div class="panel">
         <h1>Battle<span>Badger</span></h1>
         <div class="sub">right-click move · A attack-move · M move · S stop · H hold position ·
-          P patrol · ability hotkeys sit on the command card (Q heal/mend) ·
+          P patrol · every other action — abilities, building, training,
+          research, stances, gates — carries the letter shown in the corner of
+          its command-card button, and the button lights up when you press it ·
           Ctrl+1–9 assign group, 1–9 select, double-tap centers, Shift+1–9 adds ·
           double-click selects all of a type on screen · selection slots: click
           picks that unit alone, Shift+click removes it, Ctrl+click keeps only
@@ -252,6 +278,8 @@ export class Hud {
       return m
     })
 
+    this.staticHotkeys()
+
     // Native listeners (work when NOT pointer-locked; virtualClick covers locked).
     this.root.querySelector('#menu-btn')!.addEventListener('click', () => this.toggleMenu(true))
     this.root.querySelector('#cmd-move')!.addEventListener('click', () => this.actions.armMove())
@@ -290,8 +318,58 @@ export class Hud {
       if (e.code === 'F10') {
         e.preventDefault()
         this.toggleMenu(this.menuOverlay.style.display === 'none')
+        return
       }
+      this.handleHotkey(e)
     })
+  }
+
+  // The fixed commands. Registered up front so they answer their keys even
+  // before a selection has ever put a dynamic button on the card.
+  private staticHotkeys(): void {
+    const fixed: [string, string][] = [
+      ['M', '#cmd-move'],
+      ['S', '#cmd-stop'],
+      ['A', '#cmd-attack'],
+      ['H', '#cmd-hold'],
+      ['P', '#cmd-patrol'],
+    ]
+    for (const [k, sel] of fixed) this.hotkeyButtons.set(k, this.root.querySelector<HTMLButtonElement>(sel)!)
+  }
+
+  /**
+   * A letter struck: press the card button that owns it. Modified presses are
+   * somebody else's (Ctrl+1..9 are control groups), and a disabled card — an
+   * enemy selected, nothing selected — has no keys at all, so a stray A does
+   * not arm an attack that no unit could carry out.
+   */
+  private handleHotkey(e: KeyboardEvent): void {
+    if (this.menuOpen || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
+    if (!/^Key[A-Z]$/.test(e.code)) return
+    const el = document.activeElement
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement) return
+    if (this.cardEl.classList.contains('disabled')) return
+    const btn = this.hotkeyButtons.get(e.code.slice(3))
+    // 'unaffordable' is also how a cooling ability and an unmet prerequisite
+    // are drawn: no click listener was attached, so the key must not pretend.
+    if (!btn || btn.classList.contains('unaffordable')) return
+    // A foreign selection leaves only its own buttons live (an ally's gate).
+    if (this.cardEl.classList.contains('foreign') && !btn.classList.contains('dyn')) return
+    e.preventDefault()
+    this.press(btn)
+    btn.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+  }
+
+  // Show the button as pressed, the way clicking it does.
+  private press(btn: HTMLButtonElement): void {
+    for (const old of this.cardEl.querySelectorAll('.kb')) old.classList.remove('kb')
+    btn.classList.add('kb')
+    this.pressedKey = btn.dataset.cardKey ?? btn.id
+    clearTimeout(this.pressTimer)
+    this.pressTimer = window.setTimeout(() => {
+      this.pressedKey = ''
+      for (const old of this.cardEl.querySelectorAll('.kb')) old.classList.remove('kb')
+    }, PRESS_MS)
   }
 
   get menuOpen(): boolean {
@@ -400,6 +478,7 @@ export class Hud {
       this.hpEl.textContent = ''
       this.queueEl.textContent = ''
       this.cardEl.classList.add('disabled')
+      this.cardEl.classList.remove('foreign')
       this.renderDynamicButtons([])
       return
     }
@@ -415,6 +494,9 @@ export class Hud {
     }
     const ty = sim.type[primary]
     const own = sim.owner[primary] === this.mySlot
+    // An ally is not an enemy. Four realms can stand on one side here, so the
+    // panel has to say which of the three a unit is rather than "mine or not".
+    const ally = !own && sim.playerTeam[sim.owner[primary]] === sim.playerTeam[this.mySlot]
     const e = this.def.entities[ty]
     const constructing = sim.kind[primary] === 1 && sim.buildTicks[primary] > 0
     // battalions read as one unit: the horde's name, strength and veterancy
@@ -423,10 +505,10 @@ export class Hud {
       horde >= 0
         ? ` ×${sim.hordes.members[horde].length}${sim.hordes.level[horde] > 1 ? ` · Lv ${sim.hordes.level[horde]}` : ''}`
         : ''
-    this.nameEl.textContent = `${e.name}${hordeTag}${own ? '' : ' (enemy)'}${constructing ? ' (constructing)' : ''}`
-    this.nameEl.style.color = own ? '#dfe6ee' : '#ff8a7a'
+    const side = own ? '' : ally ? ' (ally)' : ' (enemy)'
+    this.nameEl.textContent = `${e.name}${hordeTag}${side}${constructing ? ' (constructing)' : ''}`
+    this.nameEl.style.color = own ? '#dfe6ee' : ally ? '#7ee787' : '#ff8a7a'
     this.hpEl.textContent = `${Math.max(0, sim.hp[primary])} / ${this.def.stats.maxHp[ty]} HP`
-    this.cardEl.classList.toggle('disabled', !own)
 
     // production queue readout + dynamic card buttons
     const buttons: CardButton[] = []
@@ -457,10 +539,11 @@ export class Hud {
         buttons.push({
           key: `ab${abIdx}`,
           label: ab.name,
-          sub: cd > 0 ? `${secs}s` : (ab.hotkey ?? ''),
+          sub: cd > 0 ? `${secs}s` : '',
           cls: cd > 0 ? 'ability cooling' : 'ability',
           title: `${ab.name} — ${ab.hpDelta < 0 ? `${-ab.hpDelta} damage` : `${ab.hpDelta} healing`}, range ${ab.range}${shape}, every ${Math.ceil((ab.periodTicks * TICK_MS) / 1000)}s`,
           disabled: cd > 0,
+          hotkey: ab.hotkey,
           onClick: () => this.actions.armAbility(abIdx),
         })
       }
@@ -506,34 +589,15 @@ export class Hud {
           disabled: !ready || !afford,
           title: `${bits.join(', ')} — ${u.appliesTo.join(', ')}${ready ? '' : ' (needs its prerequisite)'}`,
           onClick: () => this.actions.research(up),
+          hotkey: u.hotkey,
         })
-      }
-      // A gate is worked by hand: the whole question a siege asks is when to
-      // open the front of your fortress, so it is a decision rather than a
-      // sensor. Sally ports are on Auto and can be left there.
-      if (this.actions.selectedGates().length > 0) {
-        const mode = this.actions.gateMode()
-        const GATE_MODES: { m: number; label: string; sub: string; title: string }[] = [
-          { m: 1, label: 'Open', sub: 'O', title: 'Hold the gate open' },
-          { m: 2, label: 'Shut', sub: 'C', title: 'Bar the gate' },
-          { m: 0, label: 'Auto', sub: 'U', title: 'Open for nearby allies, bar it when an enemy is close' },
-        ]
-        for (const g of GATE_MODES) {
-          buttons.push({
-            key: `gt${g.m}`,
-            label: g.label,
-            sub: g.sub,
-            cls: mode === g.m ? 'ability cooling' : 'ability',
-            title: g.title,
-            onClick: () => this.actions.setGateMode(g.m),
-          })
-        }
       }
       // Formation stances for the selected battalions.
       this.actions.hordeFormations().forEach((f, i) => {
         buttons.push({
-          key: `fm${i}`, label: f.name, sub: f.hotkey ?? '', cls: 'ability',
+          key: `fm${i}`, label: f.name, sub: '', cls: 'ability',
           title: `${f.name} formation`, onClick: () => this.actions.setFormation(i),
+          hotkey: f.hotkey,
         })
       })
       const b = this.actions.selectedBuilding()
@@ -550,11 +614,55 @@ export class Hud {
           const total = Math.max(1, this.def.entities[q[0]].buildTimeTicks ?? 10)
           const pct = Math.floor((sim.queueTicks[b] / total) * 100)
           this.queueEl.textContent = `Training ${this.def.entities[q[0]].name} ${pct}%${q.length > 1 ? ` (+${q.length - 1} queued)` : ''}`
+          // Cancelling is an order like any other, so it belongs on the card
+          // with a key — it was reachable only from the console before.
+          buttons.push({
+            key: 'qx',
+            label: 'Cancel',
+            sub: `×${q.length}`,
+            cls: 'train',
+            title: `Cancel the last queued ${this.def.entities[q[q.length - 1]].name}`,
+            onClick: () => this.actions.cancelQueued(q.length - 1),
+          })
         } else if (this.def.entities[sim.type[b]].trainer) {
           this.queueEl.textContent = 'Idle — right-click sets rally'
         }
       }
     }
+    // A gate is worked by hand: the whole question a siege asks is when to
+    // open the front of your fortress, so it is a decision rather than a
+    // sensor. Sally ports are on Auto and can be left there.
+    //
+    // Outside the `own` branch on purpose: an allied fortress's gate is one
+    // any of its defenders may work, and the sim already agrees (selectedGates
+    // is team-wide). Locking the card would strand a teammate outside a keep
+    // his own men are standing in.
+    const gates = this.actions.selectedGates()
+    if (gates.length > 0) {
+      const mode = this.actions.gateMode()
+      const GATE_MODES: { m: number; label: string; hotkey: string; title: string }[] = [
+        { m: 1, label: 'Open', hotkey: 'O', title: 'Hold the gate open' },
+        { m: 2, label: 'Shut', hotkey: 'C', title: 'Bar the gate' },
+        { m: 0, label: 'Auto', hotkey: 'U', title: 'Open for nearby allies, bar it when an enemy is close' },
+      ]
+      for (const g of GATE_MODES) {
+        buttons.push({
+          key: `gt${g.m}`,
+          label: g.label,
+          sub: mode === g.m ? '●' : '',
+          cls: mode === g.m ? 'ability cooling' : 'ability',
+          title: g.title,
+          onClick: () => this.actions.setGateMode(g.m),
+          hotkey: g.hotkey,
+        })
+      }
+    }
+    // Nothing of ours in the selection and no gate to work: the card is a
+    // readout, not a control panel, and its keys go quiet with it.
+    this.cardEl.classList.toggle('disabled', !own && gates.length === 0)
+    // An ally's gate we may work, but not his soldiers: the fixed commands go
+    // dark rather than sitting there taking orders nobody will carry out.
+    this.cardEl.classList.toggle('foreign', !own)
     this.renderDynamicButtons(buttons)
 
     // Portrait: a still of the primary unit's type, tinted by owner. Redrawn
@@ -626,13 +734,27 @@ export class Hud {
     const key = buttons.map((b) => `${b.key}|${b.sub}|${b.disabled ? 1 : 0}`).join(',')
     if (key === this.abilityKey) return
     this.abilityKey = key
+    const keys = assignHotkeys(buttons)
+    for (const b of buttons) {
+      const got = keys.get(b.key)
+      if (!b.hotkey || !got || got === b.hotkey.toUpperCase() || this.warnedKeys.has(b.key)) continue
+      this.warnedKeys.add(b.key)
+      console.warn(`[bb] "${b.label}" asked for hotkey ${b.hotkey.toUpperCase()} — taken, using ${got}`)
+    }
     for (const old of this.cardEl.querySelectorAll('button.cmd.dyn')) old.remove()
+    this.hotkeyButtons.clear()
+    this.staticHotkeys()
     for (const b of buttons) {
       const btn = document.createElement('button')
-      btn.className = `cmd dyn ${b.cls}${b.disabled ? ' unaffordable' : ''}`
-      btn.title = b.title
-      btn.innerHTML = `${b.label}<span>${b.sub}</span>`
-      if (!b.disabled) btn.addEventListener('click', b.onClick)
+      const hk = keys.get(b.key) ?? ''
+      btn.className = `cmd dyn ${b.cls}${b.disabled ? ' unaffordable' : ''}${b.key === this.pressedKey ? ' kb' : ''}`
+      btn.title = hk ? `${b.title} (${hk})` : b.title
+      btn.dataset.cardKey = b.key
+      btn.innerHTML = `${hk ? `<i class="hk">${hk}</i>` : ''}${b.label}<span>${b.sub}</span>`
+      if (!b.disabled) {
+        btn.addEventListener('click', b.onClick)
+        if (hk) this.hotkeyButtons.set(hk, btn)
+      }
       this.cardEl.appendChild(btn)
     }
   }

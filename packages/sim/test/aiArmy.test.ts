@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateMiddleEarth } from '../src/mapgen/middleEarth.ts'
+import { generateMiddleEarth, MIDDLE_EARTH_CAMPS } from '../src/mapgen/middleEarth.ts'
 import { walkGridFromDoc } from '../src/path/walkgrid.ts'
 import { setupMatch } from '../src/setup.ts'
 import { step } from '../src/step.ts'
@@ -82,9 +82,22 @@ describe('the AI army job', () => {
     const orders = ordersFor(cmds, 1)
     const small = orders.find((o) => o.units.some((h) => few.includes(h & 0xffff)))
     expect(small, 'the stragglers were given no order at all').toBeDefined()
-    // They should head for their own main body in the south, not at the enemy.
-    const towardHost = Math.abs(small!.z - 270) < Math.abs(small!.z - 120)
-    expect(towardHost, 'four men were sent at the enemy on their own').toBe(true)
+
+    // They must head for a body of their own, not at the enemy on their own.
+    // Which body is the AI's business: it takes the NEAREST, and on this map
+    // that is Dol Guldur's garrison a hundred and forty tiles off rather than
+    // the host in Gorgoroth two hundred and twenty away. Naming the southern
+    // host specifically was asserting the outcome instead of the rule, and the
+    // rule is the thing worth keeping.
+    const home = MIDDLE_EARTH_CAMPS.filter((c) => c.slot === 1).reduce(
+      (best, c) =>
+        (c.at.x - small!.x) ** 2 + (c.at.z - small!.z) ** 2 < (best.at.x - small!.x) ** 2 + (best.at.z - small!.z) ** 2
+          ? c
+          : best,
+    )
+    const toOwn = Math.sqrt((home.at.x - small!.x) ** 2 + (home.at.z - small!.z) ** 2)
+    const toEnemy = Math.sqrt((300 - small!.x) ** 2 + (285 - small!.z) ** 2)
+    expect(toOwn, `four men were sent at the enemy on their own, not to ${home.name}`).toBeLessThan(toEnemy)
   })
 
   it('drops everything to defend a camp that is actually under attack', () => {

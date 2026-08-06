@@ -14,7 +14,7 @@ import {
 } from '@battlebadger/sim'
 import type { Transport } from '../net/transport.ts'
 import { GameRenderer } from '../render/renderer.ts'
-import { PLAYER_COLORS } from '../render/unitMeshes.ts'
+import { PLAYER_COLORS, teamOwnerColors } from '../render/unitMeshes.ts'
 import { InputController } from '../input/input.ts'
 import { MouseCursor } from '../input/cursor.ts'
 import { Hud } from '../ui/hud.ts'
@@ -106,16 +106,12 @@ export class Game {
     this.prevZ = Float64Array.from(this.sim.posZ)
     this.cursor = new MouseCursor(container)
     this.cursor.enabled = true
-    // AI-slot content (owner >= playerCount, e.g. MOBA lane creeps) renders in
-    // its TEAM's color — the lowest human slot on the same team — so the war
-    // reads as blue vs red instead of whatever palette slots 6/7 have.
-    const ownerColors = PLAYER_COLORS.map((c, owner) => {
-      if (owner < playerCount) return c
-      for (let p = 0; p < playerCount; p++) {
-        if (this.sim.playerTeam[p] === this.sim.playerTeam[owner]) return PLAYER_COLORS[p]
-      }
-      return c
-    })
+    // Colour by TEAM, not by slot: on a map where four realms stand together
+    // an ally has to read as an ally at a glance. Every player on your side
+    // wears a shade of one colour and the enemy alliance another, and that
+    // covers AI-slot content (owner >= playerCount, e.g. lane creeps or a
+    // scripted host) for free — it is on a team like everyone else.
+    const ownerColors = teamOwnerColors(this.sim.playerTeam, PLAYER_COLORS.length)
     this.renderer3d = new GameRenderer(
       container,
       doc,
@@ -163,6 +159,7 @@ export class Game {
         selectedBuilding: () => this.input.selectedBuilding(),
         abilityCooldown: (abIdx) => this.input.abilityCooldown(abIdx),
         centerOn: (id) => this.input.centerOn(id),
+        cancelQueued: (i) => this.input.cancelQueued(i),
         minimapOrder: (x, z) => this.input.minimapOrder(x, z),
         surrender: () => this.end({ won: false, reason: 'surrender' }),
       },

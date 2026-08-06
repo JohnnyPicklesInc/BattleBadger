@@ -14,11 +14,6 @@ export type HoverKind = 'ground' | 'enemy' | 'ally' | 'resource'
 
 const DIGIT_CODES = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0']
 
-// WC3 gives the base commands fixed mnemonics and leaves the rest of the
-// keyboard to abilities. Ability hotkeys are matched only after these, so a
-// GameDef reusing one would silently lose its ability — warn the author.
-const RESERVED_KEYS = ['A', 'M', 'S', 'H', 'P', 'F']
-
 // WC3-style selection + commands: box/click select (enemies clickable, single
 // only), right-click move, command card / A / M targeting modes, S stop,
 // control groups (Ctrl+# assign, Shift+# add, # select, ## center camera),
@@ -66,14 +61,6 @@ export class InputController {
     this.cursor = cursor
     this.sendCmd = sendCmd
     const canvas = renderer3d.domElement
-
-    const shadowed = sim.def.abilities.filter((a) => a.hotkey && RESERVED_KEYS.includes(a.hotkey.toUpperCase()))
-    if (shadowed.length > 0) {
-      console.warn(
-        `Abilities shadowed by reserved command keys (${RESERVED_KEYS.join('/')}): ` +
-          `${shadowed.map((a) => `${a.name} [${a.hotkey}]`).join(', ')} — the command card still works, but pick another hotkey.`,
-      )
-    }
 
     window.addEventListener('contextmenu', (e) => {
       if (!this.hud?.menuOpen) e.preventDefault()
@@ -172,16 +159,10 @@ export class InputController {
         this.handleGroupKey(digit, e.ctrlKey || e.metaKey, e.shiftKey)
         return
       }
-      if (e.code === 'KeyA') this.armAttack()
-      else if (e.code === 'KeyM') this.armMove()
-      else if (e.code === 'KeyP') this.armPatrol()
-      else if (e.code === 'KeyH') this.holdCmd()
-      else if (e.code === 'KeyS') this.stopCmd()
-      else if (this.matchAbilityHotkey(e.code)) {
-        // handled by matchAbilityHotkey
-      } else if (this.matchFormationHotkey(e.code)) {
-        // handled by matchFormationHotkey
-      } else if (e.code === 'KeyF') {
+      // Every letter that issues an order belongs to the command card, which
+      // presses its own button so the player sees what the key did (ui/hud.ts).
+      // Left here: what has no button — control groups, fullscreen, cancel.
+      if (e.code === 'KeyF') {
         if (document.fullscreenElement) void document.exitFullscreen()
         else void document.documentElement.requestFullscreen().catch(() => {})
       } else if (e.code === 'Escape') this.disarm()
@@ -311,17 +292,6 @@ export class InputController {
     return best === -1 ? 0 : best
   }
 
-  private matchAbilityHotkey(code: string): boolean {
-    for (let i = 0; i < this.sim.def.abilities.length; i++) {
-      const hk = this.sim.def.abilities[i].hotkey
-      if (hk && code === `Key${hk.toUpperCase()}` && this.selectedAbilities().includes(i)) {
-        this.armAbility(i)
-        return true
-      }
-    }
-    return false
-  }
-
   // Ability cast: resolve the click per the ability's target rule.
   private issueAbilityCommand(abIdx: number, cx: number, cy: number): void {
     const ab = this.sim.def.abilities[abIdx]
@@ -348,9 +318,12 @@ export class InputController {
     const h2 = window.innerHeight / 2
     let best = -1
     let bestD = 26 * 26
+    const myTeam = this.sim.playerTeam[this.mySlot]
     for (let i = 0; i < this.sim.count; i++) {
       if (!this.interactable(i)) continue
-      if ((this.sim.owner[i] === this.mySlot) !== wantAlly) continue
+      // Friendly means the whole alliance, as it does in the sim: a healer who
+      // could not mend the men standing beside him would be no ally at all.
+      if ((this.sim.playerTeam[this.sim.owner[i]] === myTeam) !== wantAlly) continue
       if (!this.projectUnit(i, v)) continue
       const sx = v.x * w2 + w2
       const sy = -v.y * h2 + h2
@@ -567,18 +540,6 @@ export class InputController {
     const units = this.ownedSelection().filter((i) => this.sim.hordeOf[i] >= 0)
     if (units.length === 0) return
     this.sendCmd({ kind: 'formation', units: this.handles(units), x: 0, z: 0, def: index })
-  }
-
-  private matchFormationHotkey(code: string): boolean {
-    const forms = this.hordeFormations()
-    for (let i = 0; i < forms.length; i++) {
-      const hk = forms[i].hotkey
-      if (hk && code === `Key${hk.toUpperCase()}`) {
-        this.setFormation(i)
-        return true
-      }
-    }
-    return false
   }
 
   // A battalion answers as one: touching any soldier selects his whole horde.

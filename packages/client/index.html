@@ -73,11 +73,22 @@
       #bhud-right { display: grid; grid-template-columns: repeat(3, 74px); gap: 6px;
         padding: 0 10px 10px 0; }
       #bhud-right.disabled { opacity: 0.35; pointer-events: none; }
-      button.cmd { height: 58px; background: rgba(16, 21, 29, 0.92); border: 1px solid #2a3342;
+      /* somebody else's selection: only what we may still do stays live */
+      #bhud-right.foreign button.cmd:not(.dyn) { opacity: 0.3; pointer-events: none; }
+      button.cmd { position: relative; height: 58px; background: rgba(16, 21, 29, 0.92);
+        border: 1px solid #2a3342;
         border-radius: 8px; color: #dfe6ee; font-size: 13px; font-weight: 600; cursor: pointer;
-        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; }
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+        padding: 4px 3px; text-align: center; line-height: 1.15; }
       button.cmd span { color: #ffb454; font-size: 11px; font-weight: 400; }
       button.cmd:hover { background: rgba(38, 49, 64, 0.95); border-color: #3a4a5f; }
+      /* hotkey badge: the letter that presses this button */
+      button.cmd .hk { position: absolute; top: 2px; left: 4px; font-style: normal;
+        font-size: 10px; font-weight: 700; color: #8fa3b8; letter-spacing: 0.5px; }
+      /* pressed — by mouse, or by its hotkey (.kb, held ~160ms so it registers) */
+      button.cmd:active, button.cmd.kb { background: rgba(63, 84, 110, 0.98); border-color: #6fb7ff;
+        box-shadow: inset 0 0 0 1px rgba(111, 183, 255, 0.55); transform: translateY(1px); }
+      button.cmd.kb .hk { color: #cfe6ff; }
       button.cmd.ability { color: #7ee787; }
       button.cmd.ability span { color: #7ee787; opacity: 0.7; }
       button.cmd.build { color: #6fb7ff; }
