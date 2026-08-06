@@ -21,6 +21,7 @@ import { Hud } from '../ui/hud.ts'
 import { banner, DiagOverlay } from '../ui/diag.ts'
 import { HoldOverlay } from '../ui/hold.ts'
 import { VERSION_ID, VERSION_LABEL } from '../version.ts'
+import { SimHost, wantsWorker } from '../sim/simHost.ts'
 
 export interface GameEndInfo {
   won: boolean
@@ -71,6 +72,8 @@ export class Game {
    * rest of the room settled long ago. */
   private catchupTo = -1
   private catchupFrom = 0
+  /** Set when the simulation runs off-thread; null when it runs here. */
+  private host: SimHost | null = null
   private hold: HoldOverlay | null = null
   /** The room is deliberately not sending ticks — held, replaying, or
    * reconnecting. Distinguishes "nothing is arriving" from "nothing is meant
@@ -171,12 +174,77 @@ export class Game {
       ownerColors,
     )
     this.input.hud = this.hud
+    // Off-thread simulation. `this.sim` stops being the simulation and becomes
+    // a picture of it: the host refills it from the worker once a tick, and
+    // everything downstream — renderer, HUD, input — carries on reading the
+    // same object it always did.
+    if (wantsWorker()) {
+      this.host = new SimHost(this.sim, doc, playerCount, aiLevels, this.prevX, this.prevZ, {
+        onTick: (stepMs) => this.onWorkerTick(stepMs),
+        onHash: (tick, hash) => this.transport.sendHash(tick, hash),
+        onGap: (expected, got) => {
+          console.error(`bundle gap: expected tick ${expected}, got ${got}`)
+          this.end({ won: false, reason: 'desync' })
+        },
+        onError: (message, tick) => {
+          console.error(`[bb] sim worker error at tick ${tick}: ${message}`)
+          // A worker that never came up is recoverable: nothing has been
+          // simulated yet, so take the queue back and run the sim here as the
+          // client always used to. A worker that fails MID-match is not — the
+          // authoritative state died with it, and a lockstep client cannot
+          // invent the rest.
+          if (this.host && !this.host.ready) {
+            console.warn('[bb] sim worker failed to start — falling back to the main thread')
+            const pending = this.host.drain()
+            this.host.stop()
+            this.host = null
+            this.bundles.push(...pending)
+            return
+          }
+          banner(`Simulation error at tick ${tick} — see the console (F12). ${VERSION_LABEL}.`, { sticky: true })
+          this.end({ won: false, reason: 'crash' })
+        },
+      })
+    }
     transport.onBundle = (b) => {
-      this.bundles.push(b)
+      if (this.host) {
+        // The log is kept HERE rather than in stepOnce when the sim is off
+        // thread, because stepOnce never runs — and the command log plus the
+        // seed IS the replay. Without this a desync in worker mode dumps an
+        // empty array, which is the one moment the dump exists for.
+        this.cmdLog.push(b)
+        this.host.push(b)
+      } else {
+        this.bundles.push(b)
+      }
       this.lastBundleAt = performance.now()
     }
     this.lastBundleAt = performance.now()
     requestAnimationFrame((t) => this.frame(t))
+  }
+
+  /**
+   * A tick landed from the worker. Everything `stepOnce` did after `step()`
+   * happens here instead, off the same data — the difference is only where the
+   * arithmetic ran.
+   */
+  private onWorkerTick(stepMs: number): void {
+    const now = performance.now()
+    this.stepMs = stepMs
+    this.lastStepAt = now
+    const replaying = this.catchupTo >= 0
+    if (!replaying) {
+      for (const ev of this.sim.events) {
+        if (ev.t === 'message' && (ev.player === -1 || ev.player === this.mySlot)) {
+          this.toast(ev.text)
+        } else if (ev.t === 'panCamera' && ev.player === this.mySlot) {
+          this.renderer3d.cam.moveTo(ev.x, ev.z)
+        }
+      }
+    }
+    if (this.sim.winner >= 0) {
+      this.end({ won: this.sim.winner === this.sim.playerTeam[this.mySlot], reason: 'defeat' })
+    }
   }
 
   // Trigger messages as fading toasts.
@@ -210,6 +278,7 @@ export class Game {
       // the first thing to rule out, and the log alone cannot say.
       console.error('DESYNC — replay dump:', JSON.stringify({ version: VERSION_ID, seed: this.seed, log: this.cmdLog }))
     }
+    this.host?.stop()
     this.transport.close()
     this.onEnd(info)
   }
@@ -268,6 +337,11 @@ export class Game {
 
   // ---- rejoin ----
 
+  /** Ticks waiting to be simulated, wherever the simulation is running. */
+  private get backlog(): number {
+    return this.host ? this.host.backlog : this.bundles.length
+  }
+
   /** How far this client has simulated — where a reconnect asks to resume. */
   get tick(): number {
     return this.sim.tick
@@ -295,7 +369,14 @@ export class Game {
       return
     }
     const byTick = new Map(cmds)
-    for (let t = from; t < to; t++) this.bundles.push({ tick: t, cmds: byTick.get(t) ?? [] })
+    const missed: TickBundle[] = []
+    for (let t = from; t < to; t++) missed.push({ tick: t, cmds: byTick.get(t) ?? [] })
+    if (this.host) {
+      this.cmdLog.push(...missed)
+      this.host.pushAll(missed)
+    } else {
+      this.bundles.push(...missed)
+    }
     this.catchupFrom = from
     this.catchupTo = to
     this.lastBundleAt = performance.now()
@@ -346,7 +427,7 @@ export class Game {
     this.frameErrors++
     console.error(
       `[bb] frame error #${this.frameErrors} — ${VERSION_LABEL}, tick ${this.sim.tick}, ` +
-        `queue ${this.bundles.length}, entities ${this.sim.count}`,
+        `queue ${this.backlog}, entities ${this.sim.count}`,
       err,
     )
     if (this.frameErrors < 3) {
@@ -377,19 +458,23 @@ export class Game {
     // 60 fps with a 95th percentile three times worse, getting worse as the
     // armies grow. Bounded by time, a machine that cannot keep up falls behind
     // steadily and visibly (the watchdog says so) instead of seizing.
-    const stepStart = performance.now()
     const replaying = this.catchupTo >= 0
-    const budgetMs = replaying ? 24 : 34
-    let guard = 0
-    while (this.bundles.length > 0 && performance.now() - stepStart < budgetMs && (replaying || guard < 30)) {
-      const behind = this.bundles.length > 2
-      const due = now - this.lastStepAt >= TICK_MS - 4
-      if (!replaying && !behind && !due) break
-      this.stepOnce(now)
-      guard++
-      if (!this.running) return
+    if (!this.host) {
+      const stepStart = performance.now()
+      const budgetMs = replaying ? 24 : 34
+      let guard = 0
+      while (this.bundles.length > 0 && performance.now() - stepStart < budgetMs && (replaying || guard < 30)) {
+        const behind = this.bundles.length > 2
+        const due = now - this.lastStepAt >= TICK_MS - 4
+        if (!replaying && !behind && !due) break
+        this.stepOnce(now)
+        guard++
+        if (!this.running) return
+      }
+      this.stepMs = performance.now() - stepStart
     }
-    this.stepMs = performance.now() - stepStart
+    // Off-thread there is nothing to do here: the worker is already running,
+    // and both `stepMs` and the sim's own tick arrive with each snapshot.
     if (replaying) this.replayProgress()
 
     const alpha = Math.min(1, (now - this.lastStepAt) / TICK_MS)
@@ -430,11 +515,11 @@ export class Game {
     // knows exactly what is happening.
     const held = this.waiting
     const stalled = bundleAgeMs > STALL_MS && !held
-    const behind = this.bundles.length > BEHIND_QUEUE
+    const behind = this.backlog > BEHIND_QUEUE
     const note = stalled
       ? `no ticks from the relay for ${(bundleAgeMs / 1000).toFixed(1)}s — the connection or the room stalled`
       : behind
-        ? `${this.bundles.length} ticks behind — this machine cannot simulate as fast as the match runs`
+        ? `${this.backlog} ticks behind — this machine cannot simulate as fast as the match runs`
         : this.frameErrors > 0
           ? this.trouble
           : ''
@@ -449,7 +534,7 @@ export class Game {
     this.diag.update(now, {
       slot: this.mySlot,
       tick: this.sim.tick,
-      queue: this.bundles.length,
+      queue: this.backlog,
       bundleAgeMs,
       fps: this.fps,
       frameMs: this.frameMs,
