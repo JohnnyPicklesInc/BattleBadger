@@ -21,6 +21,8 @@ class Grid {
   private start = new Int32Array(0)
   private fill = new Int32Array(0)
   private items = new Int32Array(0)
+  itemX = new Float64Array(0)
+  itemZ = new Float64Array(0)
 
   /** Rebuild from every live entity whose team is `team` (-1 = all teams). */
   build(s: SimState, team: number): void {
@@ -58,7 +60,11 @@ class Grid {
       this.start.fill(0, 0, cells + 1)
       this.fill.fill(0, 0, cells + 1)
     }
-    if (this.items.length < n) this.items = new Int32Array(n)
+    if (this.items.length < n) {
+      this.items = new Int32Array(n)
+      this.itemX = new Float64Array(n)
+      this.itemZ = new Float64Array(n)
+    }
 
     // pass 1: count per cell, offset by one so the prefix sum lands on starts
     for (let i = 0; i < s.count; i++) {
@@ -73,8 +79,48 @@ class Grid {
       if (!s.alive[i] || s.hidden[i]) continue
       if (team >= 0 && s.playerTeam[s.owner[i]] !== team) continue
       const c = this.cellOf(s.posX[i], s.posZ[i])
-      this.items[this.start[c] + this.fill[c]++] = i
+      const at = this.start[c] + this.fill[c]++
+      this.items[at] = i
+      this.itemX[at] = s.posX[i]
+      this.itemZ[at] = s.posZ[i]
     }
+  }
+
+  /** Fill scratch arrays with candidates near (x,z); returns how many. */
+  gather(
+    x: number,
+    z: number,
+    r: number,
+    qId: Int32Array,
+    qX: Float64Array,
+    qZ: Float64Array,
+    at = 0,
+  ): number {
+    if (this.cols === 0) return 0
+    let cx0 = Math.floor((x - r) / CELL) - this.minCx
+    let cx1 = Math.floor((x + r) / CELL) - this.minCx
+    let cz0 = Math.floor((z - r) / CELL) - this.minCz
+    let cz1 = Math.floor((z + r) / CELL) - this.minCz
+    if (cx0 < 0) cx0 = 0
+    if (cz0 < 0) cz0 = 0
+    if (cx1 > this.cols - 1) cx1 = this.cols - 1
+    if (cz1 > this.rows - 1) cz1 = this.rows - 1
+    let n = at
+    for (let cz = cz0; cz <= cz1; cz++) {
+      const row = cz * this.cols
+      for (let cx = cx0; cx <= cx1; cx++) {
+        const c = row + cx
+        const end = this.start[c + 1]
+        for (let k = this.start[c]; k < end; k++) {
+          if (n >= qId.length) return n - at
+          qId[n] = this.items[k]
+          qX[n] = this.itemX[k]
+          qZ[n] = this.itemZ[k]
+          n++
+        }
+      }
+    }
+    return n - at
   }
 
   private cellOf(x: number, z: number): number {
@@ -133,6 +179,42 @@ export class SpatialHash {
   // must do the exact distance test).
   forNeighbors(x: number, z: number, r: number, cb: (id: number) => void): void {
     this.all.forNeighbors(x, z, r, cb)
+  }
+
+  gatherAll(x: number, z: number, r: number, qId: Int32Array, qX: Float64Array, qZ: Float64Array): number {
+    return this.all.gather(x, z, r, qId, qX, qZ)
+  }
+
+  /** Gather form of forTeamNeighbors. */
+  gatherTeam(
+    team: number,
+    x: number,
+    z: number,
+    r: number,
+    qId: Int32Array,
+    qX: Float64Array,
+    qZ: Float64Array,
+  ): number {
+    return this.byTeam[team].gather(x, z, r, qId, qX, qZ)
+  }
+
+  /** Gather form of forEnemyNeighbors. Same visit order: teams ascending. */
+  gatherEnemies(
+    myTeam: number,
+    x: number,
+    z: number,
+    r: number,
+    qId: Int32Array,
+    qX: Float64Array,
+    qZ: Float64Array,
+  ): number {
+    let n = 0
+    for (let k = 0; k < this.present.length; k++) {
+      const t = this.present[k]
+      if (t === myTeam) continue
+      n += this.byTeam[t].gather(x, z, r, qId, qX, qZ, n)
+    }
+    return n
   }
 
   /**

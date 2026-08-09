@@ -102,6 +102,53 @@ export function planPath(
   return pts.length > 0 ? { pts, i: 0 } : null
 }
 
+/**
+ * Hand out formation slots by where the men already stand relative to each
+ * other, rather than by the order they were recruited in.
+ *
+ * Slot-by-spawn-order is how a battalion ties itself in knots: order one to
+ * about-face and every man in the front rank has to walk through his own
+ * battalion to reach the back one, which is nine soldiers shoving in opposite
+ * directions and half of them giving up in the middle of it.
+ *
+ * The obvious fix — give every man the slot nearest him — is worse than the
+ * disease. Sixty tiles from the destination every slot is the same distance
+ * away to within a rounding error, so "nearest" scrambles the battalion into
+ * an arbitrary permutation and the men arrive walking through each other.
+ * What actually matters is preserving the SHAPE: the man on the left of the
+ * rank stays on the left, the rear rank stays behind. So the men are sorted
+ * into the formation's own frame (forward first, then right) and handed the
+ * slots in the order `formationSlot` produces them, which is front rank,
+ * left to right.
+ *
+ * Deterministic: ties fall through to entity id.
+ *
+ * @param cx Battalion centre the offsets are measured from.
+ * @param fx Formation facing — the local frame's forward axis.
+ * @returns The slot index for each member, in member order.
+ */
+function assignSlots(
+  s: SimState,
+  members: number[],
+  cx: number,
+  cz: number,
+  fx: number,
+  fz: number,
+): number[] {
+  // Inverse of formationWorld: world offset back into (right, forward).
+  const order = members.map((id, k) => {
+    const a = s.posX[id] - cx
+    const b = s.posZ[id] - cz
+    return { k, id, right: fz * a - fx * b, fwd: fx * a + fz * b }
+  })
+  order.sort((p, q) => q.fwd - p.fwd || p.right - q.right || p.id - q.id)
+  const out = Array.from<number>({ length: members.length })
+  order.forEach((m, slot) => {
+    out[m.k] = slot
+  })
+  return out
+}
+
 // Resolve a command's unit handles to live, owned, mobile entity ids.
 // Ordering one soldier orders his whole horde — the battalion is the unit of
 // play, so a stray click never splits a formation.
@@ -437,9 +484,16 @@ export function applyCommands(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]
         const fx = s.hordes.faceX[h]
         const fz = s.hordes.faceZ[h]
         const spacing = hordeSpacing(s, h)
-        members.forEach((id, slot) => {
-          const [ox, oz] = formationSlot(forms[want].kind, slot, members.length, spacing)
+        const spots: number[] = []
+        for (let k = 0; k < members.length; k++) {
+          const [ox, oz] = formationSlot(forms[want].kind, k, members.length, spacing)
           const [wx, wz] = formationWorld(cx, cz, fx, fz, ox, oz)
+          spots.push(wx, wz)
+        }
+        const slots = assignSlots(s, members, cx, cz, fx, fz)
+        members.forEach((id, k) => {
+          const wx = spots[slots[k] * 2]
+          const wz = spots[slots[k] * 2 + 1]
           if (!grid.isWalkableWorld(wx, wz)) return
           releaseHarvest(s, id)
           s.order[id] = Order.Move
@@ -563,10 +617,15 @@ export function applyCommands(s: SimState, grid: WalkGrid, cmds: PlayerCommand[]
       // a hundred: the AI hands this function every idle unit it owns in a
       // single order, and a cross-map search costs milliseconds apiece.
       const shared = { p: planPath(grid, cx, cz, aimX, aimZ) }
-      members.forEach((id, slot) => {
-        const [ox, oz] = formationSlot(kind, slot, members.length, spacing)
+      const spots: number[] = []
+      for (let k = 0; k < members.length; k++) {
+        const [ox, oz] = formationSlot(kind, k, members.length, spacing)
         const [wx, wz] = formationWorld(aimX, aimZ, fx, fz, ox, oz)
-        sendTo(id, wx, wz, shared)
+        spots.push(wx, wz)
+      }
+      const slots = assignSlots(s, members, cx, cz, fx, fz)
+      members.forEach((id, k) => {
+        sendTo(id, spots[slots[k] * 2], spots[slots[k] * 2 + 1], shared)
       })
     })
 
@@ -637,7 +696,11 @@ export function updateOrders(s: SimState, grid: WalkGrid): void {
       }
     }
 
-    const tgt = s.target[i]
+    // A man under a move order who has locked onto something keeps walking:
+    // he swings at what comes within reach and does not chase it. That is what
+    // makes a march THROUGH a fight possible — and a retreat, which is the
+    // same thing pointed the other way.
+    const tgt = s.order[i] === Order.Move ? -1 : s.target[i]
     if (tgt >= 0) {
       // Chase target until within reach (edge to edge).
       const dx = s.posX[tgt] - s.posX[i]
@@ -787,15 +850,98 @@ export function updateOrders(s: SimState, grid: WalkGrid): void {
  * which costs a jammed man a tenth of a second nobody can see.
  */
 const REPATHS_PER_TICK = 16
+/**
+ * Of that budget, how much a tick may spend on men merely tidying themselves
+ * up. A regroup is never urgent — the man has already stopped — so it must
+ * not be able to starve a battalion that is trying to march NOW.
+ */
+const REGROUPS_PER_TICK = 4
+/** How many times a jammed unit will try something else before settling. */
+const MAX_RETRIES = 3
+/** How long a man who was beaten by a crowd waits before trying again. */
+const REGROUP_TICKS = 45
+/** Near enough to where he was sent to call it done and stop trying. */
+const REGROUP_NEAR = 2.5
+
+/**
+ * Step around whatever is in the way and carry on to the same destination.
+ *
+ * A crowd is invisible to A*, so re-running the search from a jammed position
+ * returns the identical route and the unit walks straight back into the man
+ * who blocked it. What breaks the deadlock is a waypoint OFF that line: a
+ * couple of paces to one side, then on. The side alternates with the attempt
+ * and the unit's id, so a whole rank does not lean the same way at once.
+ */
+function sidestep(s: SimState, grid: WalkGrid, i: number, attempt: number): UnitPath | null {
+  let ux = s.destX[i] - s.posX[i]
+  let uz = s.destZ[i] - s.posZ[i]
+  const d = Math.sqrt(ux * ux + uz * uz)
+  if (d < 0.0001) return null
+  ux /= d
+  uz /= d
+  const side = (i + attempt) % 2 === 0 ? 1 : -1
+  for (const reach of [3.5, 2, 1]) {
+    const wx = s.posX[i] + ux * reach * 0.5 + uz * side * reach
+    const wz = s.posZ[i] + uz * reach * 0.5 - ux * side * reach
+    if (!grid.lineWalkable(s.posX[i], s.posZ[i], wx, wz)) continue
+    const rest = planPath(grid, wx, wz, s.destX[i], s.destZ[i])
+    if (!rest) continue
+    return { pts: [wx, wz, ...rest.pts], i: 0 }
+  }
+  return null
+}
 
 export function updateStuck(s: SimState, grid: WalkGrid): void {
   let repaths = 0
+  let regroups = 0
   for (let i = 0; i < s.count; i++) {
     if (!s.alive[i] || s.kind[i] !== Kind.Unit) continue
     // idle-without-a-path (or chasing) units aren't "stuck"; idle units walking
-    // home still are
-    if ((s.order[i] === Order.Idle && !s.paths[i]) || s.order[i] === Order.Hold || s.target[i] >= 0) {
+    // home still are. A marching unit swinging at something in passing is
+    // still marching, so it is still watched.
+    const chasing = s.target[i] >= 0 && s.order[i] !== Order.Move
+    // A man on a wall is exactly where he means to be, however far that is
+    // from the point he was sent to — the wall's centre. He is not stuck.
+    if (s.order[i] === Order.Hold || chasing || s.onWall[i] >= 0) {
       s.stuck[i] = 0
+      continue
+    }
+    if (s.order[i] === Order.Idle && !s.paths[i]) {
+      // Standing about a long way from where he was last sent — beaten there
+      // by a crowd, or shoved out of his place by one that has since marched
+      // on. Either way he goes back, once, after a decent pause.
+      //
+      // The pause and the distance are both doing work. A man merely jostled
+      // by his own rank must NOT march back, or an army at rest spends the
+      // match shuffling; only a man properly displaced does, and only after
+      // the traffic that displaced him has had time to clear.
+      const gx = s.destX[i] - s.posX[i]
+      const gz = s.destZ[i] - s.posZ[i]
+      // A man at a seam is where he means to be too, however far the middle
+      // of the ore is; the harvest loop owns him. Flyers are excluded because
+      // updateOrders throws away a flyer's path — it steers straight at
+      // destX/destZ under a movement order and stands still under none — so
+      // planning one only burns the repath budget the ground is queueing for.
+      if (
+        gx * gx + gz * gz <= REGROUP_NEAR * REGROUP_NEAR ||
+        s.chased[i] === 1 ||
+        s.harvState[i] !== Harv.None ||
+        flies(s, i)
+      ) {
+        s.stuck[i] = 0
+        continue
+      }
+      s.stuck[i]++
+      if (s.stuck[i] >= REGROUP_TICKS && regroups < REGROUPS_PER_TICK && repaths < REPATHS_PER_TICK) {
+        repaths++
+        regroups++
+        s.stuck[i] = 0
+        s.repathed[i] = 0
+        // Left on Idle deliberately: a man walking back to his place is one
+        // who will still engage anything he passes on the way.
+        s.paths[i] = planPath(grid, s.posX[i], s.posZ[i], s.destX[i], s.destZ[i])
+        s.progress[i] = 1000000
+      }
       continue
     }
     const maxStep = unitSpeed(s, i) * TICK_S
@@ -807,8 +953,8 @@ export function updateStuck(s: SimState, grid: WalkGrid): void {
     s.progress[i] = remaining
 
     if (s.stuck[i] >= 12) {
-      if (remaining < 2.0 || s.repathed[i] === 1) {
-        // Close enough / already retried — settle here and make this the post
+      if (remaining < 2.0 || s.repathed[i] >= MAX_RETRIES) {
+        // Close enough / out of ideas — settle here and make this the post
         // (otherwise guard-return would keep re-planning the same blocked path)
         s.order[i] = Order.Idle
         s.paths[i] = null
@@ -816,10 +962,17 @@ export function updateStuck(s: SimState, grid: WalkGrid): void {
         s.homeZ[i] = s.posZ[i]
         s.chased[i] = 0
         s.stuck[i] = 0
+        s.repathed[i] = 0
       } else if (repaths < REPATHS_PER_TICK) {
         repaths++
-        s.paths[i] = planPath(grid, s.posX[i], s.posZ[i], s.destX[i], s.destZ[i])
-        s.repathed[i] = 1
+        const attempt = s.repathed[i]
+        // A jam is nearly always a body, not the ground, and searching the
+        // same unchanged terrain returns the same route into the same man.
+        // Try stepping round him first; fall back to the plain search when
+        // there is nowhere to step.
+        const p = sidestep(s, grid, i, attempt)
+        s.paths[i] = p ?? planPath(grid, s.posX[i], s.posZ[i], s.destX[i], s.destZ[i])
+        s.repathed[i] = attempt + 1
         s.stuck[i] = 0
       }
       // else: out of budget this tick. Keep the counter so it is still stuck

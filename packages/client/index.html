@@ -211,6 +211,16 @@
       .lobby-grid { display: grid; grid-template-columns: 260px 1fr; gap: 22px; }
       .lobby-left, .lobby-right { display: flex; flex-direction: column; min-width: 0; }
       .lobby-right { border-left: 1px solid #232c39; padding-left: 22px; }
+      /* The map shot is square and takes whatever width the column gives it.
+         On a phone lying down that is the entire screen and then some, which
+         buries Start and the room code below a fold nobody thinks to scroll
+         past — so on a short viewport the shot is capped by height instead.
+         Capping max-WIDTH is what does it: aspect-ratio derives the height
+         from the width, so bounding one bounds the other and the shot stays
+         square, which the start-position picker depends on. */
+      @media (max-height: 620px) {
+        .mapshot { max-width: 42vh; margin: 0 auto; }
+      }
       .lobby-hr { border: 0; border-top: 1px solid #232c39; margin: 16px 0 4px; width: 100%; }
       .panel select { width: 100%; box-sizing: border-box; background: #0e1218; color: #dfe6ee;
         border: 1px solid #2a3342; border-radius: 6px; padding: 8px 10px; font-size: 14px; }
@@ -218,7 +228,12 @@
       .mapinfo { font-size: 12px; color: #74839a; margin: 6px 0 12px; min-height: 16px; }
       #lb-players { list-style: none; margin: 0 0 14px; padding: 0; display: flex;
         flex-direction: column; gap: 5px; }
-      #lb-players li { display: flex; align-items: center; gap: 9px; font-size: 13px;
+      /* A seat is a name and four pickers, and four pickers at their natural
+         widths need most of 500px. The right-hand column is narrower than
+         that on any window under ~800 wide, and a row that cannot fit used to
+         run off the edge of the panel taking the start-position picker with
+         it — so the row wraps onto a second line instead. */
+      #lb-players li { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; font-size: 13px;
         background: #10151d; border: 1px solid #232c39; border-radius: 7px; padding: 7px 10px; }
       #lb-players li.open { opacity: 0.5; border-style: dashed; }
       #lb-players li i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
@@ -228,7 +243,10 @@
       #lb-players li.open .pname { color: #74839a; font-weight: 400; font-style: italic; }
       /* a slot row: swatch, name, "you/host", then race, team and start pickers */
       #lb-players .ptag { color: #74839a; font-size: 11px; flex: none; min-width: 26px; }
-      #lb-players .pname { flex: 1; }
+      /* min-width, or `flex: 1` lets a long name shrink to nothing rather than
+         push the pickers onto the next line — which is how a seat ended up
+         labelled by its colour swatch alone */
+      #lb-players .pname { flex: 1; min-width: 70px; }
       #lb-players select { width: auto; flex: none; padding: 4px 6px; font-size: 12px; }
       #lb-players select.prace { width: 116px; }
       #lb-players select.pteam { width: 82px; }
@@ -249,6 +267,32 @@
       .mapcaption { font-size: 12px; color: #9fb0c3; margin: 8px 0 10px; min-height: 16px; }
       #lb-roombox { margin-bottom: 12px; }
       #lb-roombox button { margin-top: 4px; padding: 7px; font-size: 13px; }
+
+      /* Narrow screens. Scrolling only ever helped the lobby vertically: the
+         two columns are a 260px track plus a right-hand one that will not go
+         below the width of its own contents, so on a phone the players list,
+         the map and the room code sat off the right edge with nothing to
+         scroll to them — the panel is capped at 100% and the grid simply
+         overflowed it. One column below, and the pickers stop insisting on
+         their desktop widths. */
+      @media (max-width: 760px) {
+        .overlay { padding: 12px 10px; }
+        .panel { padding: 20px 18px; }
+        .lobby-grid { grid-template-columns: 1fr; gap: 4px; }
+        /* the divider between the halves becomes the seam above the lower one */
+        .lobby-right { border-left: 0; padding-left: 0;
+          border-top: 1px solid #232c39; padding-top: 16px; margin-top: 14px; }
+        /* four fixed-width pickers and a name do not fit a phone's width; let
+           the row take a second line and the pickers share what is on it */
+        #lb-players li { flex-wrap: wrap; }
+        #lb-players .pname { flex: 1 0 45%; }
+        #lb-players .ptag { margin-left: auto; }
+        /* named one by one: the desktop widths are set per class, and a media
+           query does not by itself outrank them */
+        #lb-players select.pai, #lb-players select.prace,
+        #lb-players select.pteam, #lb-players select.pstart {
+          flex: 1 1 88px; width: auto; min-width: 0; }
+      }
 
       #swcursor { position: fixed; left: 0; top: 0; z-index: 30; pointer-events: none;
         display: none; will-change: transform; }

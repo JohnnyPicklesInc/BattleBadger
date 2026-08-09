@@ -1,5 +1,5 @@
-import { attackDamage, takenPct } from './upgrades.ts'
-import { Kind, Order, allied, despawn, type SimState } from '../state.ts'
+import { attackDamage, attackRange, takenPct } from './upgrades.ts'
+import { Kind, MAX_UNITS, Order, allied, despawn, type SimState } from '../state.ts'
 import type { SpatialHash } from '../spatial.ts'
 import type { WalkGrid } from '../path/walkgrid.ts'
 import { targetReach } from './orders.ts'
@@ -7,6 +7,14 @@ import { canReachRampart } from './ramparts.ts'
 import { addXp, incomingPct, outgoingPct } from './hordes.ts'
 import { launchProjectile } from './projectiles.ts'
 import { shoveUnit } from './motion.ts'
+
+// Candidate scratch for the acquire sweep — the widest query in the tick, and
+// the one place where walking a closure per neighbour showed up in a profile.
+// Sized for every entity at once so a gather can never silently truncate —
+// which would drop a candidate and change who gets shot for 160 KB of thrift.
+const qId = new Int32Array(MAX_UNITS)
+const qX = new Float64Array(MAX_UNITS)
+const qZ = new Float64Array(MAX_UNITS)
 
 // Target validation + auto-acquire, driven by the compiled def:
 // autoAcquire 1 = nearest enemy; 2 = nearest injured ally (autocast healer).
@@ -43,35 +51,56 @@ export function acquireTargets(s: SimState, hash: SpatialHash): void {
 
     if (s.target[i] >= 0) continue
     if (mode === 0 || acquire <= 0) continue
-    // Move orders walk past enemies; every other order engages.
-    if (s.order[i] === Order.Move) continue
+    // A move order is an order to be somewhere else, not an order to die on
+    // the way: a marching unit does not go hunting, but it fights whatever it
+    // has actually walked into. Anything else engages at full acquire range.
+    //
+    // Without this a battalion right-clicked across an enemy line marched
+    // through it without drawing a sword and was cut down to a man.
+    const marching = s.order[i] === Order.Move
+    // Wide enough to catch a keep wall's worth of body; the per-target test
+    // below is what actually decides, edge to edge.
+    const range = marching ? attackRange(s, i) + st.radius[ty] + 6 : acquire
+    if (range <= 0) continue
 
     let best = -1
-    let bestDSq = acquire * acquire
+    let bestDSq = range * range
+    const xi = s.posX[i]
+    const zi = s.posZ[i]
     // Ask only the side that can possibly answer. This is by far the widest
     // query in the tick, and an army massed in its own ranks would otherwise
     // walk every friendly soldier in reach, per unit, per tick, to reject them
     // all on the team test. The grid is partitioned by team, so those cells
     // are simply not visited.
-    const visit = (j: number): void => {
-      if (!s.alive[j] || j === i || st.untargetable[s.type[j]]) return
+    const myTeam = s.playerTeam[s.owner[i]]
+    const n =
+      mode === 2
+        ? hash.gatherTeam(myTeam, xi, zi, range, qId, qX, qZ)
+        : hash.gatherEnemies(myTeam, xi, zi, range, qId, qX, qZ)
+    for (let k = 0; k < n; k++) {
+      const j = qId[k]
+      // Cheapest rejection first: most candidates in a wide sweep fail on
+      // distance alone, and everything below costs a def lookup or a call.
+      const dx = qX[k] - xi
+      const dz = qZ[k] - zi
+      const dSq = dx * dx + dz * dz
+      if (dSq > bestDSq || (dSq === bestDSq && best !== -1 && j > best)) continue
+      if (!s.alive[j] || j === i || st.untargetable[s.type[j]]) continue
       if (mode === 2) {
-        if (s.hp[j] >= st.maxHp[s.type[j]]) return
-      } else if (!canHit(s, ty, j)) return // wrong layer
+        if (s.hp[j] >= st.maxHp[s.type[j]]) continue
+      } else if (!canHit(s, ty, j)) continue // wrong layer
       // A swordsman must not lock onto an archer standing on a wall: he would
       // walk to the foot of it and stand there for the rest of the match.
-      else if (!canReachRampart(s, i, j)) return
-      const dx = s.posX[j] - s.posX[i]
-      const dz = s.posZ[j] - s.posZ[i]
-      const dSq = dx * dx + dz * dz
-      if (dSq < bestDSq || (dSq === bestDSq && (best === -1 || j < best))) {
-        best = j
-        bestDSq = dSq
+      else if (!canReachRampart(s, i, j)) continue
+      // On the march, only what is already under the weapon — measured edge to
+      // edge, so a siege engine passing a keep wall still swings at it.
+      if (marching) {
+        const swing = targetReach(s, i, j) + 0.5
+        if (dSq > swing * swing) continue
       }
+      best = j
+      bestDSq = dSq
     }
-    const myTeam = s.playerTeam[s.owner[i]]
-    if (mode === 2) hash.forTeamNeighbors(myTeam, s.posX[i], s.posZ[i], acquire, visit)
-    else hash.forEnemyNeighbors(myTeam, s.posX[i], s.posZ[i], acquire, visit)
     if (best >= 0) {
       s.target[i] = best
       // engaging from a standstill means leaving the post: remember to return

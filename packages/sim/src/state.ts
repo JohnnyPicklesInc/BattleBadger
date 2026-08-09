@@ -522,6 +522,12 @@ export function spawnUnit(s: SimState, typeIdx: number, owner: number, x: number
   s.followTarget[id] = -1
   s.homeX[id] = x
   s.homeZ[id] = z
+  // Where it stands IS where it was sent, until something says otherwise.
+  // These slots are recycled with the id, and anything that reads a
+  // destination for a unit that has never been given one — the regroup in
+  // updateStuck, for instance — would otherwise read the last occupant's.
+  s.destX[id] = x
+  s.destZ[id] = z
   s.cooldown[id] = 0
   s.chargeCd[id] = 0
   s.stun[id] = 0
