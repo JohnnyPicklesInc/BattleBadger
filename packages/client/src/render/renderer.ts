@@ -48,6 +48,17 @@ const MAX_RENDER_PLAYERS = 8
 const SHADOW_HALF = 70
 // How high a flyer rides above the ground it is over.
 const FLY_HEIGHT = 4.2
+/**
+ * Cull sphere around a unit's waist, in world units.
+ *
+ * Generous on purpose. It has to swallow the body (about half a unit wide and
+ * two and a half tall), the reach of a rider's mount, and — the part that is
+ * easy to forget — the man's SHADOW, which the sun throws about a unit and a
+ * half downhill of him. Cull him tight to the view and his shadow pops out of
+ * existence at the edge of the screen while the ground it fell on is still
+ * plainly visible.
+ */
+const CULL_RADIUS = 4
 // Arrows live about a fifth of a second each, so this is a ceiling on how many
 // can be in the air at once, not on how many may be fired.
 const MAX_ARROWS = 512
@@ -220,6 +231,10 @@ export class GameRenderer {
   private animTime = 0 // seconds of wall clock, drives render-only unit motion
   private doorOpen = new Float32Array(MAX_UNITS) // per entity, eased gate door angle
   private v3 = new THREE.Vector3()
+  /** This frame's view volume, for the per-unit cull. Rebuilt in render(). */
+  private frustum = new THREE.Frustum()
+  private frustumM = new THREE.Matrix4()
+  private cullSphere = new THREE.Sphere(new THREE.Vector3(), CULL_RADIUS)
 
   private def: GameDefCompiled
   private assets: Map<string, THREE.BufferGeometry>
@@ -704,6 +719,80 @@ export class GameRenderer {
   }
 
   /**
+   * Is a body at (x, y, z) worth building matrices for this frame?
+   *
+   * A sphere rather than the point, because the point is a man's feet and what
+   * has to stay on screen is the whole of him plus the shadow he throws. See
+   * CULL_RADIUS for what that number is covering.
+   */
+  private onScreen(x: number, y: number, z: number): boolean {
+    this.cullSphere.center.set(x, y + 1, z)
+    return this.frustum.intersectsSphere(this.cullSphere)
+  }
+
+  /**
+   * The visible consequences of entity `i` having just swung: a melee clang, a
+   * loosed arrow, or a healer's beam.
+   *
+   * Split out of the main loop so it can run for units the cull skipped. None
+   * of it is about drawing the man himself: a fight one screen to the left is
+   * still audible, and an archer standing off the edge can put an arrow into
+   * something you are looking at. Culling those would be a regression you hear
+   * rather than see.
+   *
+   * @returns the new heal-beam vertex count.
+   */
+  private attackFx(
+    s: SimState,
+    prevX: Float64Array,
+    prevZ: Float64Array,
+    i: number,
+    ty: number,
+    alpha: number,
+    pos: THREE.Vector3,
+    healVerts: number,
+  ): number {
+    // A shot or a cast in the last couple of ticks: a bow looses an arrow,
+    // a healer draws a beam.
+    const tgtOk = s.target[i] >= 0 && s.alive[s.target[i]]
+    if (!tgtOk || s.tick - s.lastAttackTick[i] >= 2) return healVerts
+    const isHealer = s.playerTeam[s.owner[s.target[i]]] === s.playerTeam[s.owner[i]]
+    // a projectile weapon draws a flying shell instead of an instant tracer
+    const isRanged = this.def.stats.atkRange[ty] > 2 && this.def.stats.projSpeed[ty] <= 0
+    const t = s.target[i]
+    const tx = prevX[t] + (s.posX[t] - prevX[t]) * alpha
+    const tz = prevZ[t] + (s.posZ[t] - prevZ[t]) * alpha
+    if (isHealer) {
+      // A cast stays a beam — it is magic, not ballistics.
+      const arr = this.healBeamPositions
+      arr[healVerts * 3] = pos.x
+      arr[healVerts * 3 + 1] = pos.y + 1.2
+      arr[healVerts * 3 + 2] = pos.z
+      healVerts++
+      arr[healVerts * 3] = tx
+      arr[healVerts * 3 + 1] = this.grid.heightAtWorld(tx, tz) + 0.8
+      arr[healVerts * 3 + 2] = tz
+      healVerts++
+    } else if (!isRanged && this.lastShotDrawn[i] !== s.lastAttackTick[i]) {
+      this.lastShotDrawn[i] = s.lastAttackTick[i]
+      this.audio.emit('melee', pos.x, pos.z)
+    } else if (isRanged && this.lastShotDrawn[i] !== s.lastAttackTick[i]) {
+      // One arrow per loosing, however many frames the tick spans.
+      this.lastShotDrawn[i] = s.lastAttackTick[i]
+      if (this.arrowFx.length < MAX_ARROWS) {
+        const tLift = this.def.stats.flying[s.type[t]] === 1 && s.swooping[t] <= 0 ? FLY_HEIGHT : 0
+        this.arrowFx.push({
+          x0: pos.x, y0: pos.y + 1.15, z0: pos.z,
+          x1: tx, y1: this.grid.heightAtWorld(tx, tz) + tLift + 0.85, z1: tz,
+          age: 0,
+        })
+        this.audio.emit('bow', pos.x, pos.z)
+      }
+    }
+    return healVerts
+  }
+
+  /**
    * Make room for `need` instances of one (owner, type). Called mid-frame the
    * moment a slot would overflow, so the matrices already written this frame
    * are copied across rather than dropped.
@@ -746,6 +835,10 @@ export class GameRenderer {
   ): void {
     this.cam.update(dtMs)
     this.animTime += dtMs / 1000
+    // This frame's view volume. Taken after the camera has moved and before
+    // anything is placed, so every cull test below asks about the same frame.
+    this.frustumM.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse)
+    this.frustum.setFromProjectionMatrix(this.frustumM)
 
     // Track the camera, but only re-aim when it has actually travelled —
     // moving a directional light dirties its shadow map.
@@ -792,13 +885,45 @@ export class GameRenderer {
       if (this.def.stats.isPlot[s.type[i]] && s.plotHost[i] >= 0) continue
       const owner = s.owner[i]
       const ty = s.type[i]
-      const slot = counts[owner][ty]++
-      this.growUnitParts(owner, ty, slot + 1)
-      const parts = this.units[owner][ty]
       this.lerpPos(s, prevX, prevZ, i, alpha, pos)
       // A man on a wall stands ON it. Without this he is drawn inside the
       // masonry and the whole feature reads as a bug.
       if (s.onWall[i] >= 0) pos.y += WALL_TOP_HEIGHT
+
+      // Gates swing their doors on the sim's open/closed state. Eased here
+      // rather than in the sim because how fast a door LOOKS like it moves is
+      // not something two clients have to agree about.
+      //
+      // Above the cull because this is the one piece of per-entity animation
+      // that carries STATE: freeze it while the gate is off-screen and panning
+      // back to your own keep shows a door still catching up to an order given
+      // twenty seconds ago.
+      let doorSwing = 0 // gates only: doors turn about the vertical, not the walk axis
+      if (this.def.stats.gateRadius[ty] > 0) {
+        const want = s.gateOpen[i] === 1 ? 1 : 0
+        const held = this.doorOpen[i] ?? 0
+        const next = held + Math.max(-0.06, Math.min(0.06, want - held))
+        this.doorOpen[i] = next
+        doorSwing = next * 1.5
+      }
+
+      // Off the screen: no instance slot, no matrices, no per-part hinge work —
+      // which is the whole cost of a unit. Only bodies are culled. A keep is
+      // twelve units tall and the sphere that would have to bound it is most of
+      // a screen wide, so masonry keeps going through the pipeline and lets
+      // three.js cull it per object.
+      //
+      // The fight FURTHER down still runs for everyone: a battle just past the
+      // edge is audible, and an archer standing off-screen can put an arrow
+      // into something you can see.
+      if (s.kind[i] === 0 && !this.onScreen(pos.x, pos.y, pos.z)) {
+        healVerts = this.attackFx(s, prevX, prevZ, i, ty, alpha, pos, healVerts)
+        continue
+      }
+
+      const slot = counts[owner][ty]++
+      this.growUnitParts(owner, ty, slot + 1)
+      const parts = this.units[owner][ty]
       fwd.set(s.faceX[i], 0, s.faceZ[i]).normalize()
       if (fwd.lengthSq() < 0.5) fwd.set(0, 0, 1)
       right.set(fwd.z, 0, -fwd.x)
@@ -832,9 +957,6 @@ export class GameRenderer {
           armChop = lunge
         }
       }
-      // Gates swing their doors on the sim's open/closed state. Eased here
-      // rather than in the sim because how fast a door LOOKS like it moves is
-      // not something two clients have to agree about.
       // A bird beats its wings whether or not it is going anywhere, and beats
       // them harder pulling out of a stoop than gliding. Phase is offset per
       // entity so a flight does not flap as one body.
@@ -843,14 +965,6 @@ export class GameRenderer {
         const diving = s.swooping[i] > 0
         const rate = diving ? 13 : 7.5
         wingBeat = Math.sin(this.animTime * rate + i * 0.7) * (diving ? 0.85 : 0.55)
-      }
-      let doorSwing = 0 // gates only: doors turn about the vertical, not the walk axis
-      if (this.def.stats.gateRadius[ty] > 0) {
-        const want = s.gateOpen[i] === 1 ? 1 : 0
-        const held = this.doorOpen[i] ?? 0
-        const next = held + Math.max(-0.06, Math.min(0.06, want - held))
-        this.doorOpen[i] = next
-        doorSwing = next * 1.5
       }
       if (s.kind[i] === 1 && s.buildTicks[i] > 0) {
         // under construction: rise out of the ground
@@ -918,44 +1032,7 @@ export class GameRenderer {
         this.carryMesh.setMatrixAt(carryCount++, this.m4)
       }
 
-      // A shot or a cast in the last couple of ticks: a bow looses an arrow,
-      // a healer draws a beam.
-      const tgtOk = s.target[i] >= 0 && s.alive[s.target[i]]
-      const isHealer = tgtOk && s.playerTeam[s.owner[s.target[i]]] === s.playerTeam[s.owner[i]]
-      // a projectile weapon draws a flying shell instead of an instant tracer
-      const isRanged = this.def.stats.atkRange[ty] > 2 && this.def.stats.projSpeed[ty] <= 0
-      if (tgtOk && s.tick - s.lastAttackTick[i] < 2) {
-        const t = s.target[i]
-        const tx = prevX[t] + (s.posX[t] - prevX[t]) * alpha
-        const tz = prevZ[t] + (s.posZ[t] - prevZ[t]) * alpha
-        if (isHealer) {
-          // A cast stays a beam — it is magic, not ballistics.
-          const arr = this.healBeamPositions
-          arr[healVerts * 3] = pos.x
-          arr[healVerts * 3 + 1] = pos.y + 1.2
-          arr[healVerts * 3 + 2] = pos.z
-          healVerts++
-          arr[healVerts * 3] = tx
-          arr[healVerts * 3 + 1] = this.grid.heightAtWorld(tx, tz) + 0.8
-          arr[healVerts * 3 + 2] = tz
-          healVerts++
-        } else if (!isRanged && this.lastShotDrawn[i] !== s.lastAttackTick[i]) {
-          this.lastShotDrawn[i] = s.lastAttackTick[i]
-          this.audio.emit('melee', pos.x, pos.z)
-        } else if (isRanged && this.lastShotDrawn[i] !== s.lastAttackTick[i]) {
-          // One arrow per loosing, however many frames the tick spans.
-          this.lastShotDrawn[i] = s.lastAttackTick[i]
-          if (this.arrowFx.length < MAX_ARROWS) {
-            const tLift = this.def.stats.flying[s.type[t]] === 1 && s.swooping[t] <= 0 ? FLY_HEIGHT : 0
-            this.arrowFx.push({
-              x0: pos.x, y0: pos.y + 1.15, z0: pos.z,
-              x1: tx, y1: this.grid.heightAtWorld(tx, tz) + tLift + 0.85, z1: tz,
-              age: 0,
-            })
-            this.audio.emit('bow', pos.x, pos.z)
-          }
-        }
-      }
+      healVerts = this.attackFx(s, prevX, prevZ, i, ty, alpha, pos, healVerts)
     }
 
     for (let owner = 0; owner < MAX_RENDER_PLAYERS; owner++) {
