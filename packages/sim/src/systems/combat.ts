@@ -341,7 +341,7 @@ export function deaths(s: SimState, grid: WalkGrid, hash: SpatialHash): void {
         if (s.alive[p] && s.plotParent[p] === i) s.hp[p] = 0
       }
       // buildings free their footprint
-      for (const cell of s.entityBlocked[i]) grid.walkable[cell] = 1
+      for (const cell of s.entityBlocked[i]) grid.setWalkable(cell, true)
       s.entityBlocked[i] = []
       despawn(s, i)
       died = true

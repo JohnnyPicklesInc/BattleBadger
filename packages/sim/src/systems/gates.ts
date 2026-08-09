@@ -74,11 +74,11 @@ export function gates(s: SimState, grid: WalkGrid, hash: SpatialHash): void {
     if (!open && s.gateOpen[i] === 1 && occupied(s, grid, i)) open = true
 
     if (open && s.gateOpen[i] === 0) {
-      for (const cell of s.entityBlocked[i]) grid.walkable[cell] = 1
+      for (const cell of s.entityBlocked[i]) grid.setWalkable(cell, true)
       s.gateOpen[i] = 1
       s.events.push({ t: 'gateOpened', idx: i, x, z })
     } else if (!open && s.gateOpen[i] === 1) {
-      for (const cell of s.entityBlocked[i]) grid.walkable[cell] = 0
+      for (const cell of s.entityBlocked[i]) grid.setWalkable(cell, false)
       s.gateOpen[i] = 0
       s.events.push({ t: 'gateClosed', idx: i, x, z })
     }
