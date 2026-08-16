@@ -10,6 +10,7 @@ import { generateFourCorners } from '../packages/sim/src/mapgen/fourCorners.ts'
 import { generateRidgeCrossing } from '../packages/sim/src/mapgen/skirmishRidge.ts'
 import { generateLastAlliance } from '../packages/sim/src/mapgen/lastAlliance.ts'
 import { generateMiddleEarth } from '../packages/sim/src/mapgen/middleEarth.ts'
+import { generateSquadSupport } from '../packages/sim/src/mapgen/squadSupport.ts'
 import { mapContentHash } from '../packages/sim/src/hash.ts'
 
 const OUT = new URL('../packages/client/public/maps/', import.meta.url).pathname
@@ -20,6 +21,11 @@ const maps = [
     file: 'middle-earth.json',
     name: 'The War of the Ring (muster camps & ages, 2–8 players)',
     doc: generateMiddleEarth(20260803),
+  },
+  {
+    file: 'squad-support.json',
+    name: 'Squad Support (co-op — a CPU commander, six squads, 1–6 players)',
+    doc: generateSquadSupport(20260809),
   },
   {
     file: 'cerebrate-war.json',
