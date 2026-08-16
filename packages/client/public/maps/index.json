@@ -6,6 +6,12 @@
     "hash": 1122961854
   },
   {
+    "file": "squad-support.json",
+    "name": "Squad Support (co-op — a CPU commander, six squads, 1–6 players)",
+    "mapName": "squad-support",
+    "hash": 1357186084
+  },
+  {
     "file": "cerebrate-war.json",
     "name": "Cerebrate War (3-lane MOBA, 2–8 players)",
     "mapName": "cerebrate-war",
