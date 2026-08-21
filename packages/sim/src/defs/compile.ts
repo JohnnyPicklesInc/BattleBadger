@@ -1,4 +1,5 @@
 import { fnv1aInit, fnv1aInt } from '../hash.ts'
+import { TICK_SCALE } from '../state.ts'
 import {
   expansionRings as ringsOf,
   validateGameDef,
@@ -137,7 +138,64 @@ function hashString(h: number, s: string): number {
   return h
 }
 
-export function compileGameDef(def: GameDef): GameDefCompiled {
+
+/**
+ * Content is authored in TICKS against a 10 Hz clock. The tick rate is not.
+ *
+ * Every duration a designer writes — how long a barracks takes, how often a
+ * bowman looses, how long a knockdown lasts — is a count of ticks, so raising
+ * the tick rate silently makes all of it three times faster. Rescaling here,
+ * once, in the compiler is the only place it can be done without every author
+ * having to know what the tick rate is: the def is the last point where these
+ * are still plain authored numbers, and everything downstream reads the
+ * compiled result.
+ *
+ * The whole def is copied rather than mutated — a GameDef is shared (a faction
+ * module is one object seated by many maps) and scaling one in place would
+ * scale it again for the next map that used it.
+ */
+function rescaleTicks(def: GameDef): GameDef {
+  if (TICK_SCALE === 1) return def
+  const k = TICK_SCALE
+  const scale = (v: number | undefined): number | undefined => (v === undefined ? undefined : v * k)
+  return {
+    ...def,
+    entities: def.entities.map((e) => ({
+      ...e,
+      buildTimeTicks: scale(e.buildTimeTicks),
+      swoopTicks: scale(e.swoopTicks),
+      combat: e.combat
+        ? {
+            ...e.combat,
+            periodTicks: e.combat.periodTicks * k,
+            knockdownTicks: scale(e.combat.knockdownTicks),
+            // charge lives inside combat, and carries its own two durations
+            charge: e.combat.charge
+              ? {
+                  ...e.combat.charge,
+                  cooldownTicks: scale(e.combat.charge.cooldownTicks),
+                  knockdownTicks: scale(e.combat.charge.knockdownTicks),
+                }
+              : e.combat.charge,
+          }
+        : e.combat,
+      income: e.income ? { ...e.income, perTicks: e.income.perTicks * k } : e.income,
+      // Both of these are durations too, and both hide a level down inside an
+      // entity rather than on it — which is exactly how they got missed.
+      harvester: e.harvester
+        ? { ...e.harvester, gatherPeriodTicks: e.harvester.gatherPeriodTicks * k }
+        : e.harvester,
+      resourceNode: e.resourceNode
+        ? { ...e.resourceNode, insideTicks: scale(e.resourceNode.insideTicks) }
+        : e.resourceNode,
+    })),
+    abilities: def.abilities.map((a) => ({ ...a, periodTicks: a.periodTicks * k })),
+    upgrades: (def.upgrades ?? []).map((u) => ({ ...u, buildTimeTicks: u.buildTimeTicks * k })),
+  }
+}
+
+export function compileGameDef(raw: GameDef): GameDefCompiled {
+  const def = rescaleTicks(raw)
   const errs = validateGameDef(def)
   if (errs.length > 0) throw new Error(`invalid GameDef "${def.id}": ${errs.join('; ')}`)
   if (def.resources.length > 32) throw new Error('at most 32 resources supported')

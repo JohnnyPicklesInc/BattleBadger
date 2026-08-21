@@ -1,5 +1,5 @@
 import { grantUpgrade } from './upgrades.ts'
-import { Kind, Order, addMember, allied, createHorde, spawnUnit, type SimState } from '../state.ts'
+import { Kind, Order, TICK_SCALE, addMember, allied, createHorde, spawnUnit, type SimState } from '../state.ts'
 import type { WalkGrid } from '../path/walkgrid.ts'
 import { blockCells } from '../setup.ts'
 import { planPath } from './orders.ts'
@@ -285,7 +285,7 @@ export function spawnBuilding(
     }
   }
   if (underConstruction) {
-    s.buildTicks[id] = Math.max(1, e.buildTimeTicks ?? 1)
+    s.buildTicks[id] = Math.max(1, e.buildTimeTicks ?? TICK_SCALE)
     // Half strength on the day it is founded; addBuildHp pays out the rest as
     // the work proceeds, so raising a barracks in the open is a real risk.
     s.hp[id] = Math.max(1, Math.floor(st.maxHp[defIdx] / 2))
@@ -361,7 +361,7 @@ function addBuildHp(s: SimState, i: number): void {
   // is awaiting removal — topping it up here would resurrect it.
   if (s.hp[i] <= 0) return
   const maxHp = s.def.stats.maxHp[s.type[i]]
-  const total = Math.max(1, s.def.entities[s.type[i]].buildTimeTicks ?? 1)
+  const total = Math.max(1, s.def.entities[s.type[i]].buildTimeTicks ?? TICK_SCALE)
   // the half that was withheld at spawn, paid out across the build
   const gain = Math.floor(maxHp / 2 / total)
   s.hp[i] = Math.min(maxHp, s.hp[i] + Math.max(1, gain))
@@ -395,7 +395,7 @@ export function production(s: SimState, grid: WalkGrid): void {
       s.queueTicks[i] = 0
       continue
     }
-    const needed = Math.max(1, s.def.entities[unitDef].buildTimeTicks ?? 10)
+    const needed = Math.max(1, s.def.entities[unitDef].buildTimeTicks ?? 10 * TICK_SCALE)
     if (s.queueTicks[i] < needed) continue
 
     // spawn toward the rally (or +x when unset)

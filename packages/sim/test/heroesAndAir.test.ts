@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import { canHit, setupMatch, spawnUnit, step, walkGridFromDoc } from '@battlebadger/sim'
 import { generateFourCorners } from '../src/mapgen/fourCorners.ts'
@@ -40,7 +41,7 @@ describe('the flyers', () => {
     s.homeX[bird] = s.destX[bird]
     s.homeZ[bird] = s.destZ[bird]
     const startX = s.posX[bird]
-    for (let t = 0; t < 120; t++) step(s, grid, [])
+    for (let t = 0; t < t10(120); t++) step(s, grid, [])
     expect(s.posX[bird], 'it should have crossed the spur').toBeGreaterThan(startX + 6)
   })
 
@@ -76,7 +77,7 @@ describe('the flyers', () => {
     for (let k = 0; k < 12; k++) spawnUnit(s, s.def.entIndex.get('orc')!, 1, 87 + (k % 6) * 0.7, 89 + Math.floor(k / 6))
     const hp0 = s.hp[bird]
     let sawDive = false
-    for (let t = 0; t < 400 && s.hp[bird] === hp0; t++) {
+    for (let t = 0; t < t10(400) && s.hp[bird] === hp0; t++) {
       step(s, grid, [])
       if (s.swooping[bird] > 0) sawDive = true
     }
@@ -95,7 +96,7 @@ describe('the flyers', () => {
       for (let k = 0; k < n; k++) {
         mob.push(spawnUnit(s, s.def.entIndex.get(foe)!, 1, 84 + (k % 5) * 1.4, 93 + Math.floor(k / 5) * 1.6))
       }
-      for (let t = 0; t < 1500 && s.alive[bird] && mob.some((i) => s.alive[i]); t++) step(s, grid, [])
+      for (let t = 0; t < t10(1500) && s.alive[bird] && mob.some((i) => s.alive[i]); t++) step(s, grid, [])
       return { lived: s.alive[bird] === 1, killed: mob.filter((i) => !s.alive[i]).length }
     }
     // a dozen loose orcs: the eagle is worth its price
@@ -113,7 +114,7 @@ describe('the flyers', () => {
     for (let k = 0; k < 24; k++) {
       spawnUnit(s, s.def.entIndex.get('orc-archer')!, 1, 78 + (k % 12) * 1.7, 96 + Math.floor(k / 12) * 2)
     }
-    for (let t = 0; t < 900 && s.alive[bird]; t++) step(s, grid, [])
+    for (let t = 0; t < t10(900) && s.alive[bird]; t++) step(s, grid, [])
     expect(s.alive[bird], 'massed archery should bring it down').toBe(0)
   })
 
@@ -152,7 +153,7 @@ describe('the heroes', () => {
     const hero = spawnUnit(s, s.def.entIndex.get('marshal')!, 0, 88, 88)
     const mob: number[] = []
     for (let k = 0; k < 14; k++) mob.push(spawnUnit(s, s.def.entIndex.get('orc-pikeman')!, 1, 84 + (k % 7) * 1.1, 94 + Math.floor(k / 7) * 1.1))
-    for (let t = 0; t < 900 && s.alive[hero]; t++) step(s, grid, [])
+    for (let t = 0; t < t10(900) && s.alive[hero]; t++) step(s, grid, [])
     expect(s.alive[hero], 'a pike battalion should bring a mounted hero down').toBe(0)
   })
 

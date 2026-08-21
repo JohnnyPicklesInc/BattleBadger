@@ -1,4 +1,4 @@
-import { Kind, TICK_S, type SimState } from '../state.ts'
+import { Kind, TICK_S, TICK_SCALE, type SimState } from '../state.ts'
 import type { WalkGrid } from '../path/walkgrid.ts'
 import type { SpatialHash } from '../spatial.ts'
 import { applyDamageTable } from './combat.ts'
@@ -26,7 +26,7 @@ import { shoveUnit } from './motion.ts'
 const MAX_VICTIM_RADIUS = 5
 
 /** Ticks at charge speed needed before an impact counts as a charge. */
-const RUN_UP_TICKS = 4
+const RUN_UP_TICKS = 4 * TICK_SCALE
 
 export function charges(s: SimState, grid: WalkGrid, hash: SpatialHash): void {
   const st = s.def.stats

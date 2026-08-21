@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import {
   compileGameDef,
@@ -77,7 +78,7 @@ function ride(s: SimState, grid: ReturnType<typeof walkGridFromDoc>, rider: numb
   step(s, grid, [{ kind: 'attackMove', player: s.owner[rider], units: [handleOf(s, rider)], x: s.posX[foe], z: s.posZ[foe] }])
   let worstStep = 0
   let prev = hp0
-  for (let t = 0; t < ticks; t++) {
+  for (let t = 0; t < t10(ticks); t++) {
     step(s, grid, [])
     const lost = prev - s.hp[foe]
     if (lost > worstStep) worstStep = lost
@@ -111,7 +112,7 @@ describe('cavalry charge', () => {
     const hp0 = s.hp[foe]
     let prev = hp0
     let worst = 0
-    for (let t = 0; t < 40; t++) {
+    for (let t = 0; t < t10(40); t++) {
       step(s, grid, [])
       const lost = prev - s.hp[foe]
       if (lost > worst) worst = lost
@@ -136,13 +137,13 @@ describe('cavalry charge', () => {
     const rider = spawn(s, 'lancer', 0, 20, 20)
     const foe = spawn(s, 'footman', 1, 45, 20)
     step(s, grid, [{ kind: 'attackMove', player: 0, units: [handleOf(s, rider)], x: 45, z: 20 }])
-    for (let t = 0; t < 60 && s.chargeCd[rider] === 0; t++) step(s, grid, [])
+    for (let t = 0; t < t10(60) && s.chargeCd[rider] === 0; t++) step(s, grid, [])
     expect(s.chargeCd[rider], 'no wind-down after impact').toBeGreaterThan(0)
     // and while winding down another impact cannot land
     const hpAfterImpact = s.hp[foe]
     let prev = hpAfterImpact
     let worst = 0
-    for (let t = 0; t < 12; t++) {
+    for (let t = 0; t < t10(12); t++) {
       step(s, grid, [])
       const lost = prev - s.hp[foe]
       if (lost > worst) worst = lost
@@ -157,7 +158,7 @@ describe('cavalry charge', () => {
     const friend = spawn(s, 'footman', 0, 32, 20)
     const friendHp = s.hp[friend]
     step(s, grid, [{ kind: 'move', player: 0, units: [handleOf(s, rider)], x: 60, z: 20 }])
-    for (let t = 0; t < 60; t++) step(s, grid, [])
+    for (let t = 0; t < t10(60); t++) step(s, grid, [])
     expect(s.hp[friend], 'rode down a friendly').toBe(friendHp)
   })
 
@@ -167,7 +168,7 @@ describe('cavalry charge', () => {
     spawn(s, 'footman', 1, 45, 20)
     step(s, grid, [{ kind: 'attackMove', player: 0, units: [handleOf(s, rider)], x: 45, z: 20 }])
     let seen = false
-    for (let t = 0; t < 60 && !seen; t++) {
+    for (let t = 0; t < t10(60) && !seen; t++) {
       step(s, grid, [])
       for (const ev of s.events) if (ev.t === 'trample') seen = true
     }
@@ -181,7 +182,7 @@ describe('cavalry charge', () => {
       for (let k = 0; k < 6; k++) spawn(s, 'footman', 1, 40 + k * 0.9, 19 + (k % 3))
       const out: number[] = []
       step(s, grid, [{ kind: 'attackMove', player: 0, units: [handleOf(s, rider)], x: 45, z: 20 }])
-      for (let t = 0; t < 150; t++) {
+      for (let t = 0; t < t10(150); t++) {
         step(s, grid, [])
         out.push(stateHash(s))
       }
@@ -307,7 +308,7 @@ describe('cavalry are worst for archers', () => {
       st(s, grid, [{ kind: 'attackMove', player: 0, units: [h(s, rider)], x: ax + 26, z: az }])
       let worst = 0
       let prev = hp0
-      for (let t = 0; t < 80; t++) {
+      for (let t = 0; t < t10(80); t++) {
         st(s, grid, [])
         const lost = prev - s.hp[victim]
         if (lost > worst) worst = lost
@@ -358,7 +359,7 @@ describe('a refused charge breaks on the spears', () => {
       step(s, grid, [
         { kind: 'attackMove', player: 0, units: riders.map((i) => sim.handleOf(s, i)), x: ax + 30, z: az },
       ])
-      for (let t = 0; t < 250; t++) step(s, grid, [])
+      for (let t = 0; t < t10(250); t++) step(s, grid, [])
       return {
         riders: riders.filter((i) => s.alive[i]).length,
         pikes: pikes.filter((i) => s.alive[i]).length,
@@ -388,7 +389,7 @@ describe('a refused charge breaks on the spears', () => {
     // baseline AFTER the ride, or the first delta sweeps in everything above
     let worst = 0
     let prev = s.hp[other]
-    for (let t = 0; t < 40; t++) {
+    for (let t = 0; t < t10(40); t++) {
       step(s, grid, [])
       const lost = prev - s.hp[other]
       if (lost > worst) worst = lost
@@ -432,7 +433,7 @@ describe('pikes hold the line on cost', () => {
       step(s, grid, [
         { kind: 'attackMove', player: 0, units: riders.map((i) => sim.handleOf(s, i)), x: ax + 30, z: az },
       ])
-      for (let t = 0; t < 400; t++) step(s, grid, [])
+      for (let t = 0; t < t10(400); t++) step(s, grid, [])
       return {
         cavLost: (5 - riders.filter((i) => s.alive[i]).length) * RIDER_EACH,
         foeLost: (foeCount - foes.filter((i) => s.alive[i]).length) * (foeCost / foeCount),
@@ -471,7 +472,7 @@ describe('weapon knockback', () => {
     const foe = sim.spawnUnit(s, s.def.entIndex.get('swordsman')!, 1, ax + 2.2, az)
     const startX = s.posX[foe]
     let flung = false
-    for (let t = 0; t < 60 && s.alive[foe]; t++) {
+    for (let t = 0; t < t10(60) && s.alive[foe]; t++) {
       step(s, grid, [])
       for (const ev of s.events) if (ev.t === 'trample') flung = true
     }
@@ -510,7 +511,7 @@ describe('a sweeping club', () => {
       step(s, grid, [
         { kind: 'attackMove', player: 1, units: mob.map((i) => sim.handleOf(s, i)), x: s.posX[ogre], z: s.posZ[ogre] },
       ])
-      for (let t = 0; t < 900; t++) {
+      for (let t = 0; t < t10(900); t++) {
         step(s, grid, [])
         if (!s.alive[ogre] || mob.every((i) => !s.alive[i])) break
       }
@@ -551,7 +552,7 @@ describe('knockdown', () => {
     sim.spawnUnit(s, s.def.entIndex.get('ogre')!, 0, ax, az)
     const foe = sim.spawnUnit(s, s.def.entIndex.get('swordsman')!, 1, ax + 2.2, az)
     let sawStun = false
-    for (let t = 0; t < 80 && s.alive[foe]; t++) {
+    for (let t = 0; t < t10(80) && s.alive[foe]; t++) {
       step(s, grid, [])
       if (s.stun[foe] > 0) {
         sawStun = true
@@ -576,7 +577,7 @@ describe('knockdown', () => {
     const { s, grid } = world()
     const victim = spawn(s, 'footman', 1, 30, 30)
     s.stun[victim] = 5
-    for (let t = 0; t < 10; t++) step(s, grid, [])
+    for (let t = 0; t < t10(10); t++) step(s, grid, [])
     expect(s.stun[victim], 'stun never expired').toBe(0)
   })
 })
@@ -606,7 +607,7 @@ describe('pikes bite the charger', () => {
       const foe = sim.spawnUnit(s, s.def.entIndex.get(foeId)!, 1, ax + 26, az)
       step(s, grid, [{ kind: 'attackMove', player: 0, units: [sim.handleOf(s, rider)], x: ax + 26, z: az }])
       // stop the instant the charge lands so we read the impact, not the melee
-      for (let t = 0; t < 120; t++) {
+      for (let t = 0; t < t10(120); t++) {
         step(s, grid, [])
         if (s.chargeCd[rider] > 0) break
         if (!s.alive[foe] || !s.alive[rider]) break

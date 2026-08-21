@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import {
   grantUpgrade,
@@ -41,7 +42,7 @@ function oneBlow(owner: number, foeOwner: number, grant?: string): number {
   const a = spawnUnit(s, s.def.entIndex.get('swordsman')!, owner, 88, 88)
   const v = spawnUnit(s, s.def.entIndex.get('orc')!, foeOwner, 88.6, 88)
   const hp0 = s.hp[v]
-  for (let t = 0; t < 40 && s.hp[v] === hp0; t++) step(s, grid, [])
+  for (let t = 0; t < t10(40) && s.hp[v] === hp0; t++) step(s, grid, [])
   void a
   return hp0 - s.hp[v]
 }
@@ -93,7 +94,7 @@ describe('an upgrade changes what a unit does', () => {
       const a = spawnUnit(s, s.def.entIndex.get('orc')!, 1, 60 + defender * 10, 60)
       const v = spawnUnit(s, s.def.entIndex.get('swordsman')!, defender, 60.6 + defender * 10, 60)
       const hp0 = s.hp[v]
-      for (let t = 0; t < 60 && s.hp[v] === hp0; t++) step(s, grid, [])
+      for (let t = 0; t < t10(60) && s.hp[v] === hp0; t++) step(s, grid, [])
       void a
       return hp0 - s.hp[v]
     }
@@ -119,7 +120,7 @@ describe('research is bought at a building', () => {
     research(s, grid, b, 'forged-blades')
     expect(s.resources[0], 'it should have been paid for').toBeLessThan(before)
     expect(hasUpgrade(s, 0, up('forged-blades')), 'and not granted instantly').toBe(false)
-    for (let t = 0; t < 400 && !hasUpgrade(s, 0, up('forged-blades')); t++) step(s, grid, [])
+    for (let t = 0; t < t10(400) && !hasUpgrade(s, 0, up('forged-blades')); t++) step(s, grid, [])
     expect(hasUpgrade(s, 0, up('forged-blades'))).toBe(true)
   })
 
@@ -134,7 +135,7 @@ describe('research is bought at a building', () => {
     expect(s.resources[0], 'the second order should be free because it is refused').toBe(afterFirst)
     expect(before).toBeGreaterThan(afterFirst)
 
-    for (let t = 0; t < 400 && !hasUpgrade(s, 0, up('forged-blades')); t++) step(s, grid, [])
+    for (let t = 0; t < t10(400) && !hasUpgrade(s, 0, up('forged-blades')); t++) step(s, grid, [])
     const owned = s.resources[0]
     research(s, grid, b1, 'forged-blades') // already owned
     expect(s.resources[0]).toBe(owned)

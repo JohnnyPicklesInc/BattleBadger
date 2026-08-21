@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import {
   SKIRMISH_DEF,
@@ -38,7 +39,7 @@ function trigDoc(triggers: TriggerDef[], extra?: Partial<RtsMapDoc>): RtsMapDoc 
 const run = (doc: RtsMapDoc, ticks: number): SimState => {
   const grid = walkGridFromDoc(doc)
   const s = setupMatch(doc, grid)
-  for (let t = 0; t < ticks; t++) step(s, grid, [])
+  for (let t = 0; t < t10(ticks); t++) step(s, grid, [])
   return s
 }
 
@@ -87,7 +88,7 @@ describe('triggers', () => {
     const grid = walkGridFromDoc(doc)
     const s = setupMatch(doc, grid)
     step(s, grid, [{ kind: 'move', player: 0, units: [0], x: 25, z: 25 }])
-    for (let t = 0; t < 200 && s.winner < 0; t++) step(s, grid, [])
+    for (let t = 0; t < t10(200) && s.winner < 0; t++) step(s, grid, [])
     expect(s.winner).toBe(0)
   })
 

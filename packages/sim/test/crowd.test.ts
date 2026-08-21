@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import { MIDDLE_EARTH_DEF } from '../src/mapgen/middleEarth.ts'
 import { walkGridFromDoc } from '../src/path/walkgrid.ts'
@@ -40,7 +41,7 @@ const mk = (): { s: SimState; grid: ReturnType<typeof walkGridFromDoc> } => {
 }
 
 const run = (s: SimState, grid: ReturnType<typeof walkGridFromDoc>, ticks: number): void => {
-  for (let t = 0; t < ticks; t++) step(s, grid, [])
+  for (let t = 0; t < t10(ticks); t++) step(s, grid, [])
 }
 
 const alive = (s: SimState, ids: number[]): number => ids.filter((i) => s.alive[i]).length

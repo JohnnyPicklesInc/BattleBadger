@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import {
   deriveTerrain,
@@ -27,7 +28,7 @@ const summon = (s: SimState, grid: ReturnType<typeof walkGridFromDoc>, slot: num
   expect(hatch).toBeGreaterThanOrEqual(0)
   const ticket = s.def.entIndex.get('champion')!
   step(s, grid, [{ kind: 'train', player: slot, units: [handleOf(s, hatch)], x: 0, z: 0, def: ticket }])
-  for (let t = 0; t < 80 && bySlot(s, slot, 'hero') < 0; t++) step(s, grid, [])
+  for (let t = 0; t < t10(80) && bySlot(s, slot, 'hero') < 0; t++) step(s, grid, [])
   return bySlot(s, slot, 'hero')
 }
 
@@ -73,7 +74,7 @@ describe('teams + Cerebrate War (MOBA map as data)', () => {
     const sw = s.def.entIndex.get('swarmling')!
     const victim = spawnUnit(s, sw, 7, s.posX[hero] + 1, s.posZ[hero])
     s.hp[victim] = 1
-    for (let t = 0; t < 40 && s.alive[victim]; t++) step(s, grid, [])
+    for (let t = 0; t < t10(40) && s.alive[victim]; t++) step(s, grid, [])
     expect(s.alive[victim]).toBe(0)
     expect(s.hordes.xp[horde]).toBeGreaterThan(0)
   })
@@ -86,7 +87,7 @@ describe('teams + Cerebrate War (MOBA map as data)', () => {
     const h2 = summon(s, grid, 2)
     expect(h0).toBeGreaterThanOrEqual(0)
     expect(h2).toBeGreaterThanOrEqual(0)
-    for (let t = 0; t < 60; t++) step(s, grid, [])
+    for (let t = 0; t < t10(60); t++) step(s, grid, [])
     expect(s.target[h0]).toBe(-1) // no friendly fire acquisition
     expect(s.hp[h2]).toBe(s.def.stats.maxHp[s.type[h2]])
   })
@@ -101,7 +102,7 @@ describe('teams + Cerebrate War (MOBA map as data)', () => {
       return c
     }
     const start6 = countOwner(6)
-    for (let t = 0; t < 250; t++) step(s, grid, []) // 25s → past the 20s wave clock
+    for (let t = 0; t < t10(250); t++) step(s, grid, []) // 25s → past the 20s wave clock
     expect(countOwner(6)).toBeGreaterThan(start6) // creeps spawn for the AI slot…
     expect(countOwner(7)).toBeGreaterThan(2)
     expect(countOwner(0)).toBe(1) // …while a player still owns only their hatchery
@@ -148,7 +149,7 @@ describe('teams + Cerebrate War (MOBA map as data)', () => {
       const doc = generateCerebrateWar(9)
       const grid = walkGridFromDoc(doc)
       const s = setupMatch(doc, grid, 2)
-      for (let t = 0; t < 1200; t++) step(s, grid, [])
+      for (let t = 0; t < t10(1200); t++) step(s, grid, [])
       return stateHash(s)
     }
     expect(play()).toBe(play())
@@ -237,7 +238,7 @@ describe('teams + Cerebrate War (MOBA map as data)', () => {
     expect(trig.enabled[trig.trigIdx.get('s0-top-t0')!]).toBe(1)
 
     const eliteTy = s.def.entIndex.get('swarmling-elite')!
-    for (let t = 0; t < 250; t++) step(s, grid, [])
+    for (let t = 0; t < t10(250); t++) step(s, grid, [])
     let elites = 0
     for (let i = 0; i < s.count; i++) if (s.alive[i] && s.type[i] === eliteTy && s.owner[i] === 6) elites++
     expect(elites).toBeGreaterThan(0)
@@ -252,7 +253,7 @@ describe('teams + Cerebrate War (MOBA map as data)', () => {
     // read the opening bank off the def so a balance change never breaks this
     const start = s.def.resources[r].startAmount
     expect(at(0)).toBe(start)
-    for (let t = 0; t < 300; t++) step(s, grid, [])
+    for (let t = 0; t < t10(300); t++) step(s, grid, [])
     const passive = at(0) - start
     // income pays 8 essence every 50 ticks per hatchery — 5 or 6 payments in
     // 300 ticks depending on phase; nothing has died yet, so no bounty noise
@@ -260,7 +261,7 @@ describe('teams + Cerebrate War (MOBA map as data)', () => {
     expect(passive).toBeLessThanOrEqual(6 * 8)
 
     // once the waves meet, the 15-essence kill bounty stacks on the income
-    for (let t = 0; t < 300; t++) step(s, grid, [])
+    for (let t = 0; t < t10(300); t++) step(s, grid, [])
     expect(at(0) - start - passive).toBeGreaterThan(6 * 8)
   })
 
@@ -268,7 +269,7 @@ describe('teams + Cerebrate War (MOBA map as data)', () => {
     const doc = generateCerebrateWar(5)
     const grid = walkGridFromDoc(doc)
     const s = setupMatch(doc, grid, 2)
-    for (let t = 0; t < 1200; t++) step(s, grid, [])
+    for (let t = 0; t < t10(1200); t++) step(s, grid, [])
     let dead = 0
     for (let i = 0; i < s.count; i++) if (!s.alive[i]) dead++
     expect(dead).toBeGreaterThan(5)

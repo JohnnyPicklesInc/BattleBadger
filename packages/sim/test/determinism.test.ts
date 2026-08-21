@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import {
   generateMap,
@@ -44,7 +45,7 @@ function runSim(seed: number, ticks: number, hashEvery: number): { hashes: numbe
   const sim = setupMatch(doc, grid)
   const cmds = scriptedCommands(seed ^ 0xabcdef, ticks)
   const hashes: number[] = []
-  for (let t = 0; t < ticks; t++) {
+  for (let t = 0; t < t10(ticks); t++) {
     step(sim, grid, cmds.get(t) ?? [])
     if (t % hashEvery === 0) hashes.push(stateHash(sim))
   }
@@ -53,9 +54,10 @@ function runSim(seed: number, ticks: number, hashEvery: number): { hashes: numbe
 
 describe('lockstep determinism', () => {
   it('two independent sims with the same seed + commands stay hash-identical for 2000 ticks', () => {
+    // runSim scales `ticks` internally, so this stays the authored number.
     const a = runSim(42, 2000, 1)
     const b = runSim(42, 2000, 1)
-    expect(a.hashes.length).toBe(2000)
+    expect(a.hashes.length).toBe(t10(2000))
     for (let i = 0; i < a.hashes.length; i++) {
       expect(b.hashes[i], `tick ${i}`).toBe(a.hashes[i])
     }
@@ -80,7 +82,7 @@ describe('lockstep determinism', () => {
       { kind: 'attackMove', player: 0, units: all0, x: doc.startLocations[1].x, z: doc.startLocations[1].z },
       { kind: 'attackMove', player: 1, units: all1, x: doc.startLocations[0].x, z: doc.startLocations[0].z },
     ]
-    for (let t = 0; t < 4000 && sim.winner < 0; t++) {
+    for (let t = 0; t < t10(4000) && sim.winner < 0; t++) {
       step(sim, grid, t % 400 === 0 ? attack() : [])
     }
     let deadCount = 0
@@ -109,7 +111,7 @@ describe('lockstep determinism', () => {
     const dx = grid.centerX(near[0])
     const dz = grid.centerZ(near[1])
     step(sim, grid, [{ kind: 'move', player: 0, units: [unit], x: dx, z: dz }])
-    for (let t = 0; t < 100; t++) step(sim, grid, [])
+    for (let t = 0; t < t10(100); t++) step(sim, grid, [])
     // Ordering one soldier moves his whole battalion, and he arrives at his
     // slot in its formation rather than standing on the click — so "arrived"
     // means inside a formation's spread of the destination, not on top of it.
@@ -126,13 +128,15 @@ describe('lockstep determinism', () => {
     const h0 = stateHash(sim)
     step(sim, grid, [{ kind: 'move', player: 1, units: [unit, -5, 9999], x: 50, z: 50 }])
     // run a few ticks; that unit must not have an order
-    for (let t = 0; t < 10; t++) step(sim, grid, [])
+    for (let t = 0; t < t10(10); t++) step(sim, grid, [])
     expect(sim.order[unit]).toBe(0)
     // and nothing else changed materially (units idle at spawn)
     const doc2 = generateMap(3)
     const grid2 = walkGridFromDoc(doc2)
     const sim2 = setupMatch(doc2, grid2)
-    for (let t = 0; t < 11; t++) step(sim2, grid2, [])
+    // sim1 spent exactly one tick on the (rejected) command; that is a
+    // COUNT of ticks, not a length of time, so it does not scale.
+    for (let t = 0; t < t10(10) + 1; t++) step(sim2, grid2, [])
     expect(stateHash(sim)).toBe(stateHash(sim2))
     expect(h0).not.toBe(0)
   })

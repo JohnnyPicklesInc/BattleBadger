@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import {
   Harv,
@@ -22,7 +23,7 @@ function world(gen: () => ReturnType<typeof generateEconDemo>, aiSlot: number, l
 }
 
 const run = (w: World, ticks: number): void => {
-  for (let t = 0; t < ticks; t++) step(w.s, w.grid, [])
+  for (let t = 0; t < t10(ticks); t++) step(w.s, w.grid, [])
 }
 
 const countOwned = (s: SimState, slot: number, pred: (i: number) => boolean): number => {
@@ -38,7 +39,7 @@ describe('AI opponent', () => {
     const a = setupMatch(doc, grid, 2)
     const b = setupMatch(doc, grid, 2)
     b.aiLevel[1] = 0 // explicit human
-    for (let t = 0; t < 60; t++) {
+    for (let t = 0; t < t10(60); t++) {
       step(a, grid, [])
       step(b, grid, [])
     }
@@ -91,13 +92,13 @@ describe('AI opponent', () => {
     const s = setupMatch(doc, grid, 2)
     s.aiLevel[1] = 2
     const homeX = Float64Array.from(s.posX)
-    for (let t = 0; t < 200; t++) step(s, grid, [])
+    for (let t = 0; t < t10(200); t++) step(s, grid, [])
     let moved = 0
     for (let i = 0; i < s.count; i++) {
       if (s.alive[i] && s.owner[i] === 1 && Math.abs(s.posX[i] - homeX[i]) > 2) moved++
     }
     expect(moved, 'AI army never left its start position').toBeGreaterThan(0)
-    for (let t = 200; t < 900; t++) step(s, grid, [])
+    for (let t = t10(200); t < t10(900); t++) step(s, grid, [])
     const income = countOwned(s, 1, (i) => !!s.def.entities[s.type[i]].income)
     expect(income, 'AI raised no economy on the generated map').toBeGreaterThan(0)
   })
@@ -106,7 +107,7 @@ describe('AI opponent', () => {
     const once = (): number[] => {
       const w = world(() => generateEconDemo(3), 0)
       const out: number[] = []
-      for (let t = 0; t < 150; t++) {
+      for (let t = 0; t < t10(150); t++) {
         step(w.s, w.grid, [])
         out.push(stateHash(w.s))
       }
@@ -122,7 +123,7 @@ describe('AI opponent', () => {
     const s = setupMatch(doc, grid, 2)
     s.aiLevel[0] = 2
     s.aiLevel[1] = 2
-    for (let t = 0; t < 600; t++) step(s, grid, [])
+    for (let t = 0; t < t10(600); t++) step(s, grid, [])
     for (const slot of [0, 1]) {
       const income = countOwned(s, slot, (i) => !!s.def.entities[s.type[i]].income)
       expect(income, `slot ${slot} built no economy`).toBeGreaterThan(0)
@@ -166,7 +167,7 @@ describe('the AI buys research', () => {
     // AI correctly buys the army and the buildings first and only then starts
     // improving them. Measured at roughly 10k ticks on this map.
     let owned = 0
-    for (let t = 0; t < 16000 && owned === 0; t++) {
+    for (let t = 0; t < t10(16000) && owned === 0; t++) {
       sim.step(s, grid, [])
       owned = 0
       for (let u = 0; u < s.def.upgrades.length; u++) if (sim.hasUpgrade(s, 0, u)) owned++

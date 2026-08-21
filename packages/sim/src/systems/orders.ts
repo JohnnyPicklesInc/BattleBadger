@@ -12,6 +12,7 @@ import {
   type SimState,
   type UnitPath,
   TICK_S,
+  TICK_SCALE,
 } from '../state.ts'
 import { findPath, stringPull } from '../path/astar.ts'
 import { attackRange, hasUpgrade, upgradeInProgress, upgradeRequiresMet } from './upgrades.ts'
@@ -849,17 +850,17 @@ export function updateOrders(s: SimState, grid: WalkGrid): void {
  * out keeps its stuck counter and is served on a later tick, in ascending id,
  * which costs a jammed man a tenth of a second nobody can see.
  */
-const REPATHS_PER_TICK = 16
+const REPATHS_PER_TICK = Math.max(1, Math.floor(16 / TICK_SCALE + 0.5))
 /**
  * Of that budget, how much a tick may spend on men merely tidying themselves
  * up. A regroup is never urgent — the man has already stopped — so it must
  * not be able to starve a battalion that is trying to march NOW.
  */
-const REGROUPS_PER_TICK = 4
+const REGROUPS_PER_TICK = Math.max(1, Math.floor(4 / TICK_SCALE + 0.5))
 /** How many times a jammed unit will try something else before settling. */
 const MAX_RETRIES = 3
 /** How long a man who was beaten by a crowd waits before trying again. */
-const REGROUP_TICKS = 45
+const REGROUP_TICKS = 45 * TICK_SCALE
 /** Near enough to where he was sent to call it done and stop trying. */
 const REGROUP_NEAR = 2.5
 
@@ -952,7 +953,7 @@ export function updateStuck(s: SimState, grid: WalkGrid): void {
     else s.stuck[i] = 0
     s.progress[i] = remaining
 
-    if (s.stuck[i] >= 12) {
+    if (s.stuck[i] >= 12 * TICK_SCALE) {
       if (remaining < 2.0 || s.repathed[i] >= MAX_RETRIES) {
         // Close enough / out of ideas — settle here and make this the post
         // (otherwise guard-return would keep re-planning the same blocked path)
