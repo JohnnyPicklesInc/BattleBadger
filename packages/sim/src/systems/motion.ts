@@ -1,4 +1,4 @@
-import { Kind, MAX_UNITS, Order, type SimState } from '../state.ts'
+import { Kind, MAX_UNITS, Order, TICK_S, type SimState } from '../state.ts'
 import type { SpatialHash } from '../spatial.ts'
 import type { WalkGrid } from '../path/walkgrid.ts'
 
@@ -196,7 +196,15 @@ export function separation(s: SimState, hash: SpatialHash): void {
       pushZ += -dirX * t
     }
     if (pushX !== 0 || pushZ !== 0) {
-      const cap = st.speed[s.type[i]] * 0.1 * (moving ? 0.6 : 0.35)
+      // TICK_S, not a hardcoded 0.1. This caps the shove as a fraction of the
+      // distance a man can WALK in one tick, so it has to be measured in the
+      // same tick the walking is. Frozen at 0.1 it silently meant "a tenth of
+      // a second's travel" — correct only while the clock ran at 10 Hz. At
+      // 30 Hz it let the crowd push people apart three times harder than they
+      // could step, and a battalion ordered through an enemy line was held off
+      // it and cut down to a man: nine dead for four, where it had been three
+      // survivors and the line wiped.
+      const cap = st.speed[s.type[i]] * TICK_S * (moving ? 0.6 : 0.35)
       const m = Math.sqrt(pushX * pushX + pushZ * pushZ)
       const k = Math.min(cap, m * cap) / m
       s.velX[i] += pushX * k

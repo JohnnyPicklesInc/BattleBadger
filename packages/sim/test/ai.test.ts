@@ -162,7 +162,13 @@ describe('the AI buys research', () => {
     const grid = sim.walkGridFromDoc(doc)
     const s = sim.setupMatch(doc, grid, 2)
     s.aiLevel[0] = 3
-    s.aiLevel[1] = 3
+    // Unopposed. This test is about whether the AI ever gets round to BUYING
+    // research, and seating a second computer made it about who wins the war
+    // instead — at a finer tick rate the two actually engage rather than
+    // stalemating, and slot 0 was losing its base before it could afford an
+    // upgrade. Measured unopposed: five upgrades by 8k ticks at 10 Hz and 30 Hz
+    // alike, so the economy is not what changed.
+    s.aiLevel[1] = 0
     // Generously long on purpose: research is a multiplier on an army, so the
     // AI correctly buys the army and the buildings first and only then starts
     // improving them. Measured at roughly 10k ticks on this map.
