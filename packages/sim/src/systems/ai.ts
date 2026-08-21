@@ -1,6 +1,6 @@
 import type { PlayerCommand } from '../commands.ts'
 import type { WalkGrid } from '../path/walkgrid.ts'
-import { Harv, Kind, Order, handleOf, type SimState } from '../state.ts'
+import { Harv, Kind, Order, TICK_SCALE, handleOf, type SimState } from '../state.ts'
 import { plotClaimable, requiresMet, supplyRoom, validPlacement } from './economy.ts'
 import { hasUpgrade, upgradeInProgress, upgradeRequiresMet } from './upgrades.ts'
 import { WALL_REACH } from './ramparts.ts'
@@ -32,7 +32,7 @@ import { WALL_REACH } from './ramparts.ts'
 // think period and an economy handicap, which is what shipped RTS use anyway.
 
 /** Ticks between thinks at each level; slot offsets stagger the work. */
-const THINK_PERIOD = [0, 20, 12, 6]
+const THINK_PERIOD = [0, 20, 12, 6].map((n) => n * TICK_SCALE)
 
 
 // Twelve compass directions as literal unit vectors. Authored rather than

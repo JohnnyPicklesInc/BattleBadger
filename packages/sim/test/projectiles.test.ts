@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import {
   compileGameDef,
@@ -78,7 +79,7 @@ describe('projectiles', () => {
     step(s, grid, [])
     expect(liveShells(s), 'nothing was launched').toBeGreaterThan(0)
     expect(s.hp[target], 'damage landed on the firing tick').toBe(hp0)
-    for (let t = 0; t < 40 && s.hp[target] === hp0; t++) step(s, grid, [])
+    for (let t = 0; t < t10(40) && s.hp[target] === hp0; t++) step(s, grid, [])
     expect(s.hp[target], 'the shell never landed').toBeLessThan(hp0)
     expect(liveShells(s), 'the shell was not cleaned up').toBe(0)
   })
@@ -103,7 +104,7 @@ describe('projectiles', () => {
     // teleport the target well clear of the blast before the shell arrives
     s.posX[target] = 60
     s.posZ[target] = 60
-    for (let t = 0; t < 40 && liveShells(s) > 0; t++) step(s, grid, [])
+    for (let t = 0; t < t10(40) && liveShells(s) > 0; t++) step(s, grid, [])
     expect(liveShells(s), 'shell never resolved').toBe(0)
     expect(s.hp[target], 'a dodged shell still hit').toBe(hp0)
   })
@@ -115,8 +116,8 @@ describe('projectiles', () => {
     const nearRim = spawn(s, 'dummy', 1, 34, 22.6) // ~2.6 out, splash 3
     const clear = spawn(s, 'dummy', 1, 34, 30)
     const hp = [s.hp[bullseye], s.hp[nearRim], s.hp[clear]]
-    for (let t = 0; t < 40 && liveShells(s) === 0; t++) step(s, grid, [])
-    for (let t = 0; t < 40 && liveShells(s) > 0; t++) step(s, grid, [])
+    for (let t = 0; t < t10(40) && liveShells(s) === 0; t++) step(s, grid, [])
+    for (let t = 0; t < t10(40) && liveShells(s) > 0; t++) step(s, grid, [])
     const dmgCentre = hp[0] - s.hp[bullseye]
     const dmgRim = hp[1] - s.hp[nearRim]
     expect(dmgCentre, 'centre took nothing').toBeGreaterThan(0)
@@ -132,7 +133,7 @@ describe('projectiles', () => {
     const foe = spawn(s, 'dummy', 1, 34, 20)
     const friendHp = s.hp[friend]
     const engineHp = s.hp[engine]
-    for (let t = 0; t < 60 && s.hp[foe] === 400; t++) step(s, grid, [])
+    for (let t = 0; t < t10(60) && s.hp[foe] === 400; t++) step(s, grid, [])
     expect(s.hp[foe]).toBeLessThan(400)
     expect(s.hp[friend], 'friendly fire').toBe(friendHp)
     expect(s.hp[engine], 'the shooter shelled itself').toBe(engineHp)
@@ -143,7 +144,7 @@ describe('projectiles', () => {
     spawn(s, 'engine', 0, 20, 20)
     spawn(s, 'dummy', 1, 32, 20)
     let seen: { x: number; z: number; radius: number } | null = null
-    for (let t = 0; t < 60 && !seen; t++) {
+    for (let t = 0; t < t10(60) && !seen; t++) {
       step(s, grid, [])
       for (const ev of s.events) if (ev.t === 'impact') seen = ev
     }
@@ -157,7 +158,7 @@ describe('projectiles', () => {
       spawn(s, 'engine', 0, 20, 20)
       for (let k = 0; k < 5; k++) spawn(s, 'dummy', 1, 32 + k * 0.9, 19 + (k % 3))
       const out: number[] = []
-      for (let t = 0; t < 200; t++) {
+      for (let t = 0; t < t10(200); t++) {
         step(s, grid, [])
         out.push(stateHash(s))
       }
@@ -169,7 +170,7 @@ describe('projectiles', () => {
     const { s, grid } = world()
     spawn(s, 'engine', 0, 20, 20)
     spawn(s, 'dummy', 1, 32, 20)
-    for (let t = 0; t < 600; t++) step(s, grid, [])
+    for (let t = 0; t < t10(600); t++) step(s, grid, [])
     expect(s.projectiles.count).toBeLessThan(12)
   })
 
@@ -181,7 +182,7 @@ describe('projectiles', () => {
     step(s, grid, [])
     expect(liveShells(s)).toBe(1)
     s.hp[engine] = 0
-    for (let t = 0; t < 40 && liveShells(s) > 0; t++) step(s, grid, [])
+    for (let t = 0; t < t10(40) && liveShells(s) > 0; t++) step(s, grid, [])
     expect(s.alive[engine]).toBe(0)
     expect(s.hp[target], 'the shot died with the shooter').toBeLessThan(hp0)
   })
@@ -210,14 +211,14 @@ describe('shooters stop at range', () => {
     const archer = spawn(s, 'sniper', 0, 20, 20) // range 16, hitscan
     const foe = spawn(s, 'dummy', 1, 50, 20)
     step(s, grid, [{ kind: 'attackMove', player: 0, units: [handleOf(s, archer)], x: 50, z: 20 }])
-    for (let t = 0; t < 200 && s.target[archer] < 0; t++) step(s, grid, [])
+    for (let t = 0; t < t10(200) && s.target[archer] < 0; t++) step(s, grid, [])
     expect(s.target[archer], 'never engaged').toBeGreaterThanOrEqual(0)
     const gapAtEngage = Math.hypot(s.posX[foe] - s.posX[archer], s.posZ[foe] - s.posZ[archer])
     // it should have stopped out near its reach, not walked into contact
     const reach = s.def.stats.atkRange[s.type[archer]]
     expect(gapAtEngage).toBeGreaterThan(reach - 1)
     // and it must hold that ground while shooting
-    for (let t = 0; t < 60; t++) step(s, grid, [])
+    for (let t = 0; t < t10(60); t++) step(s, grid, [])
     if (s.alive[foe]) {
       const gapNow = Math.hypot(s.posX[foe] - s.posX[archer], s.posZ[foe] - s.posZ[archer])
       expect(Math.abs(gapNow - gapAtEngage), 'drifted while firing').toBeLessThan(1)
@@ -255,7 +256,7 @@ describe('scatter and direct hits', () => {
     // a target that cannot die, so the battery keeps firing
     const dummy = spawnUnit(s, s.def.entIndex.get('dummy')!, 1, 34, 20)
     const out: { x: number; z: number }[] = []
-    for (let t = 0; t < 900 && out.length < shots; t++) {
+    for (let t = 0; t < t10(900) && out.length < shots; t++) {
       s.hp[dummy] = 400 // top it up; we are measuring aim, not attrition
       step(s, grid, [])
       for (const ev of s.events) if (ev.t === 'impact') out.push({ x: ev.x, z: ev.z })
@@ -301,7 +302,7 @@ describe('scatter and direct hits', () => {
     const grid = walkGridFromDoc(FLAT)
     spawnUnit(s, s.def.entIndex.get('engine')!, 0, 20, 20)
     const victim = spawnUnit(s, s.def.entIndex.get('dummy')!, 1, 34, 20)
-    for (let t = 0; t < 100 && s.alive[victim]; t++) step(s, grid, [])
+    for (let t = 0; t < t10(100) && s.alive[victim]; t++) step(s, grid, [])
     expect(s.alive[victim], 'a bullseye should flatten it').toBe(0)
   })
 
@@ -316,7 +317,7 @@ describe('scatter and direct hits', () => {
     spawnUnit(s, s.def.entIndex.get('engine')!, 0, 20, 20)
     const victim = spawnUnit(s, s.def.entIndex.get('engine')!, 1, 34, 20)
     step(s, grid, [])
-    for (let t = 0; t < 30; t++) step(s, grid, [])
+    for (let t = 0; t < t10(30); t++) step(s, grid, [])
     // it takes splash damage, but is not simply deleted
     expect(s.alive[victim], 'flattened something of its own weight').toBe(1)
   })

@@ -8,6 +8,16 @@ export class WalkGrid {
   originZ: number
   walkable: Uint8Array
   heights: Float64Array
+  /**
+   * Bumped every time a cell's walkability actually changes — a building going
+   * up, a gate swinging, a tree coming down.
+   *
+   * What reads it is the component labelling, which is only valid for the
+   * terrain it was built from. Writing `walkable` directly leaves that
+   * labelling silently stale, and a stale labelling denies a route that exists
+   * — so go through `setWalkable` and let this move.
+   */
+  revision = 0
 
   constructor(
     cols: number,
@@ -29,6 +39,15 @@ export class WalkGrid {
 
   idx(cx: number, cy: number): number {
     return cy * this.cols + cx
+  }
+
+  /** Open or close one cell. No-ops (and does not bump `revision`) when the
+   *  cell already reads that way, so a gate held open costs nothing. */
+  setWalkable(cell: number, open: boolean): void {
+    const v = open ? 1 : 0
+    if (this.walkable[cell] === v) return
+    this.walkable[cell] = v
+    this.revision++
   }
 
   inBounds(cx: number, cy: number): boolean {

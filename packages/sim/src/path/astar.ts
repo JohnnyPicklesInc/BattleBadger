@@ -1,4 +1,5 @@
 import type { WalkGrid } from './walkgrid.ts'
+import { Components } from './components.ts'
 
 // Grid A*, 8-connected, integer costs 10/14, no diagonal corner cutting.
 // Tie-breaks: lower f, then lower h, then lower node index — fully stable.
@@ -61,6 +62,95 @@ function reserve(n: number): void {
  */
 const MAX_EXPANSIONS = 24000
 
+/**
+ * The same ceiling, for a goal the component labelling has already shown to be
+ * out of reach.
+ *
+ * Nearly half the searches that hit MAX_EXPANSIONS on Middle-earth are an army
+ * ordered at something behind a shut gate. There is no route, so the search can
+ * only end one way: expand the entire region the unit is standing in, twenty-
+ * four thousand cells of it, and fall back to the closest cell it saw. That one
+ * case was measured at a third of the whole simulation tick.
+ *
+ * Knowing up front that it is hopeless does not change what the unit should DO
+ * — it still marches at the gate, which is what makes it start breaking the
+ * thing down. It changes how long we are willing to look. A* orders its queue
+ * by distance-to-goal, so it walks at the goal first and has found the closest
+ * cell it will ever find long before it has finished touring the rest of the
+ * map; the remaining expansions buy nothing.
+ *
+ * 4,000 is measured the only way this number CAN be measured honestly. Sweeping
+ * it in a live match tells you nothing — change how long a search looks and you
+ * change which units get stuck, so every arm drifts into a different battle and
+ * the totals compare battles rather than budgets. Instead: capture every query
+ * 600 ticks of a real Middle-earth match makes (7,077 of them) and replay that
+ * one fixed workload against each candidate.
+ *
+ *      budget    A* time     queries that pick a different spot to walk to
+ *      24,000    baseline    —
+ *       8,000    -30%        1.7%
+ *       4,000    -36%        2.0%
+ *       2,000    -41%        2.8%
+ *         500    -43%        3.5%
+ *
+ * The saving flattens out because what is left is the REACHABLE searches, which
+ * still get the full budget and should. So the choice is really about fidelity,
+ * and 4,000 buys most of the speed while 98% of searches still walk to exactly
+ * the spot they walk to today.
+ */
+const UNREACHABLE_EXPANSIONS = 4000
+
+/** Cached reachability labelling; rebuilt only when the terrain changes. */
+const components = new Components()
+
+/**
+ * Memo of recent searches, keyed on the exact pair of cells.
+ *
+ * A stuck unit re-plans the same journey every twelve ticks, and on the big map
+ * those journeys are long enough to hit the expansion ceiling — so the same
+ * hopeless-length search gets run, at full price, over and over. Measured on
+ * Middle-earth: of the 865 searches that burned the whole budget on a REACHABLE
+ * goal in 600 ticks, 228 were an exact repeat of a pair already asked for.
+ *
+ * This is a memo, not a heuristic: a hit returns precisely what the search would
+ * have returned, so it cannot change a single unit's route. Cleared outright
+ * whenever the terrain moves, because a gate swinging open is exactly the case
+ * where yesterday's answer is wrong.
+ *
+ * The returned array is shared, never copied. Every caller treats it as read
+ * only — `stringPull` walks it and builds its own output — and a caller that
+ * ever wanted to mutate one would have to copy it first.
+ */
+const MEMO_MAX = 512
+const memo = new Map<number, number[] | null>()
+let memoAt = -1
+let memoFor: WalkGrid | null = null
+
+/**
+ * Keep a result only if finding it actually cost something. A short hop is
+ * cheaper to redo than to remember, and letting thousands of them through would
+ * evict the cross-map marches that are the entire point of the cache.
+ */
+const MEMO_WORTH_IT = 1000
+
+function remember(key: number, path: number[] | null, expanded: number): void {
+  if (key < 0 || expanded < MEMO_WORTH_IT) return
+  // Oldest out first — Map iterates in insertion order, so the front key is the
+  // least recently ADDED. Good enough: what matters is bounding the thing.
+  if (memo.size >= MEMO_MAX) {
+    const oldest = memo.keys().next()
+    if (!oldest.done) memo.delete(oldest.value)
+  }
+  memo.set(key, path)
+}
+
+function memoReset(grid: WalkGrid): void {
+  if (memoFor === grid && memoAt === grid.revision) return
+  memo.clear()
+  memoAt = grid.revision
+  memoFor = grid
+}
+
 const DX = [1, -1, 0, 0, 1, 1, -1, -1]
 const DY = [0, 0, 1, -1, 1, -1, 1, -1]
 const COST = [10, 10, 10, 10, 14, 14, 14, 14]
@@ -92,6 +182,21 @@ export function findPath(
   const goal = ty * cols + tx
   if (!grid.isWalkable(sx, sy) || !grid.isWalkable(tx, ty)) return null
   if (start === goal) return [start]
+  // Ask the cheap question first. Two integers decide whether this search can
+  // possibly succeed, and a hopeless one gets a much shorter leash.
+  const reachable = components.connected(grid, start, goal)
+  // A caller that wants reachability rather than movement has its answer.
+  if (!reachable && exact) return null
+  const budget = reachable ? MAX_EXPANSIONS : UNREACHABLE_EXPANSIONS
+
+  // `exact` changes what a failed search returns, so it never shares a memo
+  // slot with a movement query. It is the map editor's one-off, not a hot path.
+  memoReset(grid)
+  const key = exact ? -1 : start * n + goal
+  if (!exact) {
+    const hit = memo.get(key)
+    if (hit !== undefined) return hit
+  }
 
   reserve(n)
   // A new generation invalidates every stamp at once. `seen` starts zeroed, so
@@ -166,7 +271,7 @@ export function findPath(
 
   let expanded = 0
   while (heapSize > 0) {
-    if (++expanded > MAX_EXPANSIONS) break
+    if (++expanded > budget) break
     const cur = pop()
     if (isClosed(cur)) continue
     closedAt[cur] = gen
@@ -178,6 +283,7 @@ export function findPath(
       const out: number[] = []
       for (let c = goal; c !== -1; c = parent[c]) out.push(c)
       out.reverse()
+      remember(key, out, expanded)
       return out
     }
     const cx = cur % cols
@@ -202,10 +308,14 @@ export function findPath(
     }
   }
   // Unreachable. Walk out to whatever we got closest to.
-  if (exact || nearest === start) return null
+  if (exact || nearest === start) {
+    if (!exact) remember(key, null, expanded)
+    return null
+  }
   const out: number[] = []
   for (let c = nearest; c !== -1; c = parent[c]) out.push(c)
   out.reverse()
+  remember(key, out, expanded)
   return out
 }
 

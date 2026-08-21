@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import {
   MAX_UNITS,
@@ -116,7 +117,7 @@ describe('ability casts', () => {
         ability: ab(s, 'nuke'), target: handleOf(s, victim) },
     ])
     expect(s.hp[victim]).toBe(hp0) // too far on the first tick
-    for (let t = 0; t < 120 && s.hp[victim] === hp0; t++) step(s, grid, [])
+    for (let t = 0; t < t10(120) && s.hp[victim] === hp0; t++) step(s, grid, [])
     expect(s.hp[victim]).toBe(hp0 - 70)
   })
 
@@ -188,7 +189,7 @@ describe('ability casts', () => {
       const caster = spawn(s, 'caster', 0, 20, 20)
       for (let k = 0; k < 6; k++) spawn(s, 'dummy', 1, 23 + k * 0.8, 19 + (k % 3))
       const hashes: number[] = []
-      for (let t = 0; t < 40; t++) {
+      for (let t = 0; t < t10(40); t++) {
         const cmds =
           t === 2
             ? [{ kind: 'ability' as const, player: 0, units: [handleOf(s, caster)], x: 25, z: 20, ability: ab(s, 'storm') }]
@@ -217,7 +218,7 @@ describe('ability casts', () => {
     step(s, grid, [])
     expect(s.alive[caster]).toBe(0)
     expect(s.castAb[caster]).toBe(-1)
-    for (let t = 0; t < 40; t++) step(s, grid, [])
+    for (let t = 0; t < t10(40); t++) step(s, grid, [])
     expect(s.hp[victim]).toBe(hp0)
   })
 
@@ -269,7 +270,7 @@ describe('blocking resource nodes are reachable', () => {
       kind: 'harvest', player: 0, units: [handleOf(s, peon)],
       x: s.doodads.x[mine], z: s.doodads.z[mine], target: -1 - mine,
     }])
-    for (let t = 0; t < 400; t++) step(s, grid, [])
+    for (let t = 0; t < t10(400); t++) step(s, grid, [])
     expect(s.resources[0 * n + goldIdx], 'harvester never delivered from the mine').toBeGreaterThan(before)
   })
 })

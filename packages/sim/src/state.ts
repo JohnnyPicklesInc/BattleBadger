@@ -4,6 +4,13 @@ import type { TriggerRuntime } from './systems/triggers.ts'
 
 export const TICK_MS = 100
 export const TICK_S = 0.1
+/**
+ * How many ticks now stand for one tick as CONTENT WAS AUTHORED — against a
+ * 10 Hz clock. Every duration written as a tick count has to go through this,
+ * including the literal fallbacks used when a def omits one, or raising the
+ * tick rate quietly makes that content three times faster.
+ */
+export const TICK_SCALE = Math.max(1, Math.floor(100 / TICK_MS + 0.5))
 // BFME-scale: a 4v4 fields thousands of soldiers, since a single battalion is
 // already nine entities. Handles pack id | gen<<16, so this must stay < 2^16.
 // Raised for army maps whose armies are GIVEN rather than bought (The War of
@@ -522,6 +529,12 @@ export function spawnUnit(s: SimState, typeIdx: number, owner: number, x: number
   s.followTarget[id] = -1
   s.homeX[id] = x
   s.homeZ[id] = z
+  // Where it stands IS where it was sent, until something says otherwise.
+  // These slots are recycled with the id, and anything that reads a
+  // destination for a unit that has never been given one — the regroup in
+  // updateStuck, for instance — would otherwise read the last occupant's.
+  s.destX[id] = x
+  s.destZ[id] = z
   s.cooldown[id] = 0
   s.chargeCd[id] = 0
   s.stun[id] = 0

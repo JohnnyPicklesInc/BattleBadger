@@ -233,7 +233,18 @@ export function harvest(s: SimState, grid: WalkGrid): void {
       const dx = s.posX[drop] - s.posX[i]
       const dz = s.posZ[drop] - s.posZ[i]
       const dist = Math.sqrt(dx * dx + dz * dz)
-      const reach = s.def.stats.radius[s.type[drop]] + s.def.stats.radius[s.type[i]] + 0.6
+      // A depot is a BUILDING, so its footprint is cell-quantised exactly the
+      // way a blocking node's is and the nearest standable ground sits up to a
+      // cell diagonal beyond its geometric edge. `nodeReach` already allows for
+      // this on the way IN; without the same slack on the way OUT a carrier
+      // walks to the end of its path, finds itself a fraction short of the
+      // drop, goes idle, re-plans to the same spot and does that forever.
+      //
+      // It only became visible at a finer tick rate: with 100 ms steps the last
+      // stride overshot into range by luck, and with 33 ms ones it stops on the
+      // spot it aimed at — which is the spot that was always too far away.
+      const blocked = s.entityBlocked[drop].length > 0 ? 1 : 0
+      const reach = s.def.stats.radius[s.type[drop]] + s.def.stats.radius[s.type[i]] + 0.6 + blocked
       if (dist <= reach) {
         const numRes = s.def.resources.length
         s.resources[s.owner[i] * numRes + s.carryRes[i]] += s.carryAmt[i]

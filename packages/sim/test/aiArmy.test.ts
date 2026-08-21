@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import { generateMiddleEarth, MIDDLE_EARTH_CAMPS } from '../src/mapgen/middleEarth.ts'
 import { walkGridFromDoc } from '../src/path/walkgrid.ts'
@@ -42,7 +43,7 @@ describe('the AI army job', () => {
     spawnUnit(s, s.def.entIndex.get('elf-archer')!, 4, 290, 150)
 
     let cmds: PlayerCommand[] = []
-    for (let t = 0; t < 24 && ordersFor(cmds, 1).length === 0; t++) {
+    for (let t = 0; t < t10(24) && ordersFor(cmds, 1).length === 0; t++) {
       cmds = aiCommands(s, grid)
       if (ordersFor(cmds, 1).length === 0) step(s, grid, [])
     }
@@ -74,7 +75,7 @@ describe('the AI army job', () => {
     spawnUnit(s, s.def.entIndex.get('swordsman')!, 0, 300, 285)
 
     let cmds: PlayerCommand[] = []
-    for (let t = 0; t < 24; t++) {
+    for (let t = 0; t < t10(24); t++) {
       cmds = aiCommands(s, grid)
       if (ordersFor(cmds, 1).length > 0) break
       step(s, grid, [])
@@ -109,7 +110,7 @@ describe('the AI army job', () => {
     for (let k = 0; k < 6; k++) spawnUnit(s, s.def.entIndex.get('orc')!, 1, camp.x + 8 + k, camp.z + 6)
 
     let cmds: PlayerCommand[] = []
-    for (let t = 0; t < 24; t++) {
+    for (let t = 0; t < t10(24); t++) {
       cmds = aiCommands(s, grid)
       if (ordersFor(cmds, 0).length > 0) break
       step(s, grid, [])
@@ -163,7 +164,7 @@ describe('the AI army job', () => {
     // wall are archers not marching with the army. Scoped to these men and to
     // their owner — seven other AIs are fighting their own wars on the same
     // board and may quite correctly be manning theirs.
-    for (let t = 0; t < 24; t++) {
+    for (let t = 0; t < t10(24); t++) {
       expect(mannedByGondor(aiCommands(s, grid)), 'manned the walls with nobody attacking').toHaveLength(0)
       step(s, grid, [])
       park()
@@ -173,7 +174,7 @@ describe('the AI army job', () => {
     for (let k = 0; k < 10; k++) spawnUnit(s, s.def.entIndex.get('orc')!, 1, wall.x + 30 + k, wall.z + 20)
     let cmds: PlayerCommand[] = []
     let g: PlayerCommand[] = []
-    for (let t = 0; t < 30 && g.length === 0; t++) {
+    for (let t = 0; t < t10(30) && g.length === 0; t++) {
       cmds = aiCommands(s, grid)
       g = mannedByGondor(cmds)
       if (g.length === 0) {
@@ -210,7 +211,7 @@ describe('the AI army job', () => {
       spawnUnit(a.s, a.s.def.entIndex.get('orc')!, 1, 340 + (k % 9), 260 + Math.floor(k / 9))
       spawnUnit(b.s, b.s.def.entIndex.get('orc')!, 1, 340 + (k % 9), 260 + Math.floor(k / 9))
     }
-    for (let t = 0; t < 30; t++) {
+    for (let t = 0; t < t10(30); t++) {
       const ca = aiCommands(a.s, a.grid)
       const cb = aiCommands(b.s, b.grid)
       expect(JSON.stringify(cb), `tick ${t} diverged`).toBe(JSON.stringify(ca))

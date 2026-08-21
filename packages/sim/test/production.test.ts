@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import {
   setupMatch,
@@ -123,7 +124,7 @@ describe('construction / production / tech / supply / power', () => {
     expect(depot).toBeGreaterThanOrEqual(0)
     expect(s.buildTicks[depot]).toBeGreaterThan(0)
     // walk + build
-    for (let t = 0; t < 300 && s.buildTicks[depot] > 0; t++) step(s, grid, [])
+    for (let t = 0; t < t10(300) && s.buildTicks[depot] > 0; t++) step(s, grid, [])
     expect(s.buildTicks[depot]).toBe(0)
     expect(s.supplyCap[0]).toBe(18)
     // footprint blocked while alive
@@ -168,11 +169,11 @@ describe('construction / production / tech / supply / power', () => {
     ])
     expect(minerals(s)).toBe(m0 - 100)
     expect(s.queue[rax].length).toBe(2)
-    for (let t = 0; t < 60; t++) step(s, grid, [])
+    for (let t = 0; t < t10(60); t++) step(s, grid, [])
     const marine = findByType(s, D(s, 'marine'))
     expect(marine).toBeGreaterThanOrEqual(0)
     // marine walks toward the rally
-    for (let t = 0; t < 100; t++) step(s, grid, [])
+    for (let t = 0; t < t10(100); t++) step(s, grid, [])
     const dx = s.posX[marine] - 30
     const dz = s.posZ[marine] - 30
     expect(Math.sqrt(dx * dx + dz * dz)).toBeLessThan(4)
@@ -192,12 +193,12 @@ describe('construction / production / tech / supply / power', () => {
     step(s, grid, [{ kind: 'build', player: 0, units: [wH], def: D(s, 'refinery'), x: 10, z: 18 }])
     const refinery = findByType(s, D(s, 'refinery'))
     expect(refinery).toBeGreaterThanOrEqual(0)
-    for (let t = 0; t < 300 && s.buildTicks[refinery] > 0; t++) step(s, grid, [])
+    for (let t = 0; t < t10(300) && s.buildTicks[refinery] > 0; t++) step(s, grid, [])
     expect(s.buildTicks[refinery]).toBe(0)
     // now the harvest command sticks and gas flows
     step(s, grid, [{ kind: 'harvest', player: 0, units: [wH], x: 0, z: 0, target: -1 - 1 }])
     expect(s.harvState[w]).toBeGreaterThan(0)
-    for (let t = 0; t < 400; t++) step(s, grid, [])
+    for (let t = 0; t < t10(400); t++) step(s, grid, [])
     expect(s.resources[1]).toBeGreaterThan(0)
   })
 
@@ -230,9 +231,9 @@ describe('construction / production / tech / supply / power', () => {
     step(s, grid, [{ kind: 'train', player: 0, units: [handleOf(s, hqIdx)], x: 0, z: 0, def: D(s, 'worker') }])
     // worker buildTime defaults to 10 ticks; with deficit it advances every
     // other tick → after 12 ticks progress should be ~6, not done
-    for (let t = 0; t < 12; t++) step(s, grid, [])
+    for (let t = 0; t < t10(12); t++) step(s, grid, [])
     expect(s.queue[hqIdx].length).toBe(1) // still training
-    for (let t = 0; t < 12; t++) step(s, grid, [])
+    for (let t = 0; t < t10(12); t++) step(s, grid, [])
     expect(s.queue[hqIdx].length).toBe(0) // done by ~20-24 ticks
   })
 
@@ -248,7 +249,7 @@ describe('construction / production / tech / supply / power', () => {
         { kind: 'build', player: 0, units: [handleOf(s, w)], def: D(s, 'depot'), x: 16, z: 16 },
         { kind: 'train', player: 0, units: [handleOf(s, hq)], x: 0, z: 0, def: D(s, 'worker') },
       ])
-      for (let t = 0; t < 800; t++) step(s, grid, [])
+      for (let t = 0; t < t10(800); t++) step(s, grid, [])
       return stateHash(s)
     }
     expect(play()).toBe(play())
@@ -265,7 +266,7 @@ describe('building kinds', () => {
     expect(s.kind[hq]).toBe(Kind.Building)
     const x0 = s.posX[hq]
     const hp0 = s.hp[hq]
-    for (let t = 0; t < 100; t++) step(s, grid, [])
+    for (let t = 0; t < t10(100); t++) step(s, grid, [])
     expect(s.posX[hq]).toBe(x0)
     expect(s.hp[hq]).toBeLessThan(hp0) // enemy marine auto-acquired the HQ (or workers)
   })

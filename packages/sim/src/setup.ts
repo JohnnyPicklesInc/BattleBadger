@@ -35,7 +35,7 @@ export function blockCells(grid: WalkGrid, x: number, z: number, radius: number)
       }
       const idx = grid.idx(cx, cy)
       if (grid.walkable[idx] === 1) {
-        grid.walkable[idx] = 0
+        grid.setWalkable(idx, false)
         blocked.push(idx)
       }
     }
@@ -48,7 +48,7 @@ export function killDoodad(s: SimState, grid: WalkGrid, idx: number): void {
   const d = s.doodads
   if (d.alive[idx] !== 1) return
   d.alive[idx] = 0
-  for (const cell of d.blockedCells[idx]) grid.walkable[cell] = 1
+  for (const cell of d.blockedCells[idx]) grid.setWalkable(cell, true)
   d.blockedCells[idx] = []
   s.events.push({ t: 'doodadDied', idx, type: d.defIdx[idx], x: d.x[idx], z: d.z[idx] })
 }

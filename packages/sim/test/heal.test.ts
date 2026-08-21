@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import {
   SKIRMISH_DEF,
@@ -34,7 +35,7 @@ describe('heal (as generic ability)', () => {
     const s = createSim(1, def)
     const priest = spawnUnit(s, PRIEST, 0, 10, 10)
     const hurt = hurtGrunt(s, 0, 16, 10, 20)
-    for (let t = 0; t < 120 && s.hp[hurt] < GRUNT_HP; t++) step(s, grid, [])
+    for (let t = 0; t < t10(120) && s.hp[hurt] < GRUNT_HP; t++) step(s, grid, [])
     expect(s.hp[hurt]).toBe(GRUNT_HP)
     step(s, grid, [])
     expect(s.target[priest]).toBe(-1)
@@ -45,7 +46,7 @@ describe('heal (as generic ability)', () => {
     const s = createSim(2, def)
     const priest = spawnUnit(s, PRIEST, 0, 10, 10)
     const enemy = hurtGrunt(s, 1, 13, 10, 20)
-    for (let t = 0; t < 40; t++) step(s, grid, [])
+    for (let t = 0; t < t10(40); t++) step(s, grid, [])
     expect(s.target[priest]).toBe(-1)
     expect(s.hp[enemy]).toBe(20)
   })
@@ -69,7 +70,7 @@ describe('heal (as generic ability)', () => {
     step(s, grid, [cmd])
     expect(s.target[priest]).toBe(hurtFar)
     expect(s.target[grunt]).toBe(-1)
-    for (let t = 0; t < 150 && s.hp[hurtFar] < GRUNT_HP; t++) step(s, grid, [])
+    for (let t = 0; t < t10(150) && s.hp[hurtFar] < GRUNT_HP; t++) step(s, grid, [])
     expect(s.hp[hurtFar]).toBe(GRUNT_HP)
   })
 
@@ -92,7 +93,7 @@ describe('heal (as generic ability)', () => {
     const s = createSim(5, def)
     spawnUnit(s, PRIEST, 0, 10, 10)
     const hurt = hurtGrunt(s, 0, 11, 10, GRUNT_HP - 1)
-    for (let t = 0; t < 60; t++) {
+    for (let t = 0; t < t10(60); t++) {
       step(s, grid, [])
       expect(s.hp[hurt]).toBeLessThanOrEqual(GRUNT_HP)
     }

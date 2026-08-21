@@ -317,17 +317,25 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     }
     playersEl.innerHTML = html
 
-    // The map shot: start locations light up as their slots fill, so the lobby
-    // answers "who is sitting across from me" at a glance.
+    drawShot()
+  }
+
+  // The map shot: start locations light up as their slots fill, so the lobby
+  // answers "who is sitting across from me" at a glance.
+  //
+  // Separate from renderPlayers because the shot has to be redrawn for reasons
+  // that have nothing to do with the seating — see the observer below.
+  const drawShot = (): void => {
+    const doc = shownDoc()
     if (doc) {
       previewEmpty.style.display = 'none'
       preview.style.display = 'block'
       drawMapPreview(preview, doc, {
         players: inRoom ? lastPlayers : [playerName()],
         mySlot: inRoom ? mySlot : 0,
-        starts: order,
+        starts: resolveStartOrder(seats, metaOf(doc).slots),
       })
-      caption.textContent = meta.label
+      caption.textContent = metaOf(doc).label
     } else {
       preview.style.display = 'none'
       previewEmpty.style.display = 'flex'
@@ -409,6 +417,32 @@ export function showLobby(onStart: (m: MatchStart) => void): void {
     else want.team = Number(el.value)
     pick(slot, want)
   })
+
+  // The shot is drawn at whatever size the column gives it, and that size moves
+  // — a phone turned on its side, a window dragged narrower, the layout folding
+  // to one column. Nothing redrew it, so the browser was left stretching the old
+  // bitmap over the new box: a squashed map, and start markers no longer over
+  // the ground they name. ResizeObserver catches every one of those, including
+  // the ones no `resize` event fires for.
+  if (typeof ResizeObserver !== 'undefined') {
+    let last = 0
+    let queued = false
+    new ResizeObserver(() => {
+      const w = preview.clientWidth
+      if (w === 0 || w === last || queued) return // hidden, unchanged, or already due
+      last = w
+      queued = true
+      // Not drawn from inside the callback: redrawing resizes the canvas, the
+      // observer sees that as another resize, and the browser reports the
+      // whole thing as "ResizeObserver loop completed with undelivered
+      // notifications" — which this app surfaces to the player as an error
+      // banner. A frame later is outside the delivery, and soon enough.
+      requestAnimationFrame(() => {
+        queued = false
+        drawShot()
+      })
+    }).observe(preview)
+  }
 
   // Click a base on the map shot to start there — the dropdown spelled out.
   // It always moves YOU: the host arranging the room still speaks for their own

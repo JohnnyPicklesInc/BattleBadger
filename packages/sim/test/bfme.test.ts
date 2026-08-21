@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import { generateDunhollow } from '../src/mapgen/dunhollow.ts'
 import { KEEP_SLOTS, KEEP_TOWER_SLOTS } from '../src/mapgen/factions/shared.ts'
@@ -69,7 +70,7 @@ function base(id: string, extra: Partial<GameDef>): GameDef {
 const run = (doc: RtsMapDoc, ticks: number): SimState => {
   const grid = walkGridFromDoc(doc)
   const sim = setupMatch(doc, grid)
-  for (let t = 0; t < ticks; t++) step(sim, grid, [])
+  for (let t = 0; t < t10(ticks); t++) step(sim, grid, [])
   return sim
 }
 
@@ -104,7 +105,7 @@ describe('passive building income', () => {
     const grid = walkGridFromDoc(doc)
     const sim = setupMatch(doc, grid)
     spawnBuilding(sim, grid, sim.def.entIndex.get('farm')!, 0, 10, 10, true)
-    for (let t = 0; t < 101; t++) step(sim, grid, [])
+    for (let t = 0; t < t10(101); t++) step(sim, grid, [])
     expect(resOf(sim, 0)).toBe(0)
   })
 
@@ -275,7 +276,7 @@ describe('build plots and fortress expansion', () => {
     step(sim, grid, [buildCmd(sim, 'farm', 38, 30)])
     const farm = sim.count - 1
     expect(sim.buildTicks[farm]).toBeGreaterThan(0)
-    for (let t = 0; t < 10; t++) step(sim, grid, [])
+    for (let t = 0; t < t10(10); t++) step(sim, grid, [])
     expect(sim.buildTicks[farm]).toBe(0)
   })
 
@@ -520,7 +521,7 @@ describe('hordes, formations and veterancy', () => {
     step(sim, grid, [
       { kind: 'train', player: 0, units: [handleOf(sim, 0)], x: 0, z: 0, def: sim.def.entIndex.get('swordsmen')! },
     ])
-    for (let t = 0; t < 4; t++) step(sim, grid, [])
+    for (let t = 0; t < t10(4); t++) step(sim, grid, [])
     return { sim, grid }
   }
 
@@ -558,7 +559,7 @@ describe('hordes, formations and veterancy', () => {
   it('marches there and arrives as a formation', () => {
     const { sim, grid } = trained()
     step(sim, grid, [{ kind: 'move', player: 0, units: [handleOf(sim, memberIds(sim)[0])], x: 45, z: 30 }])
-    for (let t = 0; t < 200; t++) step(sim, grid, [])
+    for (let t = 0; t < t10(200); t++) step(sim, grid, [])
     for (const m of memberIds(sim)) {
       const dx = sim.posX[m] - 45
       const dz = sim.posZ[m] - 30
@@ -608,11 +609,11 @@ describe('hordes, formations and veterancy', () => {
     step(sim, grid, [
       { kind: 'train', player: 0, units: [handleOf(sim, 0)], x: 0, z: 0, def: sim.def.entIndex.get('swordsmen')! },
     ])
-    for (let t = 0; t < 4; t++) step(sim, grid, [])
+    for (let t = 0; t < t10(4); t++) step(sim, grid, [])
     // one enemy soldier walks into the battalion and dies
     const victim = spawnUnit(sim, sim.def.entIndex.get('soldier')!, 1, 21, 31)
     sim.hp[victim] = 5
-    for (let t = 0; t < 30 && sim.alive[victim]; t++) step(sim, grid, [])
+    for (let t = 0; t < t10(30) && sim.alive[victim]; t++) step(sim, grid, [])
     expect(sim.alive[victim]).toBe(0)
     expect(sim.hordes.xp[0]).toBe(10) // one kill, xpValue 10
   })
@@ -639,7 +640,7 @@ describe('Siege of Dunhollow (the whole BFME loop as data)', () => {
     const doc = generateDunhollow(20260727)
     const grid = walkGridFromDoc(doc)
     const sim = setupMatch(doc, grid)
-    for (let t = 0; t < ticks; t++) step(sim, grid, cmds.get(t) ?? [])
+    for (let t = 0; t < t10(ticks); t++) step(sim, grid, cmds.get(t) ?? [])
     return { sim, grid, doc }
   }
 
@@ -808,7 +809,7 @@ describe('Siege of Dunhollow (the whole BFME loop as data)', () => {
     const before = sim.resources[0]
     step(sim, grid, [{ kind: 'build', player: 0, units: [], x: sim.posX[plot], z: sim.posZ[plot], def: farm }])
     expect(sim.resources[0]).toBe(before - 300)
-    for (let t = 0; t < 300; t++) step(sim, grid, [])
+    for (let t = 0; t < t10(300); t++) step(sim, grid, [])
     // 100 ticks of construction, then ~10 payouts of 8
     expect(sim.resources[0]).toBeGreaterThan(before - 300)
     expect(findType(sim, 'farm', 0)).toBeGreaterThan(0)
@@ -823,7 +824,7 @@ describe('Siege of Dunhollow (the whole BFME loop as data)', () => {
     step(sim, grid, [
       { kind: 'build', player: 0, units: [], x: sim.posX[plot], z: sim.posZ[plot], def: sim.def.entIndex.get('barracks')! },
     ])
-    for (let t = 0; t < 160; t++) step(sim, grid, [])
+    for (let t = 0; t < t10(160); t++) step(sim, grid, [])
     const barracks = findType(sim, 'barracks', 0)
     expect(barracks).toBeGreaterThan(0)
     // measure the DELTA: the map now opens with a standing army, so the
@@ -840,7 +841,7 @@ describe('Siege of Dunhollow (the whole BFME loop as data)', () => {
         def: sim.def.entIndex.get('h-swordsmen')!,
       },
     ])
-    for (let t = 0; t < 100; t++) step(sim, grid, [])
+    for (let t = 0; t < t10(100); t++) step(sim, grid, [])
     const withMembers = sim.hordes.members.filter((m) => m.length > 0)
     expect(withMembers.length, 'no new battalion').toBe(hordesBefore + 1)
     const horde = sim.hordes.members.findIndex((m) => m.length === 9 && m.every((id) => sim.alive[id]))
@@ -927,7 +928,7 @@ describe('Siege of Dunhollow (the whole BFME loop as data)', () => {
       const ids = sim.hordes.members[horde].slice()
       const b = doc.startLocations[1]
       step(sim, grid, [{ kind: 'move', player: 0, units: [handleOf(sim, ids[0])], x: b.x, z: b.z - 12 }])
-      for (let t = 0; t < 1500; t++) step(sim, grid, [])
+      for (let t = 0; t < t10(1500); t++) step(sim, grid, [])
       for (const id of ids) {
         const dx = sim.posX[id] - b.x
         const dz = sim.posZ[id] - (b.z - 12)
@@ -951,7 +952,7 @@ describe('Siege of Dunhollow (the whole BFME loop as data)', () => {
     const runOne = (): number => {
       const g = walkGridFromDoc(doc)
       const s = setupMatch(doc, g)
-      for (let t = 0; t < 600; t++) step(s, g, cmds.get(t) ?? [])
+      for (let t = 0; t < t10(600); t++) step(s, g, cmds.get(t) ?? [])
       return stateHash(s)
     }
     expect(runOne()).toBe(runOne())

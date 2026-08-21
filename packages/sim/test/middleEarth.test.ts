@@ -1,3 +1,4 @@
+import { secs, t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import {
   ANDUIN,
@@ -307,7 +308,7 @@ describe('The War of the Ring — the muster loop', () => {
   it('a camp musters a BATTALION on its clock, not a loose soldier', () => {
     const { grid, s } = simOf(2)
     const before = s.hordes.count
-    const wave = 60 * 10 // longest realm period is 48+7 s; 60 s clears it
+    const wave = secs(60) // longest realm period is 48+7 s; 60 s clears it
     for (let t = 0; t < wave; t++) step(s, grid, [])
     expect(s.hordes.count, 'no battalion mustered').toBeGreaterThan(before)
     // Everything that arrived is bound to a horde — that is the whole point of
@@ -320,7 +321,7 @@ describe('The War of the Ring — the muster loop', () => {
 
   it("waves are not ordered anywhere — they are the player's to command", () => {
     const { grid, s } = simOf(2)
-    for (let t = 0; t < 900; t++) step(s, grid, [])
+    for (let t = 0; t < t10(900); t++) step(s, grid, [])
     // The distinction that matters: nothing was given a destination. Units
     // jostle each other apart, which is fine; a marching creep wave is not.
     for (let i = 0; i < s.count; i++) {
@@ -344,9 +345,9 @@ describe('The War of the Ring — the muster loop', () => {
       for (let i = 0; i < s.count; i++) if (s.alive[i] && s.owner[i] === slot) n++
       return n
     }
-    for (let t = 0; t < 3000; t++) step(s, grid, [])
+    for (let t = 0; t < t10(3000); t++) step(s, grid, [])
     const atFiveMin = [owned(0), owned(1)]
-    for (let t = 0; t < 3000; t++) step(s, grid, [])
+    for (let t = 0; t < t10(3000); t++) step(s, grid, [])
 
     for (const slot of [0, 1]) {
       // Production stopped: a realm over its cap musters nothing more.
@@ -897,7 +898,7 @@ describe('The War of the Ring — the economy', () => {
     const start = res(0)
     expect(start, 'a power should open with a purse').toBeGreaterThan(0)
     // One full wave cycle at the first age.
-    for (let t = 0; t < 60 * 10; t++) step(s, grid, [])
+    for (let t = 0; t < t10(60) * 10; t++) step(s, grid, [])
     const afterAgeOne = res(0)
     expect(afterAgeOne, 'the muster paid nothing').toBeGreaterThan(start)
     const ageOneRate = (afterAgeOne - start) / 600
@@ -906,9 +907,9 @@ describe('The War of the Ring — the economy', () => {
     // pay several times over — the income curve IS the age curve. This holds
     // even though the realm is long since at its army cap and mustering
     // nothing, which is the whole point of splitting income off the waves.
-    for (let t = 0; t < 11500; t++) step(s, grid, [])
+    for (let t = 0; t < t10(11500); t++) step(s, grid, [])
     const beforeLate = res(0)
-    for (let t = 0; t < 600; t++) step(s, grid, [])
+    for (let t = 0; t < t10(600); t++) step(s, grid, [])
     const lateRate = (res(0) - beforeLate) / 600
     expect(lateRate, 'income did not rise with the ages').toBeGreaterThan(ageOneRate)
   }, 120000)
@@ -1056,7 +1057,7 @@ describe('The War of the Ring — the claimable holds', () => {
     }
     const beforeHolder = count(0, 'wose')
     const beforeOther = count(1, 'wose')
-    for (let t = 0; t < 800; t++) step(s, grid, [])
+    for (let t = 0; t < t10(800); t++) step(s, grid, [])
     expect(s.alive[built], 'the hold did not survive to muster').toBe(1)
     expect(count(0, 'wose'), 'the holder mustered nothing').toBeGreaterThan(beforeHolder)
     expect(count(1, 'wose'), 'somebody who does not hold it got the militia').toBe(beforeOther)
@@ -1106,7 +1107,7 @@ describe('The War of the Ring — victory', () => {
     const sparedAtDeath = firedFor(spared)
 
     // Three wave cycles with the camp down.
-    for (let t = 0; t < 60 * 10 * 3; t++) step(s, grid, [])
+    for (let t = 0; t < t10(60) * 10 * 3; t++) step(s, grid, [])
     expect(firedFor(razed), `${razed} is still mustering`).toBe(razedAtDeath)
     expect(firedFor(spared), `${spared} stopped mustering`).toBeGreaterThan(sparedAtDeath)
 
@@ -1122,7 +1123,7 @@ describe('The War of the Ring — victory', () => {
     expect(p, 'the razed camp left no ground behind').toBeGreaterThanOrEqual(0)
     spawnBuilding(s, grid, s.def.entIndex.get(razed)!, 0, s.posX[p], s.posZ[p], false)
     const rebuiltAt = firedFor(razed)
-    for (let t = 0; t < 60 * 10 * 2; t++) step(s, grid, [])
+    for (let t = 0; t < t10(60) * 10 * 2; t++) step(s, grid, [])
     expect(firedFor(razed), `${razed} was rebuilt but never mustered again`).toBeGreaterThan(rebuiltAt)
   }, 60000)
 })
@@ -1131,7 +1132,7 @@ describe('determinism', () => {
   it('two sims of the same map agree after 600 ticks', () => {
     const a = simOf(8)
     const b = simOf(8)
-    for (let t = 0; t < 600; t++) {
+    for (let t = 0; t < t10(600); t++) {
       step(a.s, a.grid, [])
       step(b.s, b.grid, [])
     }
