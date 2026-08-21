@@ -1,3 +1,4 @@
+import { t10 } from './_rate.ts'
 import { describe, expect, it } from 'vitest'
 import { generateSquadSupport } from '../src/mapgen/squadSupport.ts'
 import { walkGridFromDoc } from '../src/path/walkgrid.ts'
@@ -9,7 +10,9 @@ import { validateGameDef } from '../src/defs/schema.ts'
 // The map is mostly triggers, and a trigger that never fires fails silently —
 // the match simply stays empty and nobody can tell why. So these play it.
 
-const TPS = 10 // ticks per second, for turning the wave table into tick counts
+/** Ticks per second AS THIS FILE'S DURATIONS WERE AUTHORED (10 Hz). t10()
+ *  converts them to whatever the clock actually runs at. */
+const TPS = 10
 /** Comfortably north of the defended base, south of the lane mouths. */
 const BASE_Z_GUARD = 60
 
@@ -28,7 +31,7 @@ const sim = (): { s: SimState; grid: ReturnType<typeof walkGridFromDoc> } => {
 }
 
 const run = (s: SimState, grid: ReturnType<typeof walkGridFromDoc>, ticks: number): void => {
-  for (let t = 0; t < ticks; t++) step(s, grid, [])
+  for (let t = 0; t < t10(ticks); t++) step(s, grid, [])
 }
 
 const owned = (s: SimState, slot: number): number[] => {
