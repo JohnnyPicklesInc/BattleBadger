@@ -210,7 +210,16 @@ describe('the night', () => {
 
   it('gives the commander an economy it actually spends', () => {
     const { s, grid } = sim()
-    run(s, grid, 180 * TPS)
+    // Sampled, not snapshotted. The commander's garrison fights the waves, so
+    // whether it happens to have anybody alive at one particular second says
+    // more about when the last wave landed than about whether it is training.
+    // What is being claimed is that it SPENDS — so watch the whole window and
+    // ask whether it ever put a soldier on the field.
+    let everTrained = 0
+    for (let k = 0; k < 18; k++) {
+      run(s, grid, 10 * TPS)
+      everTrained = Math.max(everTrained, owned(s, 6).filter((i) => s.kind[i] === Kind.Unit).length)
+    }
     // Counting BUILDINGS is not enough: a Command Post arrives with a ring of
     // twelve empty build plots, and those are buildings too — an earlier
     // version of this test passed on plots alone while the commander sat there
@@ -219,7 +228,7 @@ describe('the night', () => {
     expect(raised.filter((d) => d === 'farm').length, 'no farms — the economy never started').toBeGreaterThan(0)
     expect(raised, 'nothing that can train a soldier').toContain('barrack-block')
     // And it must be spending them on troops.
-    expect(owned(s, 6).filter((i) => s.kind[i] === Kind.Unit).length, 'the commander trained nobody').toBeGreaterThan(0)
+    expect(everTrained, 'the commander trained nobody in three minutes').toBeGreaterThan(0)
   })
 
   it('gives the enemy a real base to break, not just a spawn point', () => {
