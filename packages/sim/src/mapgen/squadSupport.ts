@@ -19,6 +19,14 @@ import { STANCES } from './factions/shared.ts'
 // that is what kept dying. Choosing under pressure, with what the wave just
 // did to you still on screen, is the whole game.
 //
+// A squad is loose men, not a battalion. The rest of this game is built on
+// battalions — nine bound soldiers ordered as one shape, which is the right
+// object when you command an army. It is the wrong one when you command six
+// men: the whole point of a squad is pulling it apart, keeping the flak back
+// and the riflemen in front of the medic, and a ticket cannot be pulled apart.
+// So the pads hand out soldiers. The armies either side of you still muster in
+// battalions, which is also the difference between you and them.
+//
 // It is a campaign up a valley, not a siege of one yard. Three enemy holds sit
 // at increasing depth behind cliff walls, each with its own keep and its own
 // wave schedule, and killing one shuts its waves off for good — so the map
@@ -121,7 +129,19 @@ const FOE = 7
 interface SquadKind {
   id: string
   name: string
-  /** Ticket spawned, and how many battalions of it. */
+  /**
+   * The SOLDIER spawned, and how many of him — not a horde ticket.
+   *
+   * A battalion is the BFME unit of play: nine men bound together that move
+   * as one shape and are ordered as one thing. That is the wrong object for
+   * this map. A squad is something you pull apart — the flak stays back, two
+   * riflemen screen the medic — and a ticket cannot be pulled apart at all.
+   * So these are loose men, and `spawnUnits` spawns them individually because
+   * the def it is handed is a soldier rather than a ticket.
+   *
+   * The cost is veterancy: XP is credited to a horde, so loose men never rank
+   * up. Right for a force that is replaced wholesale every time it dies.
+   */
   def: string
   count: number
   /** Pad position, laid out left to right across the muster. */
@@ -137,12 +157,12 @@ interface SquadKind {
 }
 
 const SQUAD_KINDS: SquadKind[] = [
-  { id: 'rifle', name: 'Rifles', def: 'h-troopers', count: 2, padX: MUSTER_X - 25, tex: 4, blurb: 'Rifles — reaches both layers. Never wrong, never decisive.' },
-  { id: 'flak', name: 'Flak', def: 'h-lancers', count: 2, padX: MUSTER_X - 15, tex: 3, blurb: 'Flak — tears down anything airborne, helpless against boots.' },
-  { id: 'strike', name: 'Strike', def: 'h-skiffs', count: 2, padX: MUSTER_X - 5, tex: 6, blurb: 'Strike — fast skiffs, murder on the ground, blind to the air.' },
-  { id: 'gunship', name: 'Gunship', def: 'h-gunship', count: 1, padX: MUSTER_X + 5, tex: 7, blurb: 'Gunship — hits everything, and there are only two of them.' },
-  { id: 'medic', name: 'Field Aid', def: 'h-medics', count: 1, padX: MUSTER_X + 15, tex: 5, blurb: 'Field Aid — keeps other squads standing. Cannot kill anything.' },
-  { id: 'siege', name: 'Siege', def: 'h-siege', count: 1, padX: MUSTER_X + 25, tex: 2, blurb: 'Siege — lobbed shells, wide splash, useless up close or upward.' },
+  { id: 'rifle', name: 'Rifles', def: 'trooper', count: 8, padX: MUSTER_X - 25, tex: 4, blurb: 'Rifles ×8 — reach both layers. Never wrong, never decisive.' },
+  { id: 'flak', name: 'Flak', def: 'lancer', count: 6, padX: MUSTER_X - 15, tex: 3, blurb: 'Flak ×6 — tear down anything airborne, helpless against boots.' },
+  { id: 'strike', name: 'Strike', def: 'skiff', count: 5, padX: MUSTER_X - 5, tex: 6, blurb: 'Strike ×5 — fast skiffs, murder on the ground, blind to the air.' },
+  { id: 'gunship', name: 'Gunship', def: 'gunship', count: 2, padX: MUSTER_X + 5, tex: 7, blurb: 'Gunships ×2 — hit everything, and there are only two.' },
+  { id: 'medic', name: 'Field Aid', def: 'medic', count: 4, padX: MUSTER_X + 15, tex: 5, blurb: 'Field Aid ×4 — keep the others standing. Cannot kill anything.' },
+  { id: 'siege', name: 'Siege', def: 'siege-gun', count: 3, padX: MUSTER_X + 25, tex: 2, blurb: 'Siege ×3 — lobbed shells, wide splash, useless up close or upward.' },
 ]
 
 /** The pad's rect in world units. The single source both the paint and the
