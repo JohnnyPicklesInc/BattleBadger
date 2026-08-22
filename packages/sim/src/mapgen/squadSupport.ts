@@ -4,12 +4,12 @@ import { composeDef } from './factions/compose.ts'
 import { FACTION as COMPACT } from './factions/compact.ts'
 import { STANCES } from './factions/shared.ts'
 
-// "Squad Support" — one base, six squads, and a night that keeps getting worse.
+// "Squad Support" — a corridor with three enemy holds in it.
 //
 // The shape is borrowed from the StarCraft co-op custom maps: a commander runs
 // an economy behind the line while everyone else fields a handful of units and
 // no buildings at all. What is different here is who commands. The base is run
-// by the COMPUTER, which makes the players purely a defence force — nobody is
+// by the COMPUTER, which makes the players purely a fighting force — nobody is
 // sitting in a build menu while the wave lands, and a lobby of six all get the
 // same job.
 //
@@ -18,12 +18,27 @@ import { STANCES } from './factions/shared.ts'
 // three lots of riflemen finishes the night with flak and artillery because
 // that is what kept dying. Choosing under pressure, with what the wave just
 // did to you still on screen, is the whole game.
+//
+// It is a campaign up a valley, not a siege of one yard. Three enemy holds sit
+// at increasing depth behind cliff walls, each with its own keep and its own
+// wave schedule, and killing one shuts its waves off for good — so the map
+// gets quieter as you win, which is the only pacing that makes an assault feel
+// like progress rather than a treadmill.
+//
+// And the commander follows you up it. Neutral base sites are seeded in the
+// ground between the holds; a site can only be claimed while somebody friendly
+// stands near it and no enemy does, so clearing a hold literally hands the
+// commander the ground to build on. Nothing scripts that — it falls out of
+// plotClaimable. Take the middle and its camp becomes a Compact camp, with its
+// own ring of plots, a barracks closer to the front and a shorter walk for
+// every reinforcement after.
 
-const SIZE = 128
+const SIZE = 192
 // Palette indices, matching TERRAIN_PALETTE in the renderer.
 const TEX_GRASS = 0
 const TEX_DIRT = 1
-const TEX_ROAD = 2 // rock
+const TEX_ROCK = 2
+const TEX_ASH = 7
 
 /**
  * Pad footprint, in cells. The region and the paint are both derived from this
@@ -34,27 +49,48 @@ const PAD_W = 7
 const PAD_H = 5
 
 // ---- geography -------------------------------------------------------------
-// Everything below is expressed against these, so the layout can be moved
-// without hunting for numbers in the trigger tables.
-const BASE_X = 64
-const BASE_Z = 84
+// A valley running south to north. The company musters at the bottom, the
+// commander's keep sits behind it, and three enemy holds are stacked up the
+// corridor. Everything below is expressed against these.
+const MID_X = SIZE / 2
+const BASE_X = MID_X
+const BASE_Z = 168
 /** Where a squad-less player is put, and where the six pads stand. */
-const MUSTER_X = 64
-const MUSTER_Z = 108
+const MUSTER_X = MID_X
+const MUSTER_Z = 182
+
 /**
- * The enemy seat. Far enough from the top edge that the ring of build plots a
- * Command Post brings with it (radius 15) lands on the map instead of off it —
- * otherwise half the enemy's build slots silently fail to place and the base
- * you march on is a bare keep.
+ * The three enemy holds, near to far. Each is a keep with its own plot ring,
+ * so what you march into is a base the computer has been building all match,
+ * not a lone building on bare ground.
+ *
+ * `lane` is where its waves form up — in front of the hold, so a wave visibly
+ * comes OUT of the place you are going to have to take.
  */
-const FOE_BASE_X = 64
-const FOE_BASE_Z = 20
-/** The three mouths the attack comes out of, just south of the enemy base. */
-const LANE_Z = 38
-const LANE_X = [26, 64, 102]
-/** The ridges that split the middle ground into three lanes. */
-const RIDGE_Z0 = 44
-const RIDGE_Z1 = 74
+const HOLDS = [
+  { id: 'south', x: MID_X, z: 118, laneZ: 130, first: 30, every: 42 },
+  { id: 'east', x: MID_X + 44, z: 62, laneZ: 76, first: 150, every: 50 },
+  { id: 'north', x: MID_X - 40, z: 26, laneZ: 40, first: 270, every: 58 },
+]
+
+/**
+ * Neutral ground the commander can take once you have cleared it. A camp is
+ * worth six buildings and an outpost three, so the middle of the map is worth
+ * more than its edges and taking it forward is worth doing.
+ */
+const SITES: { def: string; x: number; z: number }[] = [
+  { def: 'camp-site', x: MID_X, z: 146 },
+  { def: 'outpost-site', x: MID_X - 34, z: 150 },
+  { def: 'outpost-site', x: MID_X + 34, z: 150 },
+  // Off the centre line at this depth: the massif owns the middle from z 70
+  // to 104, and the first draft put a camp inside it. One site each side, so
+  // whichever road the company takes has ground the commander can follow onto.
+  { def: 'camp-site', x: MID_X - 26, z: 92 },
+  { def: 'outpost-site', x: MID_X + 30, z: 96 },
+  // Tucked well inside the neck below the far hold, which is the narrowest
+  // ground on the map.
+  { def: 'camp-site', x: MID_X - 15, z: 56 },
+]
 
 // ---- slots -----------------------------------------------------------------
 //
@@ -70,12 +106,6 @@ const SQUADS = [0, 1, 2, 3, 4, 5]
 const CMDR = 6
 /** The attacker. Its army is trigger-spawned, then its own AI throws it in. */
 const FOE = 7
-
-/**
- * When the authored wave schedule runs out and the endless one takes over.
- * A little past the last scripted wave, so its arrival is not doubled up.
- */
-const HOLD_SECONDS = 12 * 45 + 60
 
 // ---- the six squads --------------------------------------------------------
 /**
@@ -238,38 +268,6 @@ const SQUAD_DEF = composeDef({
   startAmount: 3000,
 })
 
-// ---- waves -----------------------------------------------------------------
-/**
- * One line per wave: when it lands, and what comes.
- *
- * Authored as a table rather than generated from a curve because the SHAPE
- * matters more than the size. Wave 3 is the first air, which is the moment the
- * company finds out whether anybody took Flak; wave 7 is armour-heavy and
- * punishes a company that over-invested in it. A curve cannot say that.
- */
-interface Wave {
-  at: number // seconds
-  ground: number // h-troopers battalions
-  air: number // h-skiffs battalions
-  heavy: number // h-gunship battalions
-  say: string
-}
-
-const WAVES: Wave[] = [
-  { at: 30, ground: 1, air: 0, heavy: 0, say: 'Contact — light infantry on the west road.' },
-  { at: 75, ground: 2, air: 0, heavy: 0, say: 'Second wave. Still boots.' },
-  { at: 120, ground: 1, air: 1, heavy: 0, say: 'Air contact. Somebody had better have flak.' },
-  { at: 165, ground: 2, air: 1, heavy: 0, say: 'Mixed wave inbound.' },
-  { at: 210, ground: 3, air: 1, heavy: 0, say: 'They are committing now.' },
-  { at: 255, ground: 2, air: 2, heavy: 0, say: 'Heavy air. Keep the guns pointed up.' },
-  { at: 300, ground: 4, air: 1, heavy: 1, say: 'Gunship in the formation — hit it before it settles.' },
-  { at: 345, ground: 3, air: 2, heavy: 1, say: 'All three lanes.' },
-  { at: 390, ground: 5, air: 2, heavy: 1, say: 'They want the Command Post this time.' },
-  { at: 435, ground: 4, air: 3, heavy: 2, say: 'Everything they have left is moving.' },
-  { at: 480, ground: 6, air: 3, heavy: 2, say: 'Hold. Just hold.' },
-  { at: 525, ground: 6, air: 4, heavy: 3, say: 'Last wave. All of it.' },
-]
-
 // ---- generation ------------------------------------------------------------
 
 /** A rect region, named for triggers. */
@@ -280,53 +278,141 @@ function rect(id: string, name: string, x: number, z: number, w: number, h: numb
 /** Trigger ids are referenced by `setTrigger`, so they are built one way only. */
 const padTrigId = (slot: number, kind: string): string => `pick-${slot}-${kind}`
 
+/**
+ * Deterministic craggy variation. Integer hash, no RNG state — this file is
+ * imported by scripts/gen-starter-maps.mjs under plain Node, so it must not
+ * reach the sim's runtime chain.
+ */
+function crag(x: number, z: number): number {
+  let h = Math.imul(x * 374761393 + z * 668265263, 1274126177)
+  h = (h ^ (h >>> 13)) >>> 0
+  return h / 4294967296
+}
+
 export function generateSquadSupport(seed = 20260809): RtsMapDoc {
   const n = SIZE * SIZE
   const walkable = Array.from<number>({ length: n }).fill(1)
+  const cliffLevel = Array.from<number>({ length: n }).fill(0)
   const texture = Array.from<number>({ length: n }).fill(TEX_GRASS)
   const heightJitter = Array.from<number>({ length: n }).fill(0)
 
   const at = (x: number, z: number): number => z * SIZE + x
+  const rock = (x: number, z: number): void => {
+    if (x < 0 || z < 0 || x >= SIZE || z >= SIZE) return
+    const i = at(x, z)
+    // Blocked explicitly as well as raised: deriveTerrain only carves the cliff
+    // EDGE, so a wide plateau would otherwise be walkable on top of itself.
+    walkable[i] = 0
+    cliffLevel[i] = 2
+    texture[i] = TEX_ROCK
+    heightJitter[i] = 1.2 + crag(x, z) * 2.6
+  }
 
   for (let z = 0; z < SIZE; z++) {
     for (let x = 0; x < SIZE; x++) {
+      if (x < 2 || z < 2 || x >= SIZE - 2 || z >= SIZE - 2) rock(x, z)
+    }
+  }
+
+  /**
+   * The valley walls, as a half-width that varies with depth.
+   *
+   * Control points interpolated rather than stepped. Written as bands first,
+   * and it looked like it was built out of rectangles — because it was. What
+   * makes the corridor worth fighting up is where it PINCHES, and a pinch has
+   * to be a slope you can see coming, not a wall that appears in one row.
+   *
+   * The necks sit just south of each hold: the ground a defence actually forms
+   * on, where a battalion of flak in a narrow gap is doing something the same
+   * battalion on open grass is not.
+   */
+  const WALL: [number, number][] = [
+    [0, 46], [26, 40], [40, 30], [56, 26], // the far hold and its neck
+    [70, 40], [84, 48], [96, 44],          // the middle, around the massif
+    [110, 30], [122, 18], [130, 16],       // the neck below the near hold
+    [140, 34], [152, 50], [162, 62], [SIZE, 66],
+  ]
+  const halfWidthAt = (z: number): number => {
+    for (let k = 1; k < WALL.length; k++) {
+      const [z1, w1] = WALL[k]
+      if (z > z1) continue
+      const [z0, w0] = WALL[k - 1]
+      const t = (z - z0) / (z1 - z0)
+      return w0 + (w1 - w0) * t
+    }
+    return WALL[WALL.length - 1][1]
+  }
+
+  for (let z = 2; z < SIZE - 2; z++) {
+    // A ragged edge, so the wall reads as rock rather than as a drawn line.
+    // Hashed on the row alone, so both walls of a row breathe together and the
+    // corridor never pinches to nothing by accident.
+    const half = halfWidthAt(z) + (crag(z, 7) - 0.5) * 5
+    for (let x = 2; x < SIZE - 2; x++) {
+      if (Math.abs(x + 0.5 - MID_X) > half) rock(x, z)
+    }
+  }
+
+  // A massif in the middle of the corridor, splitting the approach to the two
+  // far holds into two roads. Neither is a back door — both are watched — but
+  // a company can commit to one and be somewhere the other lane is not.
+  //
+  // An ellipse with a ragged skin rather than a block: as a rectangle it read
+  // as a wall somebody had dropped on the map, and the two roads past it want
+  // to open and close like the valley does.
+  const MASSIF_Z = 87
+  const MASSIF_HALF_Z = 17
+  const MASSIF_HALF_X = 13
+  for (let z = MASSIF_Z - MASSIF_HALF_Z; z <= MASSIF_Z + MASSIF_HALF_Z; z++) {
+    for (let x = MID_X - MASSIF_HALF_X - 3; x <= MID_X + MASSIF_HALF_X + 3; x++) {
+      if (x < 2 || z < 2 || x >= SIZE - 2 || z >= SIZE - 2) continue
+      const ux = (x + 0.5 - MID_X) / MASSIF_HALF_X
+      const uz = (z + 0.5 - MASSIF_Z) / MASSIF_HALF_Z
+      if (ux * ux + uz * uz <= 1 + (crag(x, z) - 0.5) * 0.25) rock(x, z)
+    }
+  }
+
+  // Ground each hold stands on, cleared of rock so its plot ring has room.
+  for (const h of HOLDS) {
+    for (let z = h.z - 20; z <= h.z + 20; z++) {
+      for (let x = h.x - 20; x <= h.x + 20; x++) {
+        if (x < 2 || z < 2 || x >= SIZE - 2 || z >= SIZE - 2) continue
+        const dx = x + 0.5 - h.x
+        const dz = z + 0.5 - h.z
+        if (dx * dx + dz * dz > 20 * 20) continue
+        const i = at(x, z)
+        walkable[i] = 1
+        cliffLevel[i] = 0
+        heightJitter[i] = 0
+        texture[i] = TEX_ASH
+      }
+    }
+  }
+
+  // The commander's ground, likewise clear.
+  for (let z = BASE_Z - 22; z < SIZE - 2; z++) {
+    for (let x = 2; x < SIZE - 2; x++) {
       const i = at(x, z)
-      if (x < 2 || z < 2 || x >= SIZE - 2 || z >= SIZE - 2) walkable[i] = 0
+      walkable[i] = 1
+      cliffLevel[i] = 0
+      heightJitter[i] = 0
     }
   }
 
-  // Two ridges running north-south, splitting the approach into three lanes.
-  // They stop short of the base so the lanes converge on it — a defender can
-  // hold a lane, but not all three, which is what forces the company to split.
-  // Integer cell columns rather than rounded floats — rounding is banned in
-  // the sim, and a generator that drifts by a cell between engines is a desync
-  // at tick 0 rather than a cosmetic difference.
-  for (const ridgeX of [SIZE / 2 - 21, SIZE / 2 + 21]) {
-    for (let z = RIDGE_Z0; z < RIDGE_Z1; z++) {
-      for (let d = -2; d <= 2; d++) {
-        const x = ridgeX + d
-        if (x < 2 || x >= SIZE - 2) continue
-        walkable[at(x, z)] = 0
-        heightJitter[at(x, z)] = 1.4
-      }
+  // The road up the valley, so a player can read where the pressure comes from.
+  for (let z = 8; z < BASE_Z; z++) {
+    for (let d = -4; d <= 4; d++) {
+      const x = MID_X + d
+      if (x < 2 || x >= SIZE - 2) continue
+      const i = at(x, z)
+      if (walkable[i] === 1) texture[i] = TEX_DIRT
     }
   }
 
-  // The roads the waves walk, drawn so a player can read where they come from.
-  for (const lx of LANE_X) {
-    for (let z = LANE_Z; z < BASE_Z; z++) {
-      for (let d = -3; d <= 3; d++) {
-        const x = lx + d
-        if (x < 2 || x >= SIZE - 2) continue
-        if (walkable[at(x, z)] === 1) texture[at(x, z)] = TEX_ROAD
-      }
-    }
-  }
-
-  // The muster yard: bare dirt, well behind the base, so a respawning player
+  // The muster yard: bare dirt, well behind the keep, so a respawning player
   // picks his next squad without something shooting at him while he decides.
-  for (let z = MUSTER_Z - 11; z < MUSTER_Z + 8; z++) {
-    for (let x = MUSTER_X - 32; x < MUSTER_X + 32; x++) {
+  for (let z = MUSTER_Z - 11; z < SIZE - 2; z++) {
+    for (let x = MUSTER_X - 40; x < MUSTER_X + 40; x++) {
       if (x < 2 || z < 2 || x >= SIZE - 2 || z >= SIZE - 2) continue
       texture[at(x, z)] = TEX_DIRT
     }
@@ -342,19 +428,31 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
       for (let x = Math.floor(b.x0); x < Math.floor(b.x1); x++) {
         if (x < 2 || z < 2 || x >= SIZE - 2 || z >= SIZE - 2) continue
         texture[at(x, z)] = kind.tex
+        walkable[at(x, z)] = 1
       }
     }
   }
 
   // ---- what stands on the ground at tick 0 ----
-  // Only the commander's seat. Everything else it owns, it builds — which is
-  // the point of handing it the economy in the first place.
-  // Two seats, and nothing else. Both sides' computers build their own out
-  // from these — the enemy base you eventually have to break is one the enemy
-  // raised, so how hard it is to crack depends on how long you left it.
+  // Keeps and neutral ground, nothing else. Both computers build their own out
+  // from these, so the holds you march on are bases the enemy raised over the
+  // match — how hard they are to crack depends on how long you left them.
   const placed: PlacedEntity[] = [
     { def: 'command-post', owner: CMDR, x: BASE_X, z: BASE_Z, always: true },
-    { def: 'command-post', owner: FOE, x: FOE_BASE_X, z: FOE_BASE_Z, always: true },
+    ...HOLDS.map((h) => ({ def: 'command-post', owner: FOE, x: h.x, z: h.z, always: true })),
+    // Neutral base ground. Nobody owns these — `plot.neutral` short-circuits
+    // the owner check in freePlotAt, so the field is only a placement slot,
+    // and plotClaimable is what actually decides: yes while somebody friendly
+    // stands near and no enemy does. They become the commander's exactly as
+    // fast as the company takes the ground.
+    //
+    // Parked on the COMMANDER's slot rather than the conventional 0. Other
+    // maps use 0 because slot 0 is an ordinary player there; here it is a
+    // squad seat, and a squad's respawn is detected by "owns nothing at all".
+    // Six neutral pads sitting on his ledger meant squad one never counted as
+    // wiped out, so he was never handed another officer for the rest of the
+    // match.
+    ...SITES.map((c) => ({ def: c.def, owner: CMDR, x: c.x, z: c.z, always: true })),
   ]
 
   // ---- regions ----
@@ -364,13 +462,17 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
   const regions: MapRegion[] = [
     rect('field', 'The whole map', SIZE / 2, SIZE / 2, SIZE, SIZE),
     rect('muster', 'Muster yard', MUSTER_X, MUSTER_Z, 26, 8),
-    rect('core', 'Command Post', BASE_X, BASE_Z, 16, 16),
-    rect('foe-core', 'Enemy Command Post', FOE_BASE_X, FOE_BASE_Z, 16, 16),
+    // A wide apron in front of the pad row. Stepping into it is what prints
+    // the list of what is on offer — the pads are coloured, but a colour does
+    // not tell you it is a button.
+    rect('approach', 'The pad row', MUSTER_X, MUSTER_Z - 10, 74, 12),
+    rect('core', 'Command Post', BASE_X, BASE_Z, 18, 18),
     ...SQUAD_KINDS.map((k) => {
       const b = padBox(k)
       return { id: `pad-${k.id}`, name: `${k.name} pad`, ...b }
     }),
-    ...LANE_X.map((x, i) => rect(`lane-${i}`, `Lane ${i + 1}`, x, LANE_Z, 12, 8)),
+    ...HOLDS.map((h) => rect(`hold-${h.id}`, `${h.id} hold`, h.x, h.z, 24, 24)),
+    ...HOLDS.map((h) => rect(`lane-${h.id}`, `${h.id} lane`, h.x, h.laneZ, 20, 8)),
   ]
 
   // ---- triggers ----
@@ -383,14 +485,8 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
     events: [{ type: 'mapInit' }],
     conditions: [],
     actions: [
-      { type: 'message', text: 'The Command Post builds itself. You are the guns. Walk your Field Officer onto a coloured pad to draw a squad.', to: 'all' },
-      { type: 'message', text: 'Hold the line — then break it. You win by putting THEIR Command Post down, north of the ridges.', to: 'all' },
-      { type: 'message', text: `Pads, left to right: ${SQUAD_KINDS.map((k) => k.name).join(' · ')}`, to: 'all' },
-      { type: 'message', text: 'Lose your last man and you pick again — so pick what the last wave killed you with.', to: 'all' },
-      // A squad player has nothing to spend and no way to spend it, so the
-      // opening balance is a number that can only mislead. The commander keeps
-      // its own — startAmount is per-map, not per-slot, so this is the only
-      // place the difference can be made.
+      { type: 'message', text: 'The Command Post builds itself. You are the guns.', to: 'all' },
+      { type: 'message', text: 'Three enemy holds up the valley. Put all three Command Posts down to win.', to: 'all' },
       ...SQUADS.map((slot) => ({
         type: 'modifyResource' as const,
         owner: slot,
@@ -412,10 +508,25 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
       conditions: [{ type: 'unitCountInRegion', region: 'field', owner: slot, op: '<=', count: 0 }],
       actions: [
         { type: 'spawnUnits', def: 'field-officer', owner: slot, count: 1, at: { region: 'muster' }, facing: { x: 0, z: -1 } },
-        { type: 'panCamera', player: slot, x: MUSTER_X, z: MUSTER_Z },
-        { type: 'message', text: 'Squad lost. Draw another.', to: slot },
-        // Re-open every pad to this player alone.
+        { type: 'panCamera', player: slot, x: MUSTER_X, z: MUSTER_Z - 4 },
+        // Said EVERY time, not once at map init. A player wiped out twenty
+        // minutes in never saw the briefing — it scrolled away with the first
+        // wave — and "walk onto a pad" is not a thing anyone guesses.
+        { type: 'message', text: 'Squad lost. Walk your Field Officer NORTH onto a coloured pad to draw another.', to: slot },
         ...SQUAD_KINDS.map((k) => ({ type: 'setTrigger' as const, trigger: padTrigId(slot, k.id), on: true })),
+      ],
+    })
+
+    // Standing in front of the row prints what is on it. The colours tell you
+    // the pads are different; only this tells you which is which, and it is
+    // said at the moment you are looking at them rather than at map init.
+    triggers.push({
+      id: `menu-${slot}`,
+      name: `Player ${slot} reads the pad row`,
+      events: [{ type: 'unitEntersRegion', region: 'approach', owner: slot }],
+      conditions: [],
+      actions: [
+        { type: 'message', text: `Pads, left to right — ${SQUAD_KINDS.map((k) => k.name).join(' · ')}. Step on one.`, to: slot },
       ],
     })
   }
@@ -432,9 +543,6 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
       triggers.push({
         id: padTrigId(slot, kind.id),
         name: `Player ${slot} takes ${kind.name}`,
-        // Off until the player has nothing: the officer is spawned INTO the
-        // muster yard, and an armed pad would hand him a squad before he had
-        // chosen one.
         initiallyOn: false,
         events: [{ type: 'unitEntersRegion', region: `pad-${kind.id}`, owner: slot }],
         conditions: [],
@@ -447,38 +555,86 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
     }
   }
 
-  // The waves. Each lands split across the three lanes, then is ordered at the
-  // Command Post — the attacker's own army job takes over from there, so it
-  // fights what it meets on the way instead of walking past it.
-  WAVES.forEach((w, wi) => {
-    const actions: TriggerDef['actions'] = [{ type: 'message', text: `Wave ${wi + 1}. ${w.say}`, to: 'all' }]
-    const spread = (def: string, total: number): void => {
-      for (let k = 0; k < total; k++) {
-        actions.push({
-          type: 'spawnUnits',
-          def,
-          owner: FOE,
-          count: 1,
-          at: { region: `lane-${k % LANE_X.length}` },
-          always: true, // the attacker is a reserved slot, not a seat anyone takes
-          facing: { x: 0, z: 1 },
-        })
-      }
-    }
-    spread('h-troopers', w.ground)
-    spread('h-skiffs', w.air)
-    spread('h-gunship', w.heavy)
-    for (let i = 0; i < LANE_X.length; i++) {
-      actions.push({ type: 'orderUnits', region: `lane-${i}`, owner: FOE, order: 'attackMove', x: BASE_X, z: BASE_Z })
-    }
-    triggers.push({
-      id: `wave-${wi}`,
-      name: `Wave ${wi + 1}`,
-      once: true,
-      events: [{ type: 'timer', seconds: w.at }],
-      conditions: [],
-      actions,
+  // Each hold runs its OWN wave schedule, and killing the hold switches that
+  // schedule off. That is what makes taking one feel like progress: the map
+  // gets quieter as you win, instead of grinding on regardless.
+  for (const h of HOLDS) {
+    const spawn = (def: string, count: number) => ({
+      type: 'spawnUnits' as const,
+      def,
+      owner: FOE,
+      count,
+      at: { region: `lane-${h.id}` },
+      always: true,
+      facing: { x: 0, z: 1 },
     })
+    triggers.push({
+      id: `wave-${h.id}`,
+      name: `${h.id} hold sends a wave`,
+      initiallyOn: false,
+      events: [{ type: 'timer', seconds: h.every, periodic: true }],
+      // A dead hold sends nothing. Belt and braces with the setTrigger below:
+      // the condition is what makes it true the instant the keep falls rather
+      // than at the next tick the death trigger happens to run.
+      conditions: [
+        { type: 'unitCountInRegion', region: `hold-${h.id}`, owner: FOE, def: 'command-post', op: '>=', count: 1 },
+      ],
+      actions: [
+        spawn('h-troopers', 2),
+        spawn('h-skiffs', 1),
+        { type: 'orderUnits', region: `lane-${h.id}`, owner: FOE, order: 'attackMove', x: BASE_X, z: BASE_Z },
+      ],
+    })
+    // Held back until its opening beat, so the far holds are not attacking
+    // from minute one — the valley wakes up as you walk into it.
+    triggers.push({
+      id: `wake-${h.id}`,
+      name: `${h.id} hold wakes`,
+      once: true,
+      events: [{ type: 'timer', seconds: h.first }],
+      conditions: [],
+      actions: [
+        { type: 'message', text: `Movement from the ${h.id} hold.`, to: 'all' },
+        { type: 'setTrigger', trigger: `wave-${h.id}`, on: true },
+      ],
+    })
+    triggers.push({
+      id: `fell-${h.id}`,
+      name: `${h.id} hold has fallen`,
+      once: true,
+      events: [{ type: 'timer', seconds: 3, periodic: true }],
+      conditions: [
+        { type: 'unitCountInRegion', region: `hold-${h.id}`, owner: FOE, def: 'command-post', op: '<=', count: 0 },
+      ],
+      actions: [
+        { type: 'message', text: `The ${h.id} hold is down. Its waves have stopped — take the ground.`, to: 'all' },
+        { type: 'setTrigger', trigger: `wave-${h.id}`, on: false },
+      ],
+    })
+  }
+
+  // Holding is not winning. All three keeps have to come down, which means the
+  // company has to stop defending and go north — and that is a decision about
+  // when, made against a wave clock that only stops when you stop it.
+  triggers.push({
+    id: 'won',
+    name: 'The valley is clear',
+    once: true,
+    events: [{ type: 'timer', seconds: 3, periodic: true }],
+    conditions: HOLDS.map((h) => ({
+      type: 'unitCountInRegion' as const,
+      region: `hold-${h.id}`,
+      owner: FOE,
+      def: 'command-post',
+      op: '<=' as const,
+      count: 0,
+    })),
+    actions: [
+      { type: 'message', text: 'Every hold is down. The valley is yours.', to: 'all' },
+      // Any squad seat will do — victory resolves to that player's TEAM, and
+      // every squad and the commander share one.
+      { type: 'victory', player: SQUADS[0] },
+    ],
   })
 
   triggers.push({
@@ -493,80 +649,6 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
     ],
   })
 
-  // Holding is not winning. The night ends when their Command Post does, which
-  // means the company has to stop defending at some point and go north — and
-  // that is a decision about when, made against a wave clock that never stops.
-  triggers.push({
-    id: 'won',
-    name: 'The enemy Command Post has fallen',
-    once: true,
-    events: [{ type: 'timer', seconds: 3, periodic: true }],
-    conditions: [
-      { type: 'unitCountInRegion', region: 'foe-core', owner: FOE, def: 'command-post', op: '<=', count: 0 },
-    ],
-    actions: [
-      { type: 'message', text: 'Their Command Post is down. It is over.', to: 'all' },
-      // Any squad seat will do — victory resolves to that player's TEAM, and
-      // every squad and the commander share one.
-      { type: 'victory', player: SQUADS[0] },
-    ],
-  })
-
-  // Once the authored waves run out the pressure must not: a company that has
-  // survived to here would otherwise stroll north unopposed, and the assault
-  // is supposed to be a thing you pay for. Endless from the last wave on, at
-  // its strength, so the cost of waiting keeps climbing.
-  const last = WAVES[WAVES.length - 1]
-  triggers.push({
-    id: 'wave-endless',
-    name: 'Reinforcements, forever',
-    initiallyOn: false,
-    events: [{ type: 'timer', seconds: 60, periodic: true }],
-    conditions: [],
-    actions: [
-      ...Array.from({ length: last.ground }, (_, k) => ({
-        type: 'spawnUnits' as const,
-        def: 'h-troopers',
-        owner: FOE,
-        count: 1,
-        at: { region: `lane-${k % LANE_X.length}` },
-        always: true,
-        facing: { x: 0, z: 1 },
-      })),
-      ...Array.from({ length: last.air }, (_, k) => ({
-        type: 'spawnUnits' as const,
-        def: 'h-skiffs',
-        owner: FOE,
-        count: 1,
-        at: { region: `lane-${k % LANE_X.length}` },
-        always: true,
-        facing: { x: 0, z: 1 },
-      })),
-      ...LANE_X.map((_, i) => ({
-        type: 'orderUnits' as const,
-        region: `lane-${i}`,
-        owner: FOE,
-        order: 'attackMove' as const,
-        x: BASE_X,
-        z: BASE_Z,
-      })),
-    ],
-  })
-
-  // Switched on by the last authored wave rather than at map init, so the two
-  // schedules never overlap.
-  triggers.push({
-    id: 'endless-on',
-    name: 'Hand over to the endless schedule',
-    once: true,
-    events: [{ type: 'timer', seconds: HOLD_SECONDS }],
-    conditions: [],
-    actions: [
-      { type: 'message', text: 'No more scheduled waves — they are just coming now. Take their base.', to: 'all' },
-      { type: 'setTrigger', trigger: 'wave-endless', on: true },
-    ],
-  })
-
   return {
     version: 2,
     name: 'squad-support',
@@ -577,6 +659,9 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
     originX: 0,
     originZ: 0,
     walkable,
+    // The cliff layer is what makes this a valley rather than a field:
+    // deriveTerrain reads it for the walls, and the renderer for their height.
+    cliffLevel,
     texture,
     heightJitter,
     fog: 'off', // a defence map: you are meant to see the wave forming
@@ -586,7 +671,7 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
     startLocations: [
       ...SQUAD_KINDS.map((k) => ({ x: k.padX, z: MUSTER_Z })),
       { x: BASE_X, z: BASE_Z - 8 },
-      { x: FOE_BASE_X, z: FOE_BASE_Z },
+      { x: HOLDS[0].x, z: HOLDS[0].z },
     ],
     startNames: [
       ...SQUAD_KINDS.map((_, i) => `Squad ${i + 1}`),

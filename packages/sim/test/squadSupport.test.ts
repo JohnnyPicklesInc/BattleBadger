@@ -6,6 +6,7 @@ import { setupMatch } from '../src/setup.ts'
 import { step } from '../src/step.ts'
 import { Kind, type SimState } from '../src/state.ts'
 import { validateGameDef } from '../src/defs/schema.ts'
+import { findPath } from '../src/path/astar.ts'
 
 // The map is mostly triggers, and a trigger that never fires fails silently —
 // the match simply stays empty and nobody can tell why. So these play it.
@@ -14,7 +15,8 @@ import { validateGameDef } from '../src/defs/schema.ts'
  *  converts them to whatever the clock actually runs at. */
 const TPS = 10
 /** Comfortably north of the defended base, south of the lane mouths. */
-const BASE_Z_GUARD = 60
+/** North of the commander's keep (z 168), south of the nearest hold. */
+const BASE_Z_GUARD = 150
 
 // setupMatch does NOT read doc.aiLevels — the client applies them itself
 // (game.ts / simWorker.ts) right after setup. A test that skips that step runs
@@ -72,6 +74,27 @@ describe('the Squad Support rules', () => {
     // than per-player precisely to fit. A future squad type must not quietly
     // blow it.
     expect(generateSquadSupport().regions!.length).toBeLessThanOrEqual(30)
+  })
+
+  it('lets the company actually walk to every hold', () => {
+    // The one failure that would make the map unplayable and that no other
+    // test here would notice: cliff walls or the central massif sealing a hold
+    // off. Asked of the pathfinder with `exact`, so a best-effort walk-towards
+    // does not count as a route.
+    const doc = generateSquadSupport()
+    const grid = walkGridFromDoc(doc)
+    const muster = doc.startLocations[0]
+    const holds = (doc.placed ?? []).filter((p) => p.def === 'command-post' && p.owner === 7)
+    expect(holds).toHaveLength(3)
+    for (const h of holds) {
+      const route = findPath(grid, grid.cellX(muster.x), grid.cellZ(muster.z), grid.cellX(h.x), grid.cellZ(h.z), true)
+      expect(route, `no route from the muster to the hold at ${h.x},${h.z}`).not.toBeNull()
+    }
+    // And the forward base sites have to be standable, or the commander can
+    // never advance onto them.
+    for (const c of (doc.placed ?? []).filter((p) => p.def.endsWith('-site'))) {
+      expect(grid.isWalkableWorld(c.x, c.z), `site at ${c.x},${c.z} is inside a cliff`).toBe(true)
+    }
   })
 
   it('seats a commander, six squads and the attacker', () => {
@@ -201,10 +224,10 @@ describe('the night', () => {
     // The enemy owns a BASE from tick 0, but no soldiers until a wave lands.
     run(s, grid, 5)
     expect(mobiles(), 'the attack started before it was called').toHaveLength(0)
-    run(s, grid, 30 * TPS + 10) // wave 1 lands at 0:30
+    run(s, grid, 34 * TPS) // the nearest hold wakes at 0:30 and sends at once
     const foe = mobiles()
     expect(foe.length, 'no attackers arrived').toBeGreaterThan(0)
-    // It forms up at the lane mouths, well north of the base it is sent at.
+    // It forms up at the nearest hold's lane mouth, well north of the keep.
     for (const i of foe) expect(s.posZ[i]).toBeLessThan(BASE_Z_GUARD)
   })
 
@@ -235,19 +258,27 @@ describe('the night', () => {
     const { s, grid } = sim()
     run(s, grid, 5)
     const posts = owned(s, 7).filter((i) => defName(s, i) === 'command-post')
-    expect(posts, 'the enemy has no Command Post to kill').toHaveLength(1)
-    // And it must be behind the lanes, not on top of the player base.
-    expect(s.posZ[posts[0]]).toBeLessThan(40)
+    // Three holds, stacked up the valley — the map is a campaign, not a siege
+    // of one yard, and each one has to be taken in turn.
+    expect(posts, 'the enemy should hold three keeps').toHaveLength(3)
+    // All of them north of the commander, at increasing depth.
+    const depths = posts.map((i) => s.posZ[i]).sort((a, b) => b - a)
+    for (const z of depths) expect(z).toBeLessThan(150)
+    expect(new Set(depths).size, 'the holds should be at different depths').toBe(3)
   })
 
   it('is won by putting the enemy Command Post down, not by the clock', () => {
     const { s, grid } = sim()
     run(s, grid, 40)
     expect(s.winner).toBe(-1)
-    const post = owned(s, 7).find((i) => defName(s, i) === 'command-post')!
-    s.hp[post] = 0
-    run(s, grid, 40) // the check is on a 3s timer
-    expect(s.winner, 'killing their base did not win it').toBe(0)
+    const posts = () => owned(s, 7).filter((i) => defName(s, i) === 'command-post')
+    // Killing ONE is not enough — that is the whole point of three holds.
+    s.hp[posts()[0]] = 0
+    run(s, grid, 60)
+    expect(s.winner, 'one hold should not end it').toBe(-1)
+    for (const i of posts()) s.hp[i] = 0
+    run(s, grid, 60) // the check is on a 3s timer
+    expect(s.winner, 'clearing every hold did not win it').toBe(0)
   })
 
   it('is lost when the commander’s own Command Post falls', () => {
@@ -257,6 +288,31 @@ describe('the night', () => {
     s.hp[post] = 0
     run(s, grid, 40)
     expect(s.winner, 'losing the base did not end it').toBe(1)
+  })
+
+  it('seeds neutral ground the commander can take once it is cleared', () => {
+    const doc = generateSquadSupport()
+    const sites = (doc.placed ?? []).filter((p) => p.def.endsWith('-site'))
+    expect(sites.length, 'no forward base sites').toBeGreaterThan(3)
+    // Not on a squad seat. A squad's respawn is detected by "owns nothing",
+    // and a neutral pad on its ledger means it never counts as wiped out.
+    for (const c of sites) expect([0, 1, 2, 3, 4, 5]).not.toContain(c.owner)
+    // And they must be forward of the keep, or there is nothing to advance to.
+    expect(sites.some((c) => c.z < 100), 'nothing to take deep in the valley').toBe(true)
+  })
+
+  it('shuts a hold’s waves off when the hold falls', () => {
+    const { s, grid } = sim()
+    // Let the nearest hold wake (0:30) and send at least one wave.
+    run(s, grid, 80 * TPS)
+    const mobiles = () => owned(s, 7).filter((i) => s.kind[i] === Kind.Unit).length
+    expect(mobiles(), 'the near hold never attacked').toBeGreaterThan(0)
+    // Raze every keep and clear the field: nothing more may arrive.
+    for (const i of owned(s, 7)) s.hp[i] = 0
+    run(s, grid, 10 * TPS)
+    const after = mobiles()
+    run(s, grid, 90 * TPS) // well past the near hold's 42s cadence
+    expect(mobiles(), 'a dead hold kept sending waves').toBeLessThanOrEqual(after)
   })
 
   it('is not decided by annihilation either way', () => {
