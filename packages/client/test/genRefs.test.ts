@@ -8,7 +8,13 @@ import { GEN_BLUEPRINTS, findBlueprint, setMapBlueprints } from '../src/gen/regi
 // never break a match) but it makes typos invisible, so pin the references
 // here. The baked maps are what the client actually loads, so a def edit that
 // was never re-baked (node scripts/gen-starter-maps.mjs) fails this too.
-const BAKED = ['cerebrate-war', 'dunhollow', 'econ-demo']
+// Read from the manifest rather than listed here. A hand-written list goes
+// stale the moment the served set changes — this one named three maps that had
+// been deleted, and failed for that reason rather than for anything it exists
+// to catch.
+const BAKED: string[] = (
+  JSON.parse(readFileSync('packages/client/public/maps/index.json', 'utf8')) as { file: string }[]
+).map((m) => m.file.replace(/\.json$/, ''))
 
 function genIds(def: GameDef | undefined): string[] {
   return (def?.entities ?? [])

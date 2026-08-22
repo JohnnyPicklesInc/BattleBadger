@@ -65,19 +65,6 @@ function showEnd(info: GameEndInfo): void {
   endscreen.style.display = 'flex'
 }
 
-// Served map file → doc. Falls back to the lobby's own pick rather than
-// generating anything: a locally generated substitute would carry a different
-// defHash and desync every other client.
-async function fetchMap(url: string, fallback: RtsMapDoc): Promise<RtsMapDoc> {
-  try {
-    const res = await fetch(url)
-    if (!res.ok) throw new Error(String(res.status))
-    return (await res.json()) as RtsMapDoc
-  } catch (err) {
-    console.warn(`could not load ${url} — using the lobby map instead`, err)
-    return fallback
-  }
-}
 
 const playtestJson = sessionStorage.getItem('bb-playtest')
 
@@ -171,12 +158,12 @@ async function rejoinOrLobby(): Promise<void> {
   clearStash()
 
   showLobby(({ slot, transport, playerCount, doc: lobbyDoc, aiLevels, players }) => {
-    // Dev hook: ?demo=econ boots the economy demo map in practice mode. It
-    // loads the served file — the same bytes "Starter maps…" hands out — so
-    // that map exists in exactly one place.
-    const demo = !transport && new URLSearchParams(location.search).get('demo')
-    const pick = demo === 'econ' ? fetchMap('/maps/econ-demo.json', lobbyDoc) : Promise.resolve(lobbyDoc)
-    void pick.then((doc) => loadAssetGeometries(doc).then((assets) => {
+    // The ?demo=econ hook went with the Economy Demo when the served list was
+    // cut to two. It fetched /maps/econ-demo.json, which is no longer baked, so
+    // leaving it would have been a 404 behind a query string nobody would think
+    // to test.
+    void loadAssetGeometries(lobbyDoc).then((assets) => {
+      const doc = lobbyDoc
       runMatch(doc, slot, transport, playerCount, aiLevels, assets)
       // Everything a rejoin needs that the relay does not keep. Written after
       // the match is up, so a doc that cannot even boot is never stashed.
@@ -187,7 +174,7 @@ async function rejoinOrLobby(): Promise<void> {
           JSON.stringify(doc),
         )
       }
-    }))
+    })
   })
 }
 

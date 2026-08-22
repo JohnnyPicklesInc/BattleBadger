@@ -10,53 +10,5 @@
     "name": "Squad Support (co-op — a CPU commander, six squads, 1–6 players)",
     "mapName": "squad-support",
     "hash": 2109141353
-  },
-  {
-    "file": "cerebrate-war.json",
-    "name": "Cerebrate War (3-lane MOBA, 2–8 players)",
-    "mapName": "cerebrate-war",
-    "hash": 288320198
-  },
-  {
-    "file": "dunhollow.json",
-    "name": "Siege of Dunhollow (plots, hordes & formations, 2–4 players)",
-    "mapName": "dunhollow",
-    "hash": 138533661
-  },
-  {
-    "file": "four-corners.json",
-    "name": "Four Corners (4-player FFA, mountains & a contested centre)",
-    "mapName": "four-corners",
-    "hash": 3653173852
-  },
-  {
-    "file": "last-alliance.json",
-    "name": "The Last Alliance (4v4 siege — west vs east, fortress at each end)",
-    "mapName": "last-alliance",
-    "hash": 2430423297
-  },
-  {
-    "file": "ridge-crossing.json",
-    "name": "Ridge Crossing (Badgers vs the Compact — air, 2 players)",
-    "mapName": "ridge-crossing",
-    "hash": 1407885678
-  },
-  {
-    "file": "charge-field.json",
-    "name": "The Charge (50 horse vs a shield wall — battle test)",
-    "mapName": "charge-field",
-    "hash": 751404757
-  },
-  {
-    "file": "troll-pit.json",
-    "name": "The Pit (one ogre vs a mob — battle test)",
-    "mapName": "troll-pit",
-    "hash": 3967461937
-  },
-  {
-    "file": "econ-demo.json",
-    "name": "Economy Demo (gold & lumber)",
-    "mapName": "econ-demo",
-    "hash": 3113626014
   }
 ]

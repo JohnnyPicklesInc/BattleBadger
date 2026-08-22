@@ -3,26 +3,14 @@ import { describe, expect, it } from 'vitest'
 import { mapContentHash, type RtsMapDoc } from '@battlebadger/sim'
 // Authoring-time generators, imported by path exactly as
 // scripts/gen-starter-maps.mjs does — they are not part of the runtime API.
-import { generateCerebrateWar } from '../../sim/src/mapgen/cerebrateWar.ts'
-import { generateDunhollow } from '../../sim/src/mapgen/dunhollow.ts'
-import { generateEconDemo } from '../../sim/src/mapgen/econDemo.ts'
-import { generateChargeField } from '../../sim/src/mapgen/chargeField.ts'
-import { generateTrollPit } from '../../sim/src/mapgen/trollPit.ts'
-import { generateFourCorners } from '../../sim/src/mapgen/fourCorners.ts'
-import { generateRidgeCrossing } from '../../sim/src/mapgen/skirmishRidge.ts'
 import { generateMiddleEarth } from '../../sim/src/mapgen/middleEarth.ts'
+import { generateSquadSupport } from '../../sim/src/mapgen/squadSupport.ts'
 
 // These seeds must match scripts/gen-starter-maps.mjs. That coupling is the
 // point: identity comes from content, so the content has to be reproducible.
 const BAKED: { file: string; gen: () => RtsMapDoc }[] = [
   { file: 'middle-earth.json', gen: () => generateMiddleEarth(20260803) },
-  { file: 'cerebrate-war.json', gen: () => generateCerebrateWar(20260726) },
-  { file: 'dunhollow.json', gen: () => generateDunhollow(20260727) },
-  { file: 'econ-demo.json', gen: () => generateEconDemo(20260726) },
-  { file: 'charge-field.json', gen: () => generateChargeField(20260729) },
-  { file: 'troll-pit.json', gen: () => generateTrollPit(20260729) },
-  { file: 'four-corners.json', gen: () => generateFourCorners(20260729) },
-  { file: 'ridge-crossing.json', gen: () => generateRidgeCrossing(20260730) },
+  { file: 'squad-support.json', gen: () => generateSquadSupport(20260809) },
 ]
 
 const DIR = 'packages/client/public/maps'
