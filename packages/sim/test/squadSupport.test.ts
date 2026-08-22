@@ -140,7 +140,7 @@ describe('drawing a squad', () => {
     expect(Math.hypot(s.posX[o] - x0, s.posZ[o] - z0), 'the officer wandered off on his own').toBeLessThan(6)
   })
 
-  it('hands over a battalion when the officer walks onto a pad', () => {
+  it('hands over a squad of INDIVIDUAL soldiers when the officer steps on a pad', () => {
     const { s, grid } = sim()
     run(s, grid, 30)
     const officer = owned(s, 0)[0]
@@ -150,9 +150,16 @@ describe('drawing a squad', () => {
     s.posX[officer] = (pad.x0 + pad.x1) / 2
     s.posZ[officer] = (pad.z0 + pad.z1) / 2
     run(s, grid, 4)
-    const kinds = owned(s, 0).map((i) => defName(s, i))
-    expect(kinds).toContain('lancer')
-    expect(kinds.filter((k) => k === 'lancer').length, 'two battalions of flak').toBeGreaterThanOrEqual(10)
+    const mine = owned(s, 0)
+    const kinds = mine.map((i) => defName(s, i))
+    expect(kinds.filter((k) => k === 'lancer').length, 'the flak squad').toBe(6)
+    // Loose men, not a battalion. This is the whole difference between a squad
+    // you can pull apart — flak back, riflemen screening the medic — and a
+    // ticket that moves as one shape and is ordered as one thing.
+    for (const i of mine) {
+      if (defName(s, i) !== 'lancer') continue
+      expect(s.hordeOf[i], 'a squad member was bound into a horde').toBe(-1)
+    }
   })
 
   it('refuses a second squad from the same pad', () => {
