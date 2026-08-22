@@ -2,8 +2,8 @@ import { type Rng, rngFromSeed } from './math/sfc32.ts'
 import type { GameDefCompiled } from './defs/compile.ts'
 import type { TriggerRuntime } from './systems/triggers.ts'
 
-export const TICK_MS = 100
-export const TICK_S = 0.1
+export const TICK_MS = 33
+export const TICK_S = 0.033
 /**
  * How many ticks now stand for one tick as CONTENT WAS AUTHORED — against a
  * 10 Hz clock. Every duration written as a tick count has to go through this,
