@@ -2,7 +2,6 @@ import type { MapRegion, PlacedEntity, RtsMapDoc, TriggerDef } from '../mapdoc.t
 import type { RulesetModule } from '../ruleset.ts'
 import { composeDef } from './factions/compose.ts'
 import { FACTION as COMPACT } from './factions/compact.ts'
-import { STANCES } from './factions/shared.ts'
 
 // "Squad Support" — a corridor with three enemy holds in it.
 //
@@ -13,19 +12,20 @@ import { STANCES } from './factions/shared.ts'
 // sitting in a build menu while the wave lands, and a lobby of six all get the
 // same job.
 //
-// The squads are not assigned. A player who loses his last man walks a Field
-// Officer onto one of six pads and picks again, so a company that opened with
-// three lots of riflemen finishes the night with flak and artillery because
-// that is what kept dying. Choosing under pressure, with what the wave just
-// did to you still on screen, is the whole game.
+// Each player owns a Muster Post and nothing else. Select it and the command
+// card offers six soldiers; command points are the entire budget, so what you
+// have is what you chose to spend them on — six riflemen, or two gunships, or
+// three siege guns behind a medic. Lose them and the points come back, so a
+// company that opened with rifles finishes the night with flak and artillery
+// because that is what kept dying. Choosing under pressure, with what the last
+// wave did to you still on screen, is the whole game.
 //
 // A squad is loose men, not a battalion. The rest of this game is built on
 // battalions — nine bound soldiers ordered as one shape, which is the right
-// object when you command an army. It is the wrong one when you command six
-// men: the whole point of a squad is pulling it apart, keeping the flak back
-// and the riflemen in front of the medic, and a ticket cannot be pulled apart.
-// So the pads hand out soldiers. The armies either side of you still muster in
-// battalions, which is also the difference between you and them.
+// object when you command an army and the wrong one when you command six men:
+// the whole point of a squad is pulling it apart. So the post trains soldiers,
+// one at a time. The armies either side of you still muster in battalions,
+// which is also the difference between you and them.
 //
 // It is a campaign up a valley, not a siege of one yard. Three enemy holds sit
 // at increasing depth behind cliff walls, each with its own keep and its own
@@ -48,24 +48,25 @@ const TEX_DIRT = 1
 const TEX_ROCK = 2
 const TEX_ASH = 7
 
-/**
- * Pad footprint, in cells. The region and the paint are both derived from this
- * so they cannot drift apart — a pad you can see but not trigger, or trigger
- * but not see, is the worst bug this map could have.
- */
-const PAD_W = 7
-const PAD_H = 5
-
 // ---- geography -------------------------------------------------------------
 // A valley running south to north. The company musters at the bottom, the
 // commander's keep sits behind it, and three enemy holds are stacked up the
 // corridor. Everything below is expressed against these.
 const MID_X = SIZE / 2
 const BASE_X = MID_X
-const BASE_Z = 168
-/** Where a squad-less player is put, and where the six pads stand. */
+const BASE_Z = 142
+/**
+ * The muster ground, and how far it sits from the keep.
+ *
+ * Both were further south and the two ran into each other: a Command Post
+ * brings a ring of build plots fifteen units wide, and the posts were inside
+ * it, so a player opened on a confused pile of buildings unable to tell which
+ * were his. There is a clear gap between them now, and enough ground south of
+ * the muster that the opening camera is looking at the map rather than at the
+ * void past its edge.
+ */
 const MUSTER_X = MID_X
-const MUSTER_Z = 182
+const MUSTER_Z = 166
 
 /**
  * The three enemy holds, near to far. Each is a keep with its own plot ring,
@@ -76,7 +77,7 @@ const MUSTER_Z = 182
  * comes OUT of the place you are going to have to take.
  */
 const HOLDS = [
-  { id: 'south', x: MID_X, z: 118, laneZ: 130, first: 30, every: 42 },
+  { id: 'south', x: MID_X, z: 104, laneZ: 118, first: 30, every: 42 },
   { id: 'east', x: MID_X + 44, z: 62, laneZ: 76, first: 150, every: 50 },
   { id: 'north', x: MID_X - 40, z: 26, laneZ: 40, first: 270, every: 58 },
 ]
@@ -115,66 +116,15 @@ const CMDR = 6
 /** The attacker. Its army is trigger-spawned, then its own AI throws it in. */
 const FOE = 7
 
-// ---- the six squads --------------------------------------------------------
 /**
- * What each pad hands out. `def` is a horde ticket, so a pick spawns a bound
- * battalion with a formation and a veterancy track rather than loose bodies.
+ * Where each squad player's Muster Post stands, left to right across the
+ * muster ground.
  *
- * The roster is deliberately holed. Flak cannot touch the ground and Strike
- * cannot touch the air, so two players who both grabbed the shiny thing will
- * watch the other half of the wave walk past them. That is the cooperation the
- * map is about, and it is enforced by what the units cannot do rather than by
- * a rule.
+ * Well south of the commander's keep and its ring of build plots. The first
+ * version put the pick area on top of the base, and the two read as one
+ * confused pile of buildings — you could not tell what was yours.
  */
-interface SquadKind {
-  id: string
-  name: string
-  /**
-   * The SOLDIER spawned, and how many of him — not a horde ticket.
-   *
-   * A battalion is the BFME unit of play: nine men bound together that move
-   * as one shape and are ordered as one thing. That is the wrong object for
-   * this map. A squad is something you pull apart — the flak stays back, two
-   * riflemen screen the medic — and a ticket cannot be pulled apart at all.
-   * So these are loose men, and `spawnUnits` spawns them individually because
-   * the def it is handed is a soldier rather than a ticket.
-   *
-   * The cost is veterancy: XP is credited to a horde, so loose men never rank
-   * up. Right for a force that is replaced wholesale every time it dies.
-   */
-  def: string
-  count: number
-  /** Pad position, laid out left to right across the muster. */
-  padX: number
-  /**
-   * The pad's own ground colour. Six identical white squares would mean
-   * guessing, and a squad you did not mean to draw is unrecoverable until it
-   * dies — so each one is a different palette index and the briefing reads the
-   * yard out left to right.
-   */
-  tex: number
-  blurb: string
-}
-
-const SQUAD_KINDS: SquadKind[] = [
-  { id: 'rifle', name: 'Rifles', def: 'trooper', count: 8, padX: MUSTER_X - 25, tex: 4, blurb: 'Rifles ×8 — reach both layers. Never wrong, never decisive.' },
-  { id: 'flak', name: 'Flak', def: 'lancer', count: 6, padX: MUSTER_X - 15, tex: 3, blurb: 'Flak ×6 — tear down anything airborne, helpless against boots.' },
-  { id: 'strike', name: 'Strike', def: 'skiff', count: 5, padX: MUSTER_X - 5, tex: 6, blurb: 'Strike ×5 — fast skiffs, murder on the ground, blind to the air.' },
-  { id: 'gunship', name: 'Gunship', def: 'gunship', count: 2, padX: MUSTER_X + 5, tex: 7, blurb: 'Gunships ×2 — hit everything, and there are only two.' },
-  { id: 'medic', name: 'Field Aid', def: 'medic', count: 4, padX: MUSTER_X + 15, tex: 5, blurb: 'Field Aid ×4 — keep the others standing. Cannot kill anything.' },
-  { id: 'siege', name: 'Siege', def: 'siege-gun', count: 3, padX: MUSTER_X + 25, tex: 2, blurb: 'Siege ×3 — lobbed shells, wide splash, useless up close or upward.' },
-]
-
-/** The pad's rect in world units. The single source both the paint and the
- *  trigger region are cut from. */
-function padBox(k: SquadKind): { x0: number; z0: number; x1: number; z1: number } {
-  return {
-    x0: k.padX - PAD_W / 2,
-    z0: MUSTER_Z - 6 - PAD_H / 2,
-    x1: k.padX + PAD_W / 2,
-    z1: MUSTER_Z - 6 + PAD_H / 2,
-  }
-}
+const POST_X = (slot: number): number => MUSTER_X - 33 + slot * 13
 
 // ---- map-local content -----------------------------------------------------
 /**
@@ -200,16 +150,87 @@ const SUPPORT_MODULE: RulesetModule = {
     },
   ],
   entities: [
+    /**
+     * Where a squad comes from.
+     *
+     * The first version made you walk an officer onto a coloured square on the
+     * ground. That was not a design choice, it was a limit of having built the
+     * whole map inside the trigger runtime, which has no way to draw a button.
+     * The engine has had one all along: select a building and the command card
+     * renders its trainable units with hotkeys, a queue, costs and cancel. So
+     * this is a building, and picking a squad is the same gesture as picking
+     * anything else in the game.
+     *
+     * `untargetable` because it is furniture, not a target — losing it would
+     * put a player out of the match with nothing they could have done about it,
+     * and there is no rebuilding it.
+     */
     {
-      // No weapon at all. A medic squad left alone dies without landing a
-      // blow, which is the point: it is a thing the others have to cover.
-      id: 'medic',
-      name: 'Medic',
-      kind: 'unit',
-      radius: 0.34,
-      hp: 95,
-      armorType: 'infantry',
-      xpValue: 10,
+      id: 'muster-post',
+      name: 'Muster Post',
+      kind: 'building',
+      radius: 2.2,
+      hp: 500,
+      untargetable: true,
+      armorType: 'structure',
+      visual: { model: 'gen:barrack-block', tint: 'owner' },
+      // Command points are the whole economy of a squad player: no resources,
+      // no buildings to raise, just how many bodies you may have at once and
+      // what you spend them on. Twelve buys six riflemen, or two gunships, or
+      // three siege guns and a medic.
+      supplyProvided: 12,
+      trainer: {
+        trains: ['sq-rifleman', 'sq-flak', 'sq-skiff', 'sq-gunship', 'sq-medic', 'sq-siege'],
+        queueSize: 4,
+      },
+    },
+
+    // ---- the six squad units -------------------------------------------
+    //
+    // Map-local rather than the Compact's own troopers and lancers, and
+    // deliberately so: supply here is charged PER BODY, and the faction charges
+    // it per battalion (the ticket carries the cost, its members are authored
+    // at zero — see supplyPower). Putting a supply cost on `trooper` would have
+    // billed the commander twice for every battalion it trained. These are the
+    // same soldiers priced for a different kind of player.
+    {
+      id: 'sq-rifleman', name: 'Rifleman', kind: 'unit', radius: 0.36, hp: 110,
+      armorType: 'infantry', xpValue: 8,
+      supplyCost: 2, buildTimeTicks: 60, cost: [],
+      visual: { model: 'gen:trooper', tint: 'owner' },
+      mover: { speed: 4.0 },
+      combat: { damage: 13, range: 8.5, acquire: 11, periodTicks: 12, damageType: 'arrow', hits: 'both' },
+    },
+    {
+      id: 'sq-flak', name: 'Flak Lancer', kind: 'unit', radius: 0.4, hp: 150,
+      armorType: 'infantry', xpValue: 14,
+      supplyCost: 3, buildTimeTicks: 75, cost: [],
+      visual: { model: 'gen:lancer-trooper', tint: 'owner' },
+      mover: { speed: 3.6 },
+      combat: { damage: 34, range: 12, acquire: 14, periodTicks: 20, damageType: 'kinetic', hits: 'air' },
+    },
+    {
+      id: 'sq-skiff', name: 'Skiff', kind: 'unit', radius: 0.5, hp: 130,
+      armorType: 'archer', xpValue: 16, flying: true,
+      supplyCost: 3, buildTimeTicks: 80, cost: [],
+      visual: { model: 'gen:skiff', tint: 'owner' },
+      mover: { speed: 6.6 },
+      combat: { damage: 16, range: 6.5, acquire: 9, periodTicks: 11, damageType: 'kinetic', hits: 'ground' },
+    },
+    {
+      id: 'sq-gunship', name: 'Gunship', kind: 'unit', radius: 0.7, hp: 340,
+      armorType: 'engine', xpValue: 38, flying: true,
+      supplyCost: 6, buildTimeTicks: 140, cost: [],
+      visual: { model: 'gen:gunship', scale: 1.15, tint: 'owner' },
+      mover: { speed: 4.6 },
+      combat: { damage: 30, range: 9, acquire: 12, periodTicks: 16, damageType: 'kinetic', hits: 'both' },
+    },
+    {
+      // No weapon at all. A medic left alone dies without landing a blow,
+      // which is the point: it is a thing the others have to cover.
+      id: 'sq-medic', name: 'Medic', kind: 'unit', radius: 0.34, hp: 95,
+      armorType: 'infantry', xpValue: 10,
+      supplyCost: 2, buildTimeTicks: 55, cost: [],
       visual: { model: 'gen:trooper', tint: 'owner' },
       mover: { speed: 4.2 },
       abilities: [{ ability: 'field-dressing', autocast: true }],
@@ -217,60 +238,17 @@ const SUPPORT_MODULE: RulesetModule = {
     {
       // Artillery: outranges everything on the field, cannot defend itself,
       // and cannot elevate. Park it behind the line or lose it.
-      id: 'siege-gun',
-      name: 'Siege Gun',
-      kind: 'unit',
-      radius: 0.62,
-      hp: 210,
-      armorType: 'engine',
-      xpValue: 30,
+      id: 'sq-siege', name: 'Siege Gun', kind: 'unit', radius: 0.62, hp: 210,
+      armorType: 'engine', xpValue: 30,
+      supplyCost: 4, buildTimeTicks: 110, cost: [],
       visual: { model: 'gen:lancer-trooper', scale: 1.2, tint: 'owner' },
       mover: { speed: 2.6 },
       combat: {
-        damage: 46,
-        range: 19,
-        acquire: 21,
-        periodTicks: 34,
-        damageType: 'siege',
-        hits: 'ground',
-        splashRadius: 3.2,
-        splashEdgePct: 45,
+        damage: 46, range: 19, acquire: 21, periodTicks: 34,
+        damageType: 'siege', hits: 'ground',
+        splashRadius: 3.2, splashEdgePct: 45,
         projectile: { speed: 13, splashRadius: 3.2, edgePct: 45 },
       },
-    },
-    {
-      // The thing a player actually respawns as. Cheap, quick, and armed just
-      // well enough to not be a liability while it walks to a pad.
-      id: 'field-officer',
-      name: 'Field Officer',
-      kind: 'unit',
-      radius: 0.36,
-      hp: 140,
-      armorType: 'infantry',
-      xpValue: 5,
-      visual: { model: 'gen:trooper', scale: 1.1, tint: 'owner' },
-      mover: { speed: 5.2 },
-      combat: { damage: 9, range: 7, acquire: 9, periodTicks: 14, damageType: 'arrow', hits: 'both' },
-    },
-    {
-      id: 'h-medics',
-      name: 'Field Aid',
-      kind: 'unit',
-      radius: 0.34,
-      hp: 0,
-      supplyCost: 6,
-      visual: { model: 'placeholder:capsule', tint: 'owner' },
-      horde: { unit: 'medic', count: 4, spacing: 1.3, formations: STANCES },
-    },
-    {
-      id: 'h-siege',
-      name: 'Siege Battery',
-      kind: 'unit',
-      radius: 0.62,
-      hp: 0,
-      supplyCost: 10,
-      visual: { model: 'placeholder:box', tint: 'owner' },
-      horde: { unit: 'siege-gun', count: 3, spacing: 2.2, formations: STANCES },
     },
   ],
 }
@@ -294,9 +272,6 @@ const SQUAD_DEF = composeDef({
 function rect(id: string, name: string, x: number, z: number, w: number, h: number): MapRegion {
   return { id, name, x0: x - w / 2, z0: z - h / 2, x1: x + w / 2, z1: z + h / 2 }
 }
-
-/** Trigger ids are referenced by `setTrigger`, so they are built one way only. */
-const padTrigId = (slot: number, kind: string): string => `pick-${slot}-${kind}`
 
 /**
  * Deterministic craggy variation. Integer hash, no RNG state — this file is
@@ -438,21 +413,6 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
     }
   }
 
-  // The pads themselves, painted from the same box the trigger region is cut
-  // from. Walking onto the colour IS the pick — there is nothing standing on
-  // a pad to bump into, because a marker you cannot walk through is a marker
-  // you cannot use.
-  for (const kind of SQUAD_KINDS) {
-    const b = padBox(kind)
-    for (let z = Math.floor(b.z0); z < Math.floor(b.z1); z++) {
-      for (let x = Math.floor(b.x0); x < Math.floor(b.x1); x++) {
-        if (x < 2 || z < 2 || x >= SIZE - 2 || z >= SIZE - 2) continue
-        texture[at(x, z)] = kind.tex
-        walkable[at(x, z)] = 1
-      }
-    }
-  }
-
   // ---- what stands on the ground at tick 0 ----
   // Keeps and neutral ground, nothing else. Both computers build their own out
   // from these, so the holds you march on are bases the enemy raised over the
@@ -460,6 +420,10 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
   const placed: PlacedEntity[] = [
     { def: 'command-post', owner: CMDR, x: BASE_X, z: BASE_Z, always: true },
     ...HOLDS.map((h) => ({ def: 'command-post', owner: FOE, x: h.x, z: h.z, always: true })),
+    // One post per squad seat. Not `always`: an unfilled seat should not get
+    // furniture, and spawnBuilding-at-setup already skips owners the match is
+    // not running.
+    ...SQUADS.map((slot) => ({ def: 'muster-post', owner: slot, x: POST_X(slot), z: MUSTER_Z })),
     // Neutral base ground. Nobody owns these — `plot.neutral` short-circuits
     // the owner check in freePlotAt, so the field is only a placement slot,
     // and plotClaimable is what actually decides: yes while somebody friendly
@@ -482,15 +446,7 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
   const regions: MapRegion[] = [
     rect('field', 'The whole map', SIZE / 2, SIZE / 2, SIZE, SIZE),
     rect('muster', 'Muster yard', MUSTER_X, MUSTER_Z, 26, 8),
-    // A wide apron in front of the pad row. Stepping into it is what prints
-    // the list of what is on offer — the pads are coloured, but a colour does
-    // not tell you it is a button.
-    rect('approach', 'The pad row', MUSTER_X, MUSTER_Z - 10, 74, 12),
     rect('core', 'Command Post', BASE_X, BASE_Z, 18, 18),
-    ...SQUAD_KINDS.map((k) => {
-      const b = padBox(k)
-      return { id: `pad-${k.id}`, name: `${k.name} pad`, ...b }
-    }),
     ...HOLDS.map((h) => rect(`hold-${h.id}`, `${h.id} hold`, h.x, h.z, 24, 24)),
     ...HOLDS.map((h) => rect(`lane-${h.id}`, `${h.id} lane`, h.x, h.laneZ, 20, 8)),
   ]
@@ -506,6 +462,7 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
     conditions: [],
     actions: [
       { type: 'message', text: 'The Command Post builds itself. You are the guns.', to: 'all' },
+      { type: 'message', text: 'Select your Muster Post and train a squad — command points are your only budget.', to: 'all' },
       { type: 'message', text: 'Three enemy holds up the valley. Put all three Command Posts down to win.', to: 'all' },
       ...SQUADS.map((slot) => ({
         type: 'modifyResource' as const,
@@ -515,65 +472,6 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
       })),
     ],
   })
-
-  // A player with nothing left gets an officer back, and the pads open to him
-  // again. Checked on a timer rather than on death, because "his last man" is
-  // a fact about the board, not about any one casualty — and at tick 0 it is
-  // already true, which is exactly how everyone gets their first pick.
-  for (const slot of SQUADS) {
-    triggers.push({
-      id: `respawn-${slot}`,
-      name: `Player ${slot} has nothing left`,
-      events: [{ type: 'timer', seconds: 2, periodic: true }],
-      conditions: [{ type: 'unitCountInRegion', region: 'field', owner: slot, op: '<=', count: 0 }],
-      actions: [
-        { type: 'spawnUnits', def: 'field-officer', owner: slot, count: 1, at: { region: 'muster' }, facing: { x: 0, z: -1 } },
-        { type: 'panCamera', player: slot, x: MUSTER_X, z: MUSTER_Z - 4 },
-        // Said EVERY time, not once at map init. A player wiped out twenty
-        // minutes in never saw the briefing — it scrolled away with the first
-        // wave — and "walk onto a pad" is not a thing anyone guesses.
-        { type: 'message', text: 'Squad lost. Walk your Field Officer NORTH onto a coloured pad to draw another.', to: slot },
-        ...SQUAD_KINDS.map((k) => ({ type: 'setTrigger' as const, trigger: padTrigId(slot, k.id), on: true })),
-      ],
-    })
-
-    // Standing in front of the row prints what is on it. The colours tell you
-    // the pads are different; only this tells you which is which, and it is
-    // said at the moment you are looking at them rather than at map init.
-    triggers.push({
-      id: `menu-${slot}`,
-      name: `Player ${slot} reads the pad row`,
-      events: [{ type: 'unitEntersRegion', region: 'approach', owner: slot }],
-      conditions: [],
-      actions: [
-        { type: 'message', text: `Pads, left to right — ${SQUAD_KINDS.map((k) => k.name).join(' · ')}. Step on one.`, to: slot },
-      ],
-    })
-  }
-
-  // One trigger per (pad, player). Six regions, thirty-six triggers — the
-  // runtime caps regions, not triggers, so this is the cheap way round.
-  //
-  // Each pick shuts ALL of that player's pads, including the one he just used.
-  // Without that he could stand on the pad and draw a fresh battalion every
-  // time he stepped off and back on, which is a base-builder's economy with
-  // none of the base.
-  for (const slot of SQUADS) {
-    for (const kind of SQUAD_KINDS) {
-      triggers.push({
-        id: padTrigId(slot, kind.id),
-        name: `Player ${slot} takes ${kind.name}`,
-        initiallyOn: false,
-        events: [{ type: 'unitEntersRegion', region: `pad-${kind.id}`, owner: slot }],
-        conditions: [],
-        actions: [
-          { type: 'spawnUnits', def: kind.def, owner: slot, count: kind.count, at: { region: 'muster' }, facing: { x: 0, z: -1 } },
-          { type: 'message', text: kind.blurb, to: slot },
-          ...SQUAD_KINDS.map((k) => ({ type: 'setTrigger' as const, trigger: padTrigId(slot, k.id), on: false })),
-        ],
-      })
-    }
-  }
 
   // Each hold runs its OWN wave schedule, and killing the hold switches that
   // schedule off. That is what makes taking one feel like progress: the map
@@ -689,12 +587,12 @@ export function generateSquadSupport(seed = 20260809): RtsMapDoc {
     // Eight seats: six squads, then the commander, then the thing outside.
     // Order matters — see the slot constants.
     startLocations: [
-      ...SQUAD_KINDS.map((k) => ({ x: k.padX, z: MUSTER_Z })),
+      ...SQUADS.map((slot) => ({ x: POST_X(slot), z: MUSTER_Z })),
       { x: BASE_X, z: BASE_Z - 8 },
       { x: HOLDS[0].x, z: HOLDS[0].z },
     ],
     startNames: [
-      ...SQUAD_KINDS.map((_, i) => `Squad ${i + 1}`),
+      ...SQUADS.map((_, i) => `Squad ${i + 1}`),
       'Commander (CPU)',
       'The attack (CPU)',
     ],
