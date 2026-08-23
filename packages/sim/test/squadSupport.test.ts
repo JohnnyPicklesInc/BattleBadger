@@ -4,7 +4,8 @@ import { generateSquadSupport } from '../src/mapgen/squadSupport.ts'
 import { walkGridFromDoc } from '../src/path/walkgrid.ts'
 import { setupMatch } from '../src/setup.ts'
 import { step } from '../src/step.ts'
-import { Kind, type SimState } from '../src/state.ts'
+import { Kind, handleOf, type SimState } from '../src/state.ts'
+import type { PlayerCommand } from '../src/commands.ts'
 import { validateGameDef } from '../src/defs/schema.ts'
 import { findPath } from '../src/path/astar.ts'
 
@@ -48,25 +49,6 @@ describe('the Squad Support rules', () => {
   it('describes a legal game', () => {
     const doc = generateSquadSupport()
     expect(validateGameDef(doc.gameDef!)).toEqual([])
-  })
-
-  it('paints every pad on the ground it triggers from', () => {
-    // A pad you can see but not trigger — or trigger but not see — is the
-    // worst failure this map has, and it is invisible to every other test.
-    const doc = generateSquadSupport()
-    const pads = doc.regions!.filter((r) => r.id.startsWith('pad-'))
-    expect(pads).toHaveLength(6)
-    const seen = new Set<number>()
-    for (const p of pads) {
-      const cx = Math.floor((p.x0 + p.x1) / 2)
-      const cz = Math.floor((p.z0 + p.z1) / 2)
-      const tex = doc.texture![cz * doc.cols + cx]
-      expect(tex, `${p.id} is not painted`).not.toBe(1) // not bare yard dirt
-      expect(seen.has(tex), `${p.id} shares a colour with another pad`).toBe(false)
-      seen.add(tex)
-      // And it must be walkable, or nobody can ever stand on it.
-      expect(doc.walkable![cz * doc.cols + cx], `${p.id} is not walkable`).toBe(1)
-    }
   })
 
   it('stays inside the trigger runtime’s region ceiling', () => {
@@ -114,101 +96,72 @@ describe('the Squad Support rules', () => {
 })
 
 describe('drawing a squad', () => {
-  it('gives every player an officer to choose with, unprompted', () => {
+  const postOf = (s: SimState, slot: number): number =>
+    owned(s, slot).find((i) => defName(s, i) === 'muster-post')!
+
+  const train = (s: SimState, grid: ReturnType<typeof walkGridFromDoc>, slot: number, def: string): void => {
+    step(s, grid, [
+      { kind: 'train', player: slot, units: [handleOf(s, postOf(s, slot))], x: 0, z: 0, def: s.def.entIndex.get(def)! },
+    ] as PlayerCommand[])
+  }
+
+  it('gives every squad seat a Muster Post and nothing else', () => {
     const { s, grid } = sim()
-    run(s, grid, 30) // the respawn check is on a 2s timer
+    run(s, grid, 5)
     for (const slot of [0, 1, 2, 3, 4, 5]) {
-      const mine = owned(s, slot)
-      expect(mine.map((i) => defName(s, i)), `player ${slot} was never given an officer`).toEqual(['field-officer'])
+      expect(owned(s, slot).map((i) => defName(s, i)), `seat ${slot}`).toEqual(['muster-post'])
     }
   })
 
-  it('leaves the officer standing where he was put', () => {
-    // A trigger-spawned unit is given no destination, and a unit that reads a
-    // stale one walks off to it — out of the muster yard, across the map, and
-    // into the wave. Worth its own test because every other test here either
-    // teleports him or only checks he exists.
+  it('is furniture, not a target — it cannot be shot out from under a player', () => {
     const { s, grid } = sim()
-    run(s, grid, 30)
-    const o = owned(s, 0)[0]
-    const x0 = s.posX[o]
-    const z0 = s.posZ[o]
-    run(s, grid, 400)
-    // A corpse does not move either, so prove he is still standing before
-    // reading anything into how little he travelled.
-    expect(s.alive[o], 'the officer died; the drift number means nothing').toBe(1)
-    expect(Math.hypot(s.posX[o] - x0, s.posZ[o] - z0), 'the officer wandered off on his own').toBeLessThan(6)
+    run(s, grid, 5)
+    expect(s.def.stats.untargetable[s.type[postOf(s, 0)]]).toBe(1)
   })
 
-  it('hands over a squad of INDIVIDUAL soldiers when the officer steps on a pad', () => {
+  it('trains individual soldiers from the command card', () => {
     const { s, grid } = sim()
-    run(s, grid, 30)
-    const officer = owned(s, 0)[0]
-    const doc = generateSquadSupport()
-    const pad = doc.regions!.find((r) => r.id === 'pad-flak')!
-    // Walk him on by hand: this is about the trigger, not about pathfinding.
-    s.posX[officer] = (pad.x0 + pad.x1) / 2
-    s.posZ[officer] = (pad.z0 + pad.z1) / 2
-    run(s, grid, 4)
-    const mine = owned(s, 0)
-    const kinds = mine.map((i) => defName(s, i))
-    expect(kinds.filter((k) => k === 'lancer').length, 'the flak squad').toBe(6)
-    // Loose men, not a battalion. This is the whole difference between a squad
-    // you can pull apart — flak back, riflemen screening the medic — and a
-    // ticket that moves as one shape and is ordered as one thing.
-    for (const i of mine) {
-      if (defName(s, i) !== 'lancer') continue
-      expect(s.hordeOf[i], 'a squad member was bound into a horde').toBe(-1)
+    run(s, grid, 5)
+    train(s, grid, 0, 'sq-rifleman')
+    run(s, grid, 20 * TPS)
+    const men = owned(s, 0).filter((i) => defName(s, i) === 'sq-rifleman')
+    expect(men.length, 'no rifleman arrived').toBeGreaterThan(0)
+    // Loose, not bound: the difference between a squad you pull apart and a
+    // battalion that moves as one shape.
+    for (const i of men) expect(s.hordeOf[i], 'a squad member was bound into a horde').toBe(-1)
+  })
+
+  it('lets a player choose the composition, and stops at the command points', () => {
+    const { s, grid } = sim()
+    run(s, grid, 5)
+    const cap = s.supplyCap[0]
+    expect(cap, 'a squad seat has no command points to spend').toBeGreaterThan(0)
+    // Queue far more than the budget allows; supplyRoom must refuse the excess.
+    for (let k = 0; k < 20; k++) {
+      train(s, grid, 0, 'sq-rifleman')
+      run(s, grid, 12 * TPS)
     }
+    const used = s.supplyUsed[0]
+    expect(used, 'trained past the command point cap').toBeLessThanOrEqual(cap)
+    expect(used, 'trained nothing at all').toBeGreaterThan(0)
   })
 
-  it('refuses a second squad from the same pad', () => {
+  it('gives the points back when the squad dies, so you can pick again', () => {
     const { s, grid } = sim()
-    run(s, grid, 30)
-    const officer = owned(s, 0)[0]
-    const doc = generateSquadSupport()
-    const pad = doc.regions!.find((r) => r.id === 'pad-rifle')!
-    const px = (pad.x0 + pad.x1) / 2
-    const pz = (pad.z0 + pad.z1) / 2
-    s.posX[officer] = px
-    s.posZ[officer] = pz
-    run(s, grid, 4)
-    const afterFirst = owned(s, 0).length
-    // Step off and back on — the obvious way to farm a free army.
-    s.posX[officer] = px
-    s.posZ[officer] = pz - 20
-    run(s, grid, 4)
-    s.posX[officer] = px
-    s.posZ[officer] = pz
-    run(s, grid, 4)
-    expect(owned(s, 0).length, 'the pad paid out twice').toBe(afterFirst)
-  })
-
-  it('lets a wiped player pick again, and pick differently', () => {
-    const { s, grid } = sim()
-    run(s, grid, 30)
-    const doc = generateSquadSupport()
-    const officer = owned(s, 0)[0]
-    const rifle = doc.regions!.find((r) => r.id === 'pad-rifle')!
-    s.posX[officer] = (rifle.x0 + rifle.x1) / 2
-    s.posZ[officer] = (rifle.z0 + rifle.z1) / 2
-    run(s, grid, 4)
-    expect(owned(s, 0).map((i) => defName(s, i))).toContain('trooper')
-
-    // Wipe him out.
-    for (const i of owned(s, 0)) s.hp[i] = 0
-    run(s, grid, 30)
-    const again = owned(s, 0)
-    expect(again.map((i) => defName(s, i)), 'no officer after the wipe').toEqual(['field-officer'])
-
-    // A different pad this time — the whole point of re-picking.
-    const siege = doc.regions!.find((r) => r.id === 'pad-siege')!
-    s.posX[again[0]] = (siege.x0 + siege.x1) / 2
-    s.posZ[again[0]] = (siege.z0 + siege.z1) / 2
-    run(s, grid, 4)
-    const kinds = owned(s, 0).map((i) => defName(s, i))
-    expect(kinds).toContain('siege-gun')
-    expect(kinds, 'the old squad came back too').not.toContain('trooper')
+    run(s, grid, 5)
+    train(s, grid, 0, 'sq-gunship')
+    run(s, grid, 30 * TPS)
+    const gunships = owned(s, 0).filter((i) => defName(s, i) === 'sq-gunship')
+    expect(gunships.length, 'no gunship arrived').toBeGreaterThan(0)
+    const spent = s.supplyUsed[0]
+    expect(spent).toBeGreaterThan(0)
+    for (const i of gunships) s.hp[i] = 0
+    run(s, grid, 3 * TPS)
+    expect(s.supplyUsed[0], 'the points did not come back').toBeLessThan(spent)
+    // And a different kind this time — the whole point of re-picking.
+    train(s, grid, 0, 'sq-siege')
+    run(s, grid, 25 * TPS)
+    expect(owned(s, 0).map((i) => defName(s, i))).toContain('sq-siege')
   })
 })
 
